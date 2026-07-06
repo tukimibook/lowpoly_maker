@@ -68,15 +68,19 @@ class CanvasNotifier extends StateNotifier<Artwork> {
   ///   its first draft vertex) — only when that draft was started from an
   ///   empty tap, not from an existing vertex (see
   ///   [Artwork.draftStartedFromExistingVertex]),
-  /// - snaps onto an existing polygon's vertex and, if that completes at
-  ///   least [kMinPolygonVertices] points, immediately closes the polygon
-  ///   there (tap near an existing vertex while a draft is already in
-  ///   progress),
-  /// - starts a brand new polygon whose first point *is* (shares the ID of)
-  ///   an existing polygon's vertex, without altering that polygon in any
-  ///   way (tap near an existing vertex while there is no draft in
-  ///   progress), or
+  /// - snaps onto an existing polygon's vertex (tap near an existing vertex,
+  ///   with or without a draft already in progress) — this *only* makes the
+  ///   new point share that exact vertex ID; it never closes the polygon by
+  ///   itself, no matter how many points that completes, or
   /// - appends a brand new draft vertex at the tapped position.
+  ///
+  /// Sharing a corner (a vertex ID) and finishing a shape (closing it into a
+  /// filled polygon) are deliberately two separate concerns: tying two
+  /// shapes together at a point must never, by itself, decide that the
+  /// shape being drawn is now finished. Closing only ever happens
+  /// explicitly, either via the toolbar's "close" button or the "tap near
+  /// own start" shortcut above, once the artist has placed every point they
+  /// want.
   ///
   /// In every case where an existing vertex is involved, the new draft
   /// reuses that vertex's ID directly rather than creating a new point at a
@@ -104,7 +108,7 @@ class CanvasNotifier extends StateNotifier<Artwork> {
         startDraftFromExistingVertex(hit.vertexId);
         return hit.polygon.fillColor;
       }
-      snapDraftEndToExistingVertex(hit.vertexId, fillColor);
+      snapDraftEndToExistingVertex(hit.vertexId);
       return null;
     }
 
@@ -156,9 +160,12 @@ class CanvasNotifier extends StateNotifier<Artwork> {
   /// belongs to is left completely untouched — this only seeds a new,
   /// independent shape that happens to share a corner with it.
   ///
-  /// Marks the draft as [Artwork.draftStartedFromExistingVertex] so it can
-  /// only be closed by docking onto another existing vertex, not by
-  /// wandering back near its own start point.
+  /// Marks the draft as [Artwork.draftStartedFromExistingVertex] so the "tap
+  /// near own start" auto-close shortcut is disabled for it — its own start
+  /// point is a real, shared vertex that may need to be walked past on the
+  /// way to wherever this shape actually finishes, so wandering back near
+  /// it must not accidentally close the shape early (it must be closed
+  /// explicitly instead; see [handleDrawTap]).
   void startDraftFromExistingVertex(String existingVertexId) {
     state = state.copyWith(
       draftVertexIds: [existingVertexId],
@@ -168,18 +175,17 @@ class CanvasNotifier extends StateNotifier<Artwork> {
 
   /// Appends [existingVertexId] to the end of the in-progress draft,
   /// merging the end of the new line onto that exact vertex (the very same
-  /// point, not a copy at a matching coordinate). If this completes at
-  /// least [kMinPolygonVertices] points, the shape is closed into a polygon
-  /// immediately using [fillColor]; otherwise the point is simply added and
-  /// drawing continues. The polygon [existingVertexId] already belongs to
-  /// is left completely untouched.
-  void snapDraftEndToExistingVertex(String existingVertexId, Color fillColor) {
-    final updatedDraft = [...state.draftVertexIds, existingVertexId];
-    state = state.copyWith(draftVertexIds: updatedDraft);
-
-    if (updatedDraft.length >= kMinPolygonVertices) {
-      closePolygon(fillColor);
-    }
+  /// point, not a copy at a matching coordinate). The polygon
+  /// [existingVertexId] already belongs to is left completely untouched.
+  ///
+  /// This purely shares a corner — it never closes the shape by itself.
+  /// Sharing a vertex and finishing a shape are independent decisions; a
+  /// polygon that starts on one shape and needs to touch several other
+  /// shapes' corners along the way must be free to keep going after each
+  /// snap instead of being forced shut the moment it reaches
+  /// [kMinPolygonVertices] points. See [handleDrawTap] and [closePolygon].
+  void snapDraftEndToExistingVertex(String existingVertexId) {
+    state = state.copyWith(draftVertexIds: [...state.draftVertexIds, existingVertexId]);
   }
 
   /// Creates a brand new [Vertex] at [position], adds it to the shared pool,

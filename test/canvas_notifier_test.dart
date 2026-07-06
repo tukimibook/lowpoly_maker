@@ -97,7 +97,7 @@ void main() {
     });
 
     test(
-      'tapping an existing vertex to finish the shape snaps onto it exactly and closes it, leaving both polygons intact',
+      'snapping onto an existing vertex never closes the shape by itself, no matter how many points',
       () {
         final notifier = CanvasNotifier();
         // Polygon A (the "start" corner).
@@ -119,9 +119,20 @@ void main() {
         // Start a brand new draft from polygon A's vertex...
         notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.orange);
         notifier.handleDrawTap(const Offset(200, 200), fillColor: Colors.orange);
-        // ...and finish it by tapping polygon B's vertex: this should snap
-        // onto it and auto-close since it completes 3 points.
+        // ...and dock its end onto polygon B's vertex. This completes 3
+        // points, but snapping alone must NOT close the shape — the artist
+        // may still want to keep tracing further existing corners before
+        // deciding the shape is done.
         notifier.handleDrawTap(const Offset(300, 0), fillColor: Colors.orange);
+
+        expect(notifier.state.polygons, hasLength(2));
+        expect(notifier.state.draftVertexIds, hasLength(3));
+        expect(notifier.state.draftVertexIds.first, startVertexId);
+        expect(notifier.state.draftVertexIds.last, endVertexId);
+
+        // Closing is an explicit, separate step (the toolbar's "close"
+        // button, wired directly to closePolygon).
+        notifier.closePolygon(Colors.orange);
 
         expect(notifier.state.draftVertexIds, isEmpty);
         expect(notifier.state.polygons, hasLength(3));
@@ -143,28 +154,32 @@ void main() {
     );
 
     test(
-      'snapping onto an existing vertex does not close the shape early if too few points',
+      'a shape can dock onto several existing vertices in a row before being closed explicitly',
       () {
         final notifier = CanvasNotifier();
         notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.green);
         notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.green);
-        notifier.handleDrawTap(const Offset(50, 100), fillColor: Colors.green);
+        notifier.handleDrawTap(const Offset(100, 100), fillColor: Colors.green);
+        notifier.handleDrawTap(const Offset(0, 100), fillColor: Colors.green);
         notifier.closePolygon(Colors.green);
+        final aTopRight = notifier.state.polygons.single.vertexIds[1]; // (100, 0)
+        final aBottomRight = notifier.state.polygons.single.vertexIds[2]; // (100, 100)
 
-        notifier.handleDrawTap(const Offset(300, 0), fillColor: Colors.purple);
-        notifier.handleDrawTap(const Offset(400, 0), fillColor: Colors.purple);
-        notifier.handleDrawTap(const Offset(350, 100), fillColor: Colors.purple);
+        // A new shape docks onto two of polygon A's vertices in a row —
+        // this must not close after the first snap just because it reached
+        // 3 points; it should only close once explicitly told to.
+        notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.purple);
+        notifier.handleDrawTap(const Offset(200, 50), fillColor: Colors.purple);
+        notifier.handleDrawTap(const Offset(100, 100), fillColor: Colors.purple);
+
+        expect(notifier.state.polygons, hasLength(1));
+        expect(notifier.state.draftVertexIds, [aTopRight, notifier.state.draftVertexIds[1], aBottomRight]);
+
         notifier.closePolygon(Colors.purple);
-        final endVertexId = notifier.state.polygons[1].vertexIds[0]; // (300, 0)
-
-        // Start from polygon A's vertex, then immediately snap onto polygon
-        // B's vertex: only 2 points total, not enough to close.
-        notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.orange);
-        notifier.handleDrawTap(const Offset(300, 0), fillColor: Colors.orange);
 
         expect(notifier.state.polygons, hasLength(2));
-        expect(notifier.state.draftVertexIds, hasLength(2));
-        expect(notifier.state.draftVertexIds.last, endVertexId);
+        expect(notifier.state.polygons.last.vertexIds.first, aTopRight);
+        expect(notifier.state.polygons.last.vertexIds.last, aBottomRight);
       },
     );
 

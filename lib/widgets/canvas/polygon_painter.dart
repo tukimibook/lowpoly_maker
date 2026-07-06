@@ -68,8 +68,9 @@ class PolygonPainter extends CustomPainter {
   /// Small markers hinting what tapping a confirmed polygon's vertex will
   /// do:
   /// - eraser mode: delete just that point (red),
-  /// - draw mode with a draft in progress: snap the in-progress line's end
-  ///   onto that point and close the shape there (teal),
+  /// - draw mode with a draft in progress: snap the in-progress line's next
+  ///   point onto that exact vertex, sharing the corner with no gap — this
+  ///   never closes the shape by itself (teal),
   /// - draw mode with no draft: start a brand new polygon from that point
   ///   (black).
   void _paintVertexHints(
@@ -114,8 +115,9 @@ class PolygonPainter extends CustomPainter {
 
     // Only hint at the "tap near start to close" shortcut when it's actually
     // active; it's disabled while the draft was started from an existing
-    // vertex (it can only be closed by docking onto another existing vertex
-    // instead — see the teal vertex hints).
+    // vertex, since that start point is a real, shared vertex that may need
+    // to be walked past on the way to wherever this shape actually finishes
+    // (it must be closed explicitly via the toolbar's close button instead).
     if (positions.length >= kMinPolygonVertices && !artwork.draftStartedFromExistingVertex) {
       final hintPaint = Paint()
         ..color = Colors.black.withAlpha(60)
