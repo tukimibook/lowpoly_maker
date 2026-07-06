@@ -1,35 +1,24 @@
-import 'dart:ui';
+import 'package:flutter/painting.dart' show Color;
+import 'package:freezed_annotation/freezed_annotation.dart';
 
-import 'vertex.dart';
+part 'polygon_shape.freezed.dart';
 
-/// A closed polygon made of 3 or more [Vertex]es.
-class PolygonShape {
-  const PolygonShape({
-    required this.id,
-    required this.vertices,
-    required this.fillColor,
-    required this.strokeColor,
-    required this.strokeWidth,
-  }) : assert(vertices.length >= 3, 'A polygon needs at least 3 vertices');
-
-  final String id;
-  final List<Vertex> vertices;
-  final Color fillColor;
-  final Color strokeColor;
-  final double strokeWidth;
-
-  PolygonShape copyWith({
-    List<Vertex>? vertices,
-    Color? fillColor,
-    Color? strokeColor,
-    double? strokeWidth,
-  }) {
-    return PolygonShape(
-      id: id,
-      vertices: vertices ?? this.vertices,
-      fillColor: fillColor ?? this.fillColor,
-      strokeColor: strokeColor ?? this.strokeColor,
-      strokeWidth: strokeWidth ?? this.strokeWidth,
-    );
-  }
+/// A closed polygon defined by an ordered list of vertex IDs.
+///
+/// Rather than embedding [Vertex] objects directly, [PolygonShape] only
+/// stores references (`vertexIds`) into the shared vertex pool at
+/// `Artwork.vertices`. Any two polygons that list the same ID share that
+/// exact corner. It is the caller's responsibility (see
+/// `CanvasNotifier.closePolygon`) to only ever construct a [PolygonShape]
+/// once it has at least 3 vertex IDs — a polygon can't be a real shape with
+/// fewer than that.
+@freezed
+abstract class PolygonShape with _$PolygonShape {
+  const factory PolygonShape({
+    required String id,
+    required List<String> vertexIds,
+    required Color fillColor,
+    required Color strokeColor,
+    required double strokeWidth,
+  }) = _PolygonShape;
 }

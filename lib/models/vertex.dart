@@ -1,15 +1,18 @@
 import 'dart:ui';
 
-/// A single control point of a polygon, stored in world coordinates
-/// (i.e. independent of the current canvas zoom/pan, which is introduced
-/// in a later phase).
-class Vertex {
-  const Vertex({required this.id, required this.position});
+import 'package:freezed_annotation/freezed_annotation.dart';
 
-  final String id;
-  final Offset position;
+part 'vertex.freezed.dart';
 
-  Vertex copyWith({Offset? position}) {
-    return Vertex(id: id, position: position ?? this.position);
-  }
+/// A single point stored in [Artwork.vertices], the shared vertex pool.
+///
+/// Multiple polygons can reference the very same [Vertex.id] (via their
+/// `vertexIds`) to indicate they share that exact corner. This is what lets
+/// adjacent shapes tile together with no gap: a shared corner is one single
+/// point in memory, not merely several different points that happen to sit
+/// at the same coordinate. Moving or deleting it (see later phases) then
+/// affects every polygon that references it, together, automatically.
+@freezed
+abstract class Vertex with _$Vertex {
+  const factory Vertex({required String id, required Offset position}) = _Vertex;
 }

@@ -72,8 +72,8 @@ class _DrawModeControls extends ConsumerWidget {
     final notifier = ref.read(canvasProvider.notifier);
     final selectedColor = ref.watch(selectedFillColorProvider);
 
-    final canUndo = artwork.draftVertices.isNotEmpty;
-    final canClose = artwork.draftVertices.length >= kMinPolygonVertices;
+    final canUndo = artwork.draftVertexIds.isNotEmpty;
+    final canClose = artwork.draftVertexIds.length >= kMinPolygonVertices;
 
     return Column(
       mainAxisSize: MainAxisSize.min,

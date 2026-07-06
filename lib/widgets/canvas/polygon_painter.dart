@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../../models/artwork.dart';
 import '../../models/canvas_mode.dart';
 import '../../models/polygon_shape.dart';
-import '../../models/vertex.dart';
 import '../../providers/canvas_provider.dart';
 
 /// Paints all confirmed polygons plus the in-progress draft (points and
@@ -32,18 +31,24 @@ class PolygonPainter extends CustomPainter {
 
     // Vertex hints stay visible even while a draft is in progress, so users
     // can see exactly where the in-progress line can snap onto and close.
-    _paintVertexHints(canvas, artwork.polygons, hasDraft: artwork.draftVertices.isNotEmpty);
+    _paintVertexHints(canvas, artwork.polygons, hasDraft: artwork.draftVertexIds.isNotEmpty);
 
-    _paintDraft(canvas, artwork.draftVertices);
+    _paintDraft(canvas, artwork.draftVertexIds);
+  }
+
+  /// Resolves a polygon's or the draft's vertex IDs into actual on-screen
+  /// positions via the shared vertex pool ([Artwork.vertices]).
+  List<Offset> _resolvePositions(List<String> vertexIds) {
+    return [for (final id in vertexIds) artwork.vertices[id]!.position];
   }
 
   void _paintPolygon(Canvas canvas, PolygonShape polygon) {
-    if (polygon.vertices.length < 3) return;
+    if (polygon.vertexIds.length < 3) return;
+    final positions = _resolvePositions(polygon.vertexIds);
 
-    final path = Path()
-      ..moveTo(polygon.vertices.first.position.dx, polygon.vertices.first.position.dy);
-    for (final vertex in polygon.vertices.skip(1)) {
-      path.lineTo(vertex.position.dx, vertex.position.dy);
+    final path = Path()..moveTo(positions.first.dx, positions.first.dy);
+    for (final position in positions.skip(1)) {
+      path.lineTo(position.dx, position.dy);
     }
     path.close();
 
@@ -88,34 +93,35 @@ class PolygonPainter extends CustomPainter {
     final radius = isEmphasized ? _continuationHandleRadius + 1 : _continuationHandleRadius;
 
     for (final polygon in polygons) {
-      for (final vertex in polygon.vertices) {
-        canvas.drawCircle(vertex.position, radius, handlePaint);
+      for (final position in _resolvePositions(polygon.vertexIds)) {
+        canvas.drawCircle(position, radius, handlePaint);
       }
     }
   }
 
-  void _paintDraft(Canvas canvas, List<Vertex> draft) {
-    if (draft.isEmpty) return;
+  void _paintDraft(Canvas canvas, List<String> draftVertexIds) {
+    if (draftVertexIds.isEmpty) return;
+    final positions = _resolvePositions(draftVertexIds);
 
     final linePaint = Paint()
       ..color = Colors.black87
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2;
 
-    for (var i = 0; i < draft.length - 1; i++) {
-      canvas.drawLine(draft[i].position, draft[i + 1].position, linePaint);
+    for (var i = 0; i < positions.length - 1; i++) {
+      canvas.drawLine(positions[i], positions[i + 1], linePaint);
     }
 
     // Only hint at the "tap near start to close" shortcut when it's actually
     // active; it's disabled while the draft was started from an existing
     // vertex (it can only be closed by docking onto another existing vertex
     // instead — see the teal vertex hints).
-    if (draft.length >= kMinPolygonVertices && !artwork.draftStartedFromExistingVertex) {
+    if (positions.length >= kMinPolygonVertices && !artwork.draftStartedFromExistingVertex) {
       final hintPaint = Paint()
         ..color = Colors.black.withAlpha(60)
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.5;
-      canvas.drawCircle(draft.first.position, kClosePolygonThreshold, hintPaint);
+      canvas.drawCircle(positions.first, kClosePolygonThreshold, hintPaint);
     }
 
     final dotPaint = Paint()
@@ -126,9 +132,9 @@ class PolygonPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.5;
 
-    for (final vertex in draft) {
-      canvas.drawCircle(vertex.position, _vertexRadius, dotPaint);
-      canvas.drawCircle(vertex.position, _vertexRadius, dotBorderPaint);
+    for (final position in positions) {
+      canvas.drawCircle(position, _vertexRadius, dotPaint);
+      canvas.drawCircle(position, _vertexRadius, dotBorderPaint);
     }
   }
 

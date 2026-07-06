@@ -48,7 +48,7 @@ final canvasModeProvider = StateProvider<CanvasMode>((ref) {
 
 /// Identifies a specific vertex of a confirmed polygon, as returned by a
 /// hit-test against the current artwork.
-typedef PolygonVertexHit = ({PolygonShape polygon, int vertexIndex});
+typedef PolygonVertexHit = ({PolygonShape polygon, String vertexId});
 
 class CanvasNotifier extends StateNotifier<Artwork> {
   CanvasNotifier() : super(Artwork.empty(id: _uuid.v4()));
@@ -72,23 +72,26 @@ class CanvasNotifier extends StateNotifier<Artwork> {
   ///   least [kMinPolygonVertices] points, immediately closes the polygon
   ///   there (tap near an existing vertex while a draft is already in
   ///   progress),
-  /// - starts a brand new polygon whose first point coincides with an
-  ///   existing polygon's vertex, without altering that polygon in any way
-  ///   (tap near an existing vertex while there is no draft in progress), or
-  /// - appends a new draft vertex at the tapped position.
+  /// - starts a brand new polygon whose first point *is* (shares the ID of)
+  ///   an existing polygon's vertex, without altering that polygon in any
+  ///   way (tap near an existing vertex while there is no draft in
+  ///   progress), or
+  /// - appends a brand new draft vertex at the tapped position.
   ///
-  /// In every case where an existing vertex is involved, that vertex's
-  /// polygon is left completely untouched — only the new draft is snapped to
-  /// its position. Returns the fill color of the polygon a new draft was
-  /// started from, so the caller can sync the color picker to match it, or
-  /// null otherwise.
+  /// In every case where an existing vertex is involved, the new draft
+  /// reuses that vertex's ID directly rather than creating a new point at a
+  /// matching coordinate — see [findPolygonVertexNear] — so the shapes
+  /// truly share that corner in the data model, not just visually. Returns
+  /// the fill color of the polygon a new draft was started from, so the
+  /// caller can sync the color picker to match it, or null otherwise.
   Color? handleDrawTap(Offset position, {required Color fillColor}) {
-    final draft = state.draftVertices;
+    final draftIds = state.draftVertexIds;
 
     final canAutoCloseToOwnStart =
-        draft.length >= kMinPolygonVertices && !state.draftStartedFromExistingVertex;
+        draftIds.length >= kMinPolygonVertices && !state.draftStartedFromExistingVertex;
     if (canAutoCloseToOwnStart) {
-      final distanceToFirst = (draft.first.position - position).distance;
+      final firstVertex = state.vertices[draftIds.first]!;
+      final distanceToFirst = (firstVertex.position - position).distance;
       if (distanceToFirst <= kClosePolygonThreshold) {
         closePolygon(fillColor);
         return null;
@@ -97,22 +100,15 @@ class CanvasNotifier extends StateNotifier<Artwork> {
 
     final hit = findPolygonVertexNear(position);
     if (hit != null) {
-      final existingVertex = hit.polygon.vertices[hit.vertexIndex];
-      if (draft.isEmpty) {
-        startDraftFromExistingVertex(existingVertex);
+      if (draftIds.isEmpty) {
+        startDraftFromExistingVertex(hit.vertexId);
         return hit.polygon.fillColor;
       }
-      snapDraftEndToExistingVertex(existingVertex, fillColor);
+      snapDraftEndToExistingVertex(hit.vertexId, fillColor);
       return null;
     }
 
-    final vertex = Vertex(id: _uuid.v4(), position: position);
-    state = state.copyWith(
-      draftVertices: [...draft, vertex],
-      // A plain tap that starts a fresh draft is never "from an existing
-      // vertex"; otherwise keep whatever the draft already had.
-      draftStartedFromExistingVertex: draft.isEmpty ? false : state.draftStartedFromExistingVertex,
-    );
+    _appendFreehandDraftVertex(position);
     return null;
   }
 
@@ -122,127 +118,196 @@ class CanvasNotifier extends StateNotifier<Artwork> {
   void handleEraseTap(Offset position) {
     final hit = findPolygonVertexNear(position);
     if (hit == null) return;
-    deletePolygonVertex(hit.polygon, hit.vertexIndex);
+    deletePolygonVertex(hit.polygon, hit.vertexId);
   }
 
-  /// Finds the nearest vertex among all confirmed polygons within
+  /// Finds the nearest vertex belonging to any *confirmed* polygon within
   /// [kVertexHitRadius] of [position], if any.
+  ///
+  /// Only [Artwork.polygons] are ever searched here — the polygon currently
+  /// being drawn (`Artwork.draftVertexIds`) is never a candidate, even
+  /// though its vertices also live in the same shared [Artwork.vertices]
+  /// pool. This guarantees the shape in progress can never snap onto (or
+  /// close against) one of its own, not-yet-confirmed points.
   PolygonVertexHit? findPolygonVertexNear(Offset position) {
     PolygonShape? closestPolygon;
-    var closestIndex = -1;
+    String? closestVertexId;
     var closestDistance = kVertexHitRadius;
 
     for (final polygon in state.polygons) {
-      for (var i = 0; i < polygon.vertices.length; i++) {
-        final distance = (polygon.vertices[i].position - position).distance;
+      for (final vertexId in polygon.vertexIds) {
+        final vertex = state.vertices[vertexId];
+        if (vertex == null) continue;
+        final distance = (vertex.position - position).distance;
         if (distance <= closestDistance) {
           closestDistance = distance;
           closestPolygon = polygon;
-          closestIndex = i;
+          closestVertexId = vertexId;
         }
       }
     }
 
-    if (closestPolygon == null) return null;
-    return (polygon: closestPolygon, vertexIndex: closestIndex);
+    if (closestPolygon == null || closestVertexId == null) return null;
+    return (polygon: closestPolygon, vertexId: closestVertexId);
   }
 
-  /// Starts a brand new draft polygon whose first point sits at the same
-  /// position as [existingVertex]. The polygon [existingVertex] belongs to
-  /// is left completely untouched — this only seeds a new, independent
-  /// shape that happens to share a corner with it.
+  /// Starts a brand new draft polygon whose first point *is*
+  /// [existingVertexId] (the very same vertex, not a copy). The polygon it
+  /// belongs to is left completely untouched — this only seeds a new,
+  /// independent shape that happens to share a corner with it.
   ///
   /// Marks the draft as [Artwork.draftStartedFromExistingVertex] so it can
   /// only be closed by docking onto another existing vertex, not by
   /// wandering back near its own start point.
-  void startDraftFromExistingVertex(Vertex existingVertex) {
-    final startVertex = Vertex(id: _uuid.v4(), position: existingVertex.position);
+  void startDraftFromExistingVertex(String existingVertexId) {
     state = state.copyWith(
-      draftVertices: [startVertex],
+      draftVertexIds: [existingVertexId],
       draftStartedFromExistingVertex: true,
     );
   }
 
-  /// Appends a new draft vertex snapped to [existingVertex]'s position,
-  /// merging the end of the in-progress line onto that point. If this
-  /// completes at least [kMinPolygonVertices] points, the shape is closed
-  /// into a polygon immediately using [fillColor]; otherwise the snapped
-  /// point is simply added and drawing continues. The polygon that
-  /// [existingVertex] belongs to is left completely untouched.
-  void snapDraftEndToExistingVertex(Vertex existingVertex, Color fillColor) {
-    final snappedVertex = Vertex(id: _uuid.v4(), position: existingVertex.position);
-    final updatedDraft = [...state.draftVertices, snappedVertex];
-    state = state.copyWith(draftVertices: updatedDraft);
+  /// Appends [existingVertexId] to the end of the in-progress draft,
+  /// merging the end of the new line onto that exact vertex (the very same
+  /// point, not a copy at a matching coordinate). If this completes at
+  /// least [kMinPolygonVertices] points, the shape is closed into a polygon
+  /// immediately using [fillColor]; otherwise the point is simply added and
+  /// drawing continues. The polygon [existingVertexId] already belongs to
+  /// is left completely untouched.
+  void snapDraftEndToExistingVertex(String existingVertexId, Color fillColor) {
+    final updatedDraft = [...state.draftVertexIds, existingVertexId];
+    state = state.copyWith(draftVertexIds: updatedDraft);
 
     if (updatedDraft.length >= kMinPolygonVertices) {
       closePolygon(fillColor);
     }
   }
 
-  /// Deletes a single vertex (at [vertexIndex]) from [polygon]. If the
-  /// polygon still has at least [kMinPolygonVertices] points afterwards, it
-  /// remains a polygon with the point removed. Otherwise there aren't enough
-  /// points left to form a shape, so it is dissolved and any remaining
-  /// points are handed back to the draft so they are not lost.
-  void deletePolygonVertex(PolygonShape polygon, int vertexIndex) {
-    final updatedVertices = List<Vertex>.of(polygon.vertices)..removeAt(vertexIndex);
+  /// Creates a brand new [Vertex] at [position], adds it to the shared pool,
+  /// and appends its ID to the in-progress draft.
+  void _appendFreehandDraftVertex(Offset position) {
+    final vertex = Vertex(id: _uuid.v4(), position: position);
+    final draftIds = state.draftVertexIds;
+    state = state.copyWith(
+      vertices: {...state.vertices, vertex.id: vertex},
+      draftVertexIds: [...draftIds, vertex.id],
+      // A plain tap that starts a fresh draft is never "from an existing
+      // vertex"; otherwise keep whatever the draft already had.
+      draftStartedFromExistingVertex: draftIds.isEmpty ? false : state.draftStartedFromExistingVertex,
+    );
+  }
 
-    if (updatedVertices.length >= kMinPolygonVertices) {
+  /// Deletes [vertexId] from [polygon]. If the polygon still has at least
+  /// [kMinPolygonVertices] points afterwards, it remains a polygon with the
+  /// point removed. Otherwise there aren't enough points left to form a
+  /// shape, so it is dissolved and any remaining points are handed back to
+  /// the draft so they are not lost. Either way, [vertexId] itself is
+  /// pruned from the shared vertex pool once nothing references it anymore.
+  void deletePolygonVertex(PolygonShape polygon, String vertexId) {
+    final updatedVertexIds = polygon.vertexIds.where((id) => id != vertexId).toList();
+
+    if (updatedVertexIds.length >= kMinPolygonVertices) {
       final updatedPolygons = [
         for (final p in state.polygons)
-          if (p.id == polygon.id) p.copyWith(vertices: updatedVertices) else p,
+          if (p.id == polygon.id) p.copyWith(vertexIds: updatedVertexIds) else p,
       ];
-      state = state.copyWith(polygons: updatedPolygons);
+      state = state.copyWith(
+        polygons: updatedPolygons,
+        vertices: _prune(
+          state.vertices,
+          vertexId,
+          polygons: updatedPolygons,
+          draftVertexIds: state.draftVertexIds,
+        ),
+      );
     } else {
       final remainingPolygons = state.polygons.where((p) => p.id != polygon.id).toList();
       state = state.copyWith(
         polygons: remainingPolygons,
-        draftVertices: updatedVertices,
+        draftVertexIds: updatedVertexIds,
         draftStartedFromExistingVertex: false,
+        vertices: _prune(
+          state.vertices,
+          vertexId,
+          polygons: remainingPolygons,
+          draftVertexIds: updatedVertexIds,
+        ),
       );
     }
   }
 
   /// Confirms the current draft vertices as a new filled polygon.
   void closePolygon(Color fillColor) {
-    if (state.draftVertices.length < kMinPolygonVertices) return;
+    if (state.draftVertexIds.length < kMinPolygonVertices) return;
     final polygon = PolygonShape(
       id: _uuid.v4(),
-      vertices: state.draftVertices,
+      vertexIds: state.draftVertexIds,
       fillColor: fillColor,
       strokeColor: defaultStrokeColor,
       strokeWidth: defaultStrokeWidth,
     );
     state = state.copyWith(
       polygons: [...state.polygons, polygon],
-      draftVertices: const [],
+      draftVertexIds: const [],
       draftStartedFromExistingVertex: false,
     );
   }
 
-  /// Removes the most recently placed draft vertex.
+  /// Removes the most recently placed draft vertex, pruning it from the
+  /// shared pool if nothing else references it.
   void undoLastVertex() {
-    if (state.draftVertices.isEmpty) return;
-    final updated = List<Vertex>.of(state.draftVertices)..removeLast();
+    final draftIds = state.draftVertexIds;
+    if (draftIds.isEmpty) return;
+    final removedId = draftIds.last;
+    final updatedDraft = draftIds.sublist(0, draftIds.length - 1);
     state = state.copyWith(
-      draftVertices: updated,
-      draftStartedFromExistingVertex: updated.isEmpty ? false : state.draftStartedFromExistingVertex,
+      vertices: _prune(state.vertices, removedId, polygons: state.polygons, draftVertexIds: updatedDraft),
+      draftVertexIds: updatedDraft,
+      draftStartedFromExistingVertex: updatedDraft.isEmpty ? false : state.draftStartedFromExistingVertex,
     );
   }
 
-  /// Clears the in-progress polygon without confirming it.
+  /// Clears the in-progress polygon without confirming it, pruning any
+  /// draft-only vertices from the shared pool.
   void clearDraft() {
-    if (state.draftVertices.isEmpty) return;
-    state = state.copyWith(draftVertices: const [], draftStartedFromExistingVertex: false);
+    final draftIds = state.draftVertexIds;
+    if (draftIds.isEmpty) return;
+    var vertices = state.vertices;
+    for (final id in draftIds) {
+      vertices = _prune(vertices, id, polygons: state.polygons, draftVertexIds: const []);
+    }
+    state = state.copyWith(
+      vertices: vertices,
+      draftVertexIds: const [],
+      draftStartedFromExistingVertex: false,
+    );
   }
 
-  /// Removes every confirmed polygon and any in-progress draft.
+  /// Removes every confirmed polygon and any in-progress draft, along with
+  /// every vertex in the shared pool.
   void clearAll() {
     state = state.copyWith(
+      vertices: const {},
       polygons: const [],
-      draftVertices: const [],
+      draftVertexIds: const [],
       draftStartedFromExistingVertex: false,
     );
+  }
+
+  /// Returns [vertices] with [vertexId] removed, but only if it is no
+  /// longer referenced by any confirmed [polygons] or by [draftVertexIds].
+  /// Keeps the pool from accumulating orphaned points once their owning
+  /// shape is undone, dissolved, or erased. Pure with respect to its
+  /// arguments so callers can chain it across multiple removals in one go.
+  Map<String, Vertex> _prune(
+    Map<String, Vertex> vertices,
+    String vertexId, {
+    required List<PolygonShape> polygons,
+    required List<String> draftVertexIds,
+  }) {
+    final stillReferenced =
+        draftVertexIds.contains(vertexId) || polygons.any((p) => p.vertexIds.contains(vertexId));
+    if (stillReferenced) return vertices;
+    return {for (final entry in vertices.entries) if (entry.key != vertexId) entry.key: entry.value};
   }
 }
 

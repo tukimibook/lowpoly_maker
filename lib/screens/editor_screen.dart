@@ -11,7 +11,7 @@ class EditorScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final artwork = ref.watch(canvasProvider);
-    final isEmpty = artwork.polygons.isEmpty && artwork.draftVertices.isEmpty;
+    final isEmpty = artwork.polygons.isEmpty && artwork.draftVertexIds.isEmpty;
 
     return Scaffold(
       appBar: AppBar(
