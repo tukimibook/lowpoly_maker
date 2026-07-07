@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../../models/artwork.dart';
 import '../../models/canvas_mode.dart';
 import '../../models/polygon_shape.dart';
-import '../../providers/canvas_provider.dart';
 
 /// Paints all confirmed polygons plus the in-progress draft (points and
 /// connecting preview lines) for [artwork]. The vertex hint markers change
@@ -111,19 +110,6 @@ class PolygonPainter extends CustomPainter {
 
     for (var i = 0; i < positions.length - 1; i++) {
       canvas.drawLine(positions[i], positions[i + 1], linePaint);
-    }
-
-    // Only hint at the "tap near start to close" shortcut when it's actually
-    // active; it's disabled while the draft was started from an existing
-    // vertex, since that start point is a real, shared vertex that may need
-    // to be walked past on the way to wherever this shape actually finishes
-    // (it must be closed explicitly via the toolbar's close button instead).
-    if (positions.length >= kMinPolygonVertices && !artwork.draftStartedFromExistingVertex) {
-      final hintPaint = Paint()
-        ..color = Colors.black.withAlpha(60)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.5;
-      canvas.drawCircle(positions.first, kClosePolygonThreshold, hintPaint);
     }
 
     final dotPaint = Paint()

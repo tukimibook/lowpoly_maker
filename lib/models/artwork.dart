@@ -26,7 +26,6 @@ abstract class Artwork with _$Artwork {
     @Default(<String, Vertex>{}) Map<String, Vertex> vertices,
     @Default(<PolygonShape>[]) List<PolygonShape> polygons,
     @Default(<String>[]) List<String> draftVertexIds,
-    @Default(false) bool draftStartedFromExistingVertex,
   }) = _Artwork;
 
   factory Artwork.empty({required String id, String title = '無題の作品'}) {

@@ -14,7 +14,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$Artwork {
 
- String get id; String get title; Size get canvasSize; Map<String, Vertex> get vertices; List<PolygonShape> get polygons; List<String> get draftVertexIds; bool get draftStartedFromExistingVertex;
+ String get id; String get title; Size get canvasSize; Map<String, Vertex> get vertices; List<PolygonShape> get polygons; List<String> get draftVertexIds;
 /// Create a copy of Artwork
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -25,16 +25,16 @@ $ArtworkCopyWith<Artwork> get copyWith => _$ArtworkCopyWithImpl<Artwork>(this as
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is Artwork&&(identical(other.id, id) || other.id == id)&&(identical(other.title, title) || other.title == title)&&(identical(other.canvasSize, canvasSize) || other.canvasSize == canvasSize)&&const DeepCollectionEquality().equals(other.vertices, vertices)&&const DeepCollectionEquality().equals(other.polygons, polygons)&&const DeepCollectionEquality().equals(other.draftVertexIds, draftVertexIds)&&(identical(other.draftStartedFromExistingVertex, draftStartedFromExistingVertex) || other.draftStartedFromExistingVertex == draftStartedFromExistingVertex));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is Artwork&&(identical(other.id, id) || other.id == id)&&(identical(other.title, title) || other.title == title)&&(identical(other.canvasSize, canvasSize) || other.canvasSize == canvasSize)&&const DeepCollectionEquality().equals(other.vertices, vertices)&&const DeepCollectionEquality().equals(other.polygons, polygons)&&const DeepCollectionEquality().equals(other.draftVertexIds, draftVertexIds));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,id,title,canvasSize,const DeepCollectionEquality().hash(vertices),const DeepCollectionEquality().hash(polygons),const DeepCollectionEquality().hash(draftVertexIds),draftStartedFromExistingVertex);
+int get hashCode => Object.hash(runtimeType,id,title,canvasSize,const DeepCollectionEquality().hash(vertices),const DeepCollectionEquality().hash(polygons),const DeepCollectionEquality().hash(draftVertexIds));
 
 @override
 String toString() {
-  return 'Artwork(id: $id, title: $title, canvasSize: $canvasSize, vertices: $vertices, polygons: $polygons, draftVertexIds: $draftVertexIds, draftStartedFromExistingVertex: $draftStartedFromExistingVertex)';
+  return 'Artwork(id: $id, title: $title, canvasSize: $canvasSize, vertices: $vertices, polygons: $polygons, draftVertexIds: $draftVertexIds)';
 }
 
 
@@ -45,7 +45,7 @@ abstract mixin class $ArtworkCopyWith<$Res>  {
   factory $ArtworkCopyWith(Artwork value, $Res Function(Artwork) _then) = _$ArtworkCopyWithImpl;
 @useResult
 $Res call({
- String id, String title, Size canvasSize, Map<String, Vertex> vertices, List<PolygonShape> polygons, List<String> draftVertexIds, bool draftStartedFromExistingVertex
+ String id, String title, Size canvasSize, Map<String, Vertex> vertices, List<PolygonShape> polygons, List<String> draftVertexIds
 });
 
 
@@ -62,7 +62,7 @@ class _$ArtworkCopyWithImpl<$Res>
 
 /// Create a copy of Artwork
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? title = null,Object? canvasSize = null,Object? vertices = null,Object? polygons = null,Object? draftVertexIds = null,Object? draftStartedFromExistingVertex = null,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? title = null,Object? canvasSize = null,Object? vertices = null,Object? polygons = null,Object? draftVertexIds = null,}) {
   return _then(_self.copyWith(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,title: null == title ? _self.title : title // ignore: cast_nullable_to_non_nullable
@@ -70,8 +70,7 @@ as String,canvasSize: null == canvasSize ? _self.canvasSize : canvasSize // igno
 as Size,vertices: null == vertices ? _self.vertices : vertices // ignore: cast_nullable_to_non_nullable
 as Map<String, Vertex>,polygons: null == polygons ? _self.polygons : polygons // ignore: cast_nullable_to_non_nullable
 as List<PolygonShape>,draftVertexIds: null == draftVertexIds ? _self.draftVertexIds : draftVertexIds // ignore: cast_nullable_to_non_nullable
-as List<String>,draftStartedFromExistingVertex: null == draftStartedFromExistingVertex ? _self.draftStartedFromExistingVertex : draftStartedFromExistingVertex // ignore: cast_nullable_to_non_nullable
-as bool,
+as List<String>,
   ));
 }
 
@@ -156,10 +155,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String id,  String title,  Size canvasSize,  Map<String, Vertex> vertices,  List<PolygonShape> polygons,  List<String> draftVertexIds,  bool draftStartedFromExistingVertex)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String id,  String title,  Size canvasSize,  Map<String, Vertex> vertices,  List<PolygonShape> polygons,  List<String> draftVertexIds)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _Artwork() when $default != null:
-return $default(_that.id,_that.title,_that.canvasSize,_that.vertices,_that.polygons,_that.draftVertexIds,_that.draftStartedFromExistingVertex);case _:
+return $default(_that.id,_that.title,_that.canvasSize,_that.vertices,_that.polygons,_that.draftVertexIds);case _:
   return orElse();
 
 }
@@ -177,10 +176,10 @@ return $default(_that.id,_that.title,_that.canvasSize,_that.vertices,_that.polyg
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String id,  String title,  Size canvasSize,  Map<String, Vertex> vertices,  List<PolygonShape> polygons,  List<String> draftVertexIds,  bool draftStartedFromExistingVertex)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String id,  String title,  Size canvasSize,  Map<String, Vertex> vertices,  List<PolygonShape> polygons,  List<String> draftVertexIds)  $default,) {final _that = this;
 switch (_that) {
 case _Artwork():
-return $default(_that.id,_that.title,_that.canvasSize,_that.vertices,_that.polygons,_that.draftVertexIds,_that.draftStartedFromExistingVertex);case _:
+return $default(_that.id,_that.title,_that.canvasSize,_that.vertices,_that.polygons,_that.draftVertexIds);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -197,10 +196,10 @@ return $default(_that.id,_that.title,_that.canvasSize,_that.vertices,_that.polyg
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String id,  String title,  Size canvasSize,  Map<String, Vertex> vertices,  List<PolygonShape> polygons,  List<String> draftVertexIds,  bool draftStartedFromExistingVertex)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String id,  String title,  Size canvasSize,  Map<String, Vertex> vertices,  List<PolygonShape> polygons,  List<String> draftVertexIds)?  $default,) {final _that = this;
 switch (_that) {
 case _Artwork() when $default != null:
-return $default(_that.id,_that.title,_that.canvasSize,_that.vertices,_that.polygons,_that.draftVertexIds,_that.draftStartedFromExistingVertex);case _:
+return $default(_that.id,_that.title,_that.canvasSize,_that.vertices,_that.polygons,_that.draftVertexIds);case _:
   return null;
 
 }
@@ -212,7 +211,7 @@ return $default(_that.id,_that.title,_that.canvasSize,_that.vertices,_that.polyg
 
 
 class _Artwork implements Artwork {
-  const _Artwork({required this.id, required this.title, required this.canvasSize, final  Map<String, Vertex> vertices = const <String, Vertex>{}, final  List<PolygonShape> polygons = const <PolygonShape>[], final  List<String> draftVertexIds = const <String>[], this.draftStartedFromExistingVertex = false}): _vertices = vertices,_polygons = polygons,_draftVertexIds = draftVertexIds;
+  const _Artwork({required this.id, required this.title, required this.canvasSize, final  Map<String, Vertex> vertices = const <String, Vertex>{}, final  List<PolygonShape> polygons = const <PolygonShape>[], final  List<String> draftVertexIds = const <String>[]}): _vertices = vertices,_polygons = polygons,_draftVertexIds = draftVertexIds;
   
 
 @override final  String id;
@@ -239,7 +238,6 @@ class _Artwork implements Artwork {
   return EqualUnmodifiableListView(_draftVertexIds);
 }
 
-@override@JsonKey() final  bool draftStartedFromExistingVertex;
 
 /// Create a copy of Artwork
 /// with the given fields replaced by the non-null parameter values.
@@ -251,16 +249,16 @@ _$ArtworkCopyWith<_Artwork> get copyWith => __$ArtworkCopyWithImpl<_Artwork>(thi
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _Artwork&&(identical(other.id, id) || other.id == id)&&(identical(other.title, title) || other.title == title)&&(identical(other.canvasSize, canvasSize) || other.canvasSize == canvasSize)&&const DeepCollectionEquality().equals(other._vertices, _vertices)&&const DeepCollectionEquality().equals(other._polygons, _polygons)&&const DeepCollectionEquality().equals(other._draftVertexIds, _draftVertexIds)&&(identical(other.draftStartedFromExistingVertex, draftStartedFromExistingVertex) || other.draftStartedFromExistingVertex == draftStartedFromExistingVertex));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is _Artwork&&(identical(other.id, id) || other.id == id)&&(identical(other.title, title) || other.title == title)&&(identical(other.canvasSize, canvasSize) || other.canvasSize == canvasSize)&&const DeepCollectionEquality().equals(other._vertices, _vertices)&&const DeepCollectionEquality().equals(other._polygons, _polygons)&&const DeepCollectionEquality().equals(other._draftVertexIds, _draftVertexIds));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,id,title,canvasSize,const DeepCollectionEquality().hash(_vertices),const DeepCollectionEquality().hash(_polygons),const DeepCollectionEquality().hash(_draftVertexIds),draftStartedFromExistingVertex);
+int get hashCode => Object.hash(runtimeType,id,title,canvasSize,const DeepCollectionEquality().hash(_vertices),const DeepCollectionEquality().hash(_polygons),const DeepCollectionEquality().hash(_draftVertexIds));
 
 @override
 String toString() {
-  return 'Artwork(id: $id, title: $title, canvasSize: $canvasSize, vertices: $vertices, polygons: $polygons, draftVertexIds: $draftVertexIds, draftStartedFromExistingVertex: $draftStartedFromExistingVertex)';
+  return 'Artwork(id: $id, title: $title, canvasSize: $canvasSize, vertices: $vertices, polygons: $polygons, draftVertexIds: $draftVertexIds)';
 }
 
 
@@ -271,7 +269,7 @@ abstract mixin class _$ArtworkCopyWith<$Res> implements $ArtworkCopyWith<$Res> {
   factory _$ArtworkCopyWith(_Artwork value, $Res Function(_Artwork) _then) = __$ArtworkCopyWithImpl;
 @override @useResult
 $Res call({
- String id, String title, Size canvasSize, Map<String, Vertex> vertices, List<PolygonShape> polygons, List<String> draftVertexIds, bool draftStartedFromExistingVertex
+ String id, String title, Size canvasSize, Map<String, Vertex> vertices, List<PolygonShape> polygons, List<String> draftVertexIds
 });
 
 
@@ -288,7 +286,7 @@ class __$ArtworkCopyWithImpl<$Res>
 
 /// Create a copy of Artwork
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? title = null,Object? canvasSize = null,Object? vertices = null,Object? polygons = null,Object? draftVertexIds = null,Object? draftStartedFromExistingVertex = null,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? title = null,Object? canvasSize = null,Object? vertices = null,Object? polygons = null,Object? draftVertexIds = null,}) {
   return _then(_Artwork(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,title: null == title ? _self.title : title // ignore: cast_nullable_to_non_nullable
@@ -296,8 +294,7 @@ as String,canvasSize: null == canvasSize ? _self.canvasSize : canvasSize // igno
 as Size,vertices: null == vertices ? _self._vertices : vertices // ignore: cast_nullable_to_non_nullable
 as Map<String, Vertex>,polygons: null == polygons ? _self._polygons : polygons // ignore: cast_nullable_to_non_nullable
 as List<PolygonShape>,draftVertexIds: null == draftVertexIds ? _self._draftVertexIds : draftVertexIds // ignore: cast_nullable_to_non_nullable
-as List<String>,draftStartedFromExistingVertex: null == draftStartedFromExistingVertex ? _self.draftStartedFromExistingVertex : draftStartedFromExistingVertex // ignore: cast_nullable_to_non_nullable
-as bool,
+as List<String>,
   ));
 }
 
