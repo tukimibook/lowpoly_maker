@@ -214,8 +214,8 @@ void main() {
     );
 
     test(
-      "a double-tap near the draft's own start never snaps back onto it, since the draft's own "
-      'vertices are always excluded from the nearby-vertex search',
+      "a double-tap near the draft's own start snaps its position exactly, but keeps it a "
+      'separate vertex instead of merging the two IDs together',
       () {
         final notifier = CanvasNotifier();
         notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.green);
@@ -232,11 +232,10 @@ void main() {
           fillColor: Colors.orange,
         );
 
-        // Double-tap right next to the draft's own start. Even though it's
-        // well within kVertexHitRadius of (0, 0), that vertex must not be
-        // found — it's already part of this very draft — so this falls
-        // back to the raw tapped position instead of snapping back onto,
-        // and closing directly against, its own start.
+        // Double-tap right next to the draft's own start. Closing-time
+        // snapping searches *every* vertex on the canvas, including the
+        // draft's own — unlike snapping while a shape is still being
+        // actively drawn — so this lands exactly on (0, 0).
         notifier.handleDrawTap(const Offset(5, 5), fillColor: Colors.orange);
         notifier.handleDrawTap(const Offset(5, 5), fillColor: Colors.orange);
 
@@ -244,10 +243,43 @@ void main() {
         final closed = notifier.state.polygons.last;
         expect(closed.vertexIds, hasLength(3));
         expect(closed.vertexIds.first, ownStartVertexId);
+        // The position matches the shared start exactly, but closing-time
+        // snaps deliberately never reuse the matched vertex's ID — only
+        // its coordinate — so a future per-vertex drag tool can move one
+        // without dragging the other along with it.
         expect(closed.vertexIds.last, isNot(ownStartVertexId));
         expect(
           notifier.state.vertices[closed.vertexIds.last]!.position,
-          const Offset(5, 5),
+          const Offset(0, 0),
+        );
+      },
+    );
+
+    test(
+      "a double-tap near one of the draft's own already-placed points — not just its start — "
+      'also snaps to that exact position',
+      () {
+        final notifier = CanvasNotifier();
+        notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.orange);
+        notifier.handleDrawTap(const Offset(300, 0), fillColor: Colors.orange);
+        notifier.handleDrawTap(
+          const Offset(300, 300),
+          fillColor: Colors.orange,
+        );
+        final midPointId = notifier.state.draftVertexIds[1]; // (300, 0)
+
+        // Loop back near the second point (not the start) and double-tap
+        // to close there.
+        notifier.handleDrawTap(const Offset(305, 5), fillColor: Colors.orange);
+        notifier.handleDrawTap(const Offset(305, 5), fillColor: Colors.orange);
+
+        expect(notifier.state.polygons, hasLength(1));
+        final closed = notifier.state.polygons.single;
+        expect(closed.vertexIds, hasLength(4));
+        expect(closed.vertexIds.last, isNot(midPointId));
+        expect(
+          notifier.state.vertices[closed.vertexIds.last]!.position,
+          const Offset(300, 0),
         );
       },
     );
@@ -377,7 +409,8 @@ void main() {
   group('CanvasNotifier pseudo double-tap close', () {
     test(
       'a quick second tap in roughly the same spot closes the draft directly onto the nearest '
-      'existing vertex, undoing whatever the first tap of the pair absorbed along the way',
+      "existing vertex's position, undoing whatever the first tap of the pair absorbed along "
+      'the way',
       () {
         final notifier = CanvasNotifier();
         // A distractor polygon whose vertex sits almost exactly on the
@@ -416,15 +449,20 @@ void main() {
         expect(notifier.state.polygons, hasLength(3));
         expect(notifier.state.draftVertexIds, isEmpty);
         final closed = notifier.state.polygons.last;
-        expect(closed.vertexIds, [
-          closed.vertexIds.first,
-          closed.vertexIds[1],
-          targetVertexId,
-        ]);
-        // The distractor must not have made it into the final edge: the
-        // double-tap closes directly from (50, 50) onto the target vertex.
-        expect(closed.vertexIds, isNot(contains(distractorVertexId)));
         expect(closed.vertexIds, hasLength(3));
+        // The distractor must not have made it into the final edge: the
+        // double-tap closes directly from (50, 50) onto the target
+        // vertex's position.
+        expect(closed.vertexIds, isNot(contains(distractorVertexId)));
+        // The closing point lands exactly on the target vertex's
+        // coordinate, but — unlike snapping while a shape is still being
+        // drawn — it's deliberately a brand new, independent vertex, not
+        // a reuse of the target's own ID.
+        expect(closed.vertexIds.last, isNot(targetVertexId));
+        expect(
+          notifier.state.vertices[closed.vertexIds.last]!.position,
+          notifier.state.vertices[targetVertexId]!.position,
+        );
       },
     );
 

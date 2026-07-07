@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
+import '../geometry/nearest_point.dart';
 import '../models/artwork.dart';
 import '../models/canvas_mode.dart';
 import '../models/polygon_shape.dart';
@@ -108,7 +109,8 @@ class CanvasNotifier extends StateNotifier<Artwork> {
   /// within [kDoubleTapMaxInterval] and [kDoubleTapMaxDistance] of the
   /// previous one, handled by [_closeDraftNear] instead of everything
   /// below (see that method for why it's detected this way instead of via
-  /// Flutter's built-in double-tap gesture).
+  /// Flutter's built-in double-tap gesture, and for how its "snap to the
+  /// nearest point" search deliberately differs from the one below).
   ///
   /// On a plain (non-double-tap) tap, once the new point's own position is
   /// resolved (snapped onto an existing vertex or placed freehand), any
@@ -190,14 +192,32 @@ class CanvasNotifier extends StateNotifier<Artwork> {
   /// everything the first tap of the pair contributed to the draft — its
   /// own endpoint, plus any vertex [_absorbVerticesAlongNewSegment] folded
   /// in along the way — is unwound, and the shape is closed directly
-  /// instead, onto the nearest existing vertex if one is close by, or onto
-  /// the tapped position itself otherwise.
+  /// instead, landing on whichever position is used to decide the final
+  /// vertex below.
   ///
   /// Fully unwinding line-absorption (not just the first tap's own
   /// endpoint) matters: a double-tap means "finish the shape right here",
   /// not "extend the line", so it must never leave some other vertex the
   /// almost-closing segment merely happened to pass near stitched into the
   /// middle of the final edge.
+  ///
+  /// Deciding the final vertex's *position* is a plain nearest-point
+  /// search across every single vertex on the canvas — every confirmed
+  /// polygon's, and the in-progress draft's own (including its start) —
+  /// with no exclusions at all, unlike [findPolygonVertexNear]. Landing
+  /// within [kVertexHitRadius] of any of them snaps the closing point to
+  /// that exact coordinate; otherwise the raw tapped position is used.
+  ///
+  /// Deliberately unlike every other kind of snapping in this notifier,
+  /// this never reuses the matched point's vertex ID — it only copies its
+  /// *coordinate* into a brand new [Vertex]. Two points landing on the
+  /// same spot this way are visually seamless but remain independent
+  /// entries in the pool, on purpose: a future per-vertex editing tool
+  /// (dragging one point without dragging everything merely sitting on
+  /// top of it) needs closing-time snaps to stay non-committal like this,
+  /// whereas snapping while a shape is still being actively drawn (see
+  /// [_handleSingleDrawTap]) is a deliberate, permanent decision to share
+  /// a corner and keeps sharing the real vertex ID.
   Color? _closeDraftNear(Offset position, {required Color fillColor}) {
     final insertedByPrecedingTap = _lastTapInsertedCount;
     _resetPendingTap();
@@ -212,12 +232,16 @@ class CanvasNotifier extends StateNotifier<Artwork> {
       undoLastVertex();
     }
 
-    final hit = findPolygonVertexNear(position);
-    if (hit != null) {
-      snapDraftEndToExistingVertex(hit.vertexId);
-    } else {
-      _appendFreehandDraftVertex(position);
-    }
+    final candidates = [
+      for (final entry in state.vertices.entries)
+        (entry.key, entry.value.position),
+    ];
+    final nearest = findNearestPoint(
+      position,
+      candidates,
+      maxDistance: kVertexHitRadius,
+    );
+    _appendFreehandDraftVertex(nearest?.$2 ?? position);
     closePolygon(fillColor);
     return null;
   }
@@ -319,30 +343,35 @@ class CanvasNotifier extends StateNotifier<Artwork> {
   /// whenever the draft was started from (or has since snapped onto) an
   /// existing vertex, since that same vertex lives on in both places at
   /// once in the shared [Artwork.vertices] pool. This guarantees the shape
-  /// in progress can never snap onto (or close against) one of its own
-  /// points, confirmed-polygon-owned or not.
+  /// in progress can never snap onto one of its own points,
+  /// confirmed-polygon-owned or not, while it's still being drawn — see
+  /// [handleDrawTap] for why closing is a deliberately different story.
+  ///
+  /// This is the one place in the notifier that cares about *which
+  /// polygon* a matched vertex belongs to (needed to pick up that
+  /// polygon's fill color); the actual nearest-neighbor search itself is
+  /// delegated to the plain-geometry [findNearestPoint].
   PolygonVertexHit? findPolygonVertexNear(Offset position) {
     final draftIds = state.draftVertexIds.toSet();
-    PolygonShape? closestPolygon;
-    String? closestVertexId;
-    var closestDistance = kVertexHitRadius;
-
+    final owningPolygon = <String, PolygonShape>{};
+    final candidates = <PointCandidate<String>>[];
     for (final polygon in state.polygons) {
       for (final vertexId in polygon.vertexIds) {
         if (draftIds.contains(vertexId)) continue;
         final vertex = state.vertices[vertexId];
         if (vertex == null) continue;
-        final distance = (vertex.position - position).distance;
-        if (distance <= closestDistance) {
-          closestDistance = distance;
-          closestPolygon = polygon;
-          closestVertexId = vertexId;
-        }
+        owningPolygon[vertexId] = polygon;
+        candidates.add((vertexId, vertex.position));
       }
     }
 
-    if (closestPolygon == null || closestVertexId == null) return null;
-    return (polygon: closestPolygon, vertexId: closestVertexId);
+    final nearest = findNearestPoint(
+      position,
+      candidates,
+      maxDistance: kVertexHitRadius,
+    );
+    if (nearest == null) return null;
+    return (polygon: owningPolygon[nearest.$1]!, vertexId: nearest.$1);
   }
 
   /// Starts a brand new draft polygon whose first point *is*
