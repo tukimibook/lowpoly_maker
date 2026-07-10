@@ -214,50 +214,50 @@ void main() {
     );
 
     test(
-      "a double-tap near the draft's own start snaps its position exactly, but keeps it a "
-      'separate vertex instead of merging the two IDs together',
+      "double-tapping the draft's own start closes it into a clean loop, "
+      'dropping the throwaway first tap of the pair',
       () {
         final notifier = CanvasNotifier();
-        notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.green);
-        notifier.handleDrawTap(const Offset(500, 0), fillColor: Colors.green);
-        notifier.handleDrawTap(const Offset(250, 500), fillColor: Colors.green);
-        notifier.closePolygon(Colors.green);
-        final ownStartVertexId =
-            notifier.state.polygons.single.vertexIds.first; // (0, 0)
-
-        // Start a new draft from that very vertex, then extend it elsewhere.
+        // A standalone draft: a start plus two more real points.
         notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.orange);
+        final startId = notifier.state.draftVertexIds.first;
+        notifier.handleDrawTap(const Offset(300, 0), fillColor: Colors.orange);
         notifier.handleDrawTap(
-          const Offset(300, 300),
+          const Offset(150, 300),
           fillColor: Colors.orange,
         );
 
-        // Double-tap right next to the draft's own start. Closing-time
-        // snapping searches *every* vertex on the canvas, including the
-        // draft's own — unlike snapping while a shape is still being
-        // actively drawn — so this lands exactly on (0, 0).
-        notifier.handleDrawTap(const Offset(5, 5), fillColor: Colors.orange);
-        notifier.handleDrawTap(const Offset(5, 5), fillColor: Colors.orange);
+        // Double-tap right on the start. The first tap drops a throwaway point
+        // next to the start (own points are excluded from drawing-time snaps);
+        // the second recognizes the start as the close target, removes that
+        // throwaway point, and closes into a clean 3-point loop.
+        notifier.handleDrawTap(const Offset(4, 4), fillColor: Colors.orange);
+        notifier.handleDrawTap(const Offset(4, 4), fillColor: Colors.orange);
 
-        expect(notifier.state.polygons, hasLength(2));
-        final closed = notifier.state.polygons.last;
+        expect(notifier.state.polygons, hasLength(1));
+        expect(notifier.state.draftVertexIds, isEmpty);
+        final closed = notifier.state.polygons.single;
         expect(closed.vertexIds, hasLength(3));
-        expect(closed.vertexIds.first, ownStartVertexId);
-        // The position matches the shared start exactly, but closing-time
-        // snaps deliberately never reuse the matched vertex's ID — only
-        // its coordinate — so a future per-vertex drag tool can move one
-        // without dragging the other along with it.
-        expect(closed.vertexIds.last, isNot(ownStartVertexId));
+        expect(closed.vertexIds.first, startId);
         expect(
-          notifier.state.vertices[closed.vertexIds.last]!.position,
-          const Offset(0, 0),
+          notifier.state.vertices[closed.vertexIds[1]]!.position,
+          const Offset(300, 0),
         );
+        expect(
+          notifier.state.vertices[closed.vertexIds[2]]!.position,
+          const Offset(150, 300),
+        );
+        // No throwaway vertex near the start leaked into the pool.
+        final leaked = notifier.state.vertices.values.any(
+          (v) => (v.position - const Offset(4, 4)).distance < 1,
+        );
+        expect(leaked, isFalse);
       },
     );
 
     test(
-      "a double-tap near one of the draft's own already-placed points — not just its start — "
-      'also snaps to that exact position',
+      'double-tapping near a mid draft point (not the start) does not close; '
+      'only the start or another polygon closes a shape',
       () {
         final notifier = CanvasNotifier();
         notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.orange);
@@ -266,21 +266,14 @@ void main() {
           const Offset(300, 300),
           fillColor: Colors.orange,
         );
-        final midPointId = notifier.state.draftVertexIds[1]; // (300, 0)
 
-        // Loop back near the second point (not the start) and double-tap
-        // to close there.
+        // Double-tap near the (300, 0) mid point — not a valid close target,
+        // so it just leaves points instead of closing.
         notifier.handleDrawTap(const Offset(305, 5), fillColor: Colors.orange);
         notifier.handleDrawTap(const Offset(305, 5), fillColor: Colors.orange);
 
-        expect(notifier.state.polygons, hasLength(1));
-        final closed = notifier.state.polygons.single;
-        expect(closed.vertexIds, hasLength(4));
-        expect(closed.vertexIds.last, isNot(midPointId));
-        expect(
-          notifier.state.vertices[closed.vertexIds.last]!.position,
-          const Offset(300, 0),
-        );
+        expect(notifier.state.polygons, isEmpty);
+        expect(notifier.state.draftVertexIds, hasLength(5));
       },
     );
 
@@ -408,23 +401,10 @@ void main() {
 
   group('CanvasNotifier pseudo double-tap close', () {
     test(
-      'a quick second tap in roughly the same spot closes the draft directly onto the nearest '
-      "existing vertex's position, undoing whatever the first tap of the pair absorbed along "
-      'the way',
+      "a double-tap onto another polygon's vertex closes by welding onto that exact vertex "
+      "(bug C: never snaps back toward the draft's own start)",
       () {
         final notifier = CanvasNotifier();
-        // A distractor polygon whose vertex sits almost exactly on the
-        // segment the first tap of the pair will form — it would normally
-        // get absorbed by a plain single tap. Its other two corners are
-        // spaced well beyond kDoubleTapMaxDistance from each other so
-        // placing them doesn't get misread as a pseudo double-tap.
-        notifier.handleDrawTap(const Offset(175, 25), fillColor: Colors.brown);
-        notifier.handleDrawTap(const Offset(250, 150), fillColor: Colors.brown);
-        notifier.handleDrawTap(const Offset(100, 150), fillColor: Colors.brown);
-        notifier.closePolygon(Colors.brown);
-        final distractorVertexId =
-            notifier.state.polygons.single.vertexIds.first;
-
         // The target polygon supplies the vertex to close onto.
         notifier.handleDrawTap(const Offset(300, 0), fillColor: Colors.purple);
         notifier.handleDrawTap(const Offset(400, 0), fillColor: Colors.purple);
@@ -434,68 +414,67 @@ void main() {
         );
         notifier.closePolygon(Colors.purple);
         final targetVertexId =
-            notifier.state.polygons[1].vertexIds.first; // (300, 0)
+            notifier.state.polygons.single.vertexIds.first; // (300, 0)
 
+        // A brand new draft, started well away from the target.
         notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.orange);
         notifier.handleDrawTap(const Offset(50, 50), fillColor: Colors.orange);
-        // First tap of the pair: lands near the target vertex, snaps onto
-        // it, and absorbs the distractor along the way.
+        // First tap of the pair lands near the target vertex, so the normal
+        // single-tap path welds the draft's end onto it (reusing its ID).
         notifier.handleDrawTap(const Offset(300, 5), fillColor: Colors.orange);
-        expect(notifier.state.draftVertexIds, contains(distractorVertexId));
+        expect(notifier.state.draftVertexIds.last, targetVertexId);
 
-        // Quick second tap in the same spot: reinterpreted as "close here".
+        // Quick second tap in the same spot: closes the shape as-is.
         notifier.handleDrawTap(const Offset(300, 5), fillColor: Colors.orange);
 
-        expect(notifier.state.polygons, hasLength(3));
+        expect(notifier.state.polygons, hasLength(2));
         expect(notifier.state.draftVertexIds, isEmpty);
         final closed = notifier.state.polygons.last;
         expect(closed.vertexIds, hasLength(3));
-        // The distractor must not have made it into the final edge: the
-        // double-tap closes directly from (50, 50) onto the target
-        // vertex's position.
-        expect(closed.vertexIds, isNot(contains(distractorVertexId)));
-        // The closing point lands exactly on the target vertex's
-        // coordinate, but — unlike snapping while a shape is still being
-        // drawn — it's deliberately a brand new, independent vertex, not
-        // a reuse of the target's own ID.
-        expect(closed.vertexIds.last, isNot(targetVertexId));
-        expect(
-          notifier.state.vertices[closed.vertexIds.last]!.position,
-          notifier.state.vertices[targetVertexId]!.position,
-        );
+        // The shape closed onto the target vertex itself (the same shared
+        // ID), NOT back onto its own start — this is the bug-C fix.
+        expect(closed.vertexIds.last, targetVertexId);
+        expect(closed.vertexIds.first, isNot(targetVertexId));
+        // The target polygon is left completely untouched.
+        expect(notifier.state.polygons.first.vertexIds, hasLength(3));
+        expect(notifier.state.polygons.first.fillColor, Colors.purple);
       },
     );
 
     test(
-      'a quick second tap with no existing vertex nearby closes onto the raw tapped position',
+      'a double-tap on empty canvas does not close; it just leaves points',
       () {
         final notifier = CanvasNotifier();
         notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.orange);
         notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.orange);
-        notifier.handleDrawTap(const Offset(50, 500), fillColor: Colors.orange);
-        notifier.handleDrawTap(const Offset(50, 500), fillColor: Colors.orange);
-
-        expect(notifier.state.polygons, hasLength(1));
-        expect(notifier.state.draftVertexIds, isEmpty);
-        final closed = notifier.state.polygons.single;
-        expect(closed.vertexIds, hasLength(3));
-        expect(
-          notifier.state.vertices[closed.vertexIds.last]!.position,
-          const Offset(50, 500),
+        // Two fast taps on empty space far from the start: no vertex to close
+        // onto, so both are kept as ordinary points instead of closing.
+        notifier.handleDrawTap(
+          const Offset(300, 300),
+          fillColor: Colors.orange,
         );
-      },
-    );
-
-    test(
-      'a quick second tap is ignored when there are too few points to form a shape yet',
-      () {
-        final notifier = CanvasNotifier();
-        notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.orange);
-        notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.orange);
-        notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.orange);
+        notifier.handleDrawTap(
+          const Offset(300, 300),
+          fillColor: Colors.orange,
+        );
 
         expect(notifier.state.polygons, isEmpty);
-        expect(notifier.state.draftVertexIds, hasLength(2));
+        expect(notifier.state.draftVertexIds, hasLength(4));
+      },
+    );
+
+    test(
+      'double-tapping the start with too few points does not close',
+      () {
+        final notifier = CanvasNotifier();
+        notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.orange);
+        notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.orange);
+        // Only two real points: not enough to form a triangle, so double-
+        // tapping the start must not close.
+        notifier.handleDrawTap(const Offset(3, 3), fillColor: Colors.orange);
+        notifier.handleDrawTap(const Offset(3, 3), fillColor: Colors.orange);
+
+        expect(notifier.state.polygons, isEmpty);
       },
     );
 
@@ -515,6 +494,96 @@ void main() {
 
         expect(notifier.state.polygons, isEmpty);
         expect(notifier.state.draftVertexIds, hasLength(4));
+      },
+    );
+  });
+
+  group('CanvasNotifier shared-boundary closure', () {
+    test(
+      'closing a draft whose start and end are both corners of the same polygon '
+      "follows that polygon's shorter boundary arc instead of a straight edge",
+      () {
+        final notifier = CanvasNotifier();
+        // Polygon A: a pentagon. The shorter arc between its (0,0) and
+        // (100,100) corners passes through the (100,0) corner in between.
+        notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.green);
+        notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.green);
+        notifier.handleDrawTap(const Offset(100, 100), fillColor: Colors.green);
+        notifier.handleDrawTap(const Offset(50, 150), fillColor: Colors.green);
+        notifier.handleDrawTap(const Offset(0, 100), fillColor: Colors.green);
+        notifier.closePolygon(Colors.green);
+        final aIds = notifier.state.polygons.single.vertexIds;
+        final aOrigin = aIds[0]; // (0, 0)
+        final aTopRight = aIds[1]; // (100, 0)  — the in-between corner
+        final aRight = aIds[2]; // (100, 100)
+
+        // Polygon B: start on A's (0,0), arc far outside, end on A's (100,100).
+        notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.orange);
+        notifier.handleDrawTap(
+          const Offset(-100, -100),
+          fillColor: Colors.orange,
+        );
+        notifier.handleDrawTap(
+          const Offset(100, 100),
+          fillColor: Colors.orange,
+        );
+        notifier.closePolygon(Colors.orange);
+
+        expect(notifier.state.polygons, hasLength(2));
+        final closed = notifier.state.polygons.last;
+        // start, freehand, end, then A's in-between corner spliced in so the
+        // closing path runs end -> (100,0) -> start along A's own edge.
+        expect(closed.vertexIds, [
+          aOrigin,
+          closed.vertexIds[1], // the freehand (-100,-100) point
+          aRight,
+          aTopRight,
+        ]);
+        expect(
+          notifier.state.vertices[closed.vertexIds[1]]!.position,
+          const Offset(-100, -100),
+        );
+        // The spliced corner is A's own vertex, reused (welded), not a copy.
+        expect(aIds, contains(aTopRight));
+        // Polygon A itself is left completely untouched.
+        expect(notifier.state.polygons.first.vertexIds, aIds);
+      },
+    );
+
+    test(
+      'closing a draft whose start and end belong to different polygons uses a '
+      'plain straight edge (no boundary to follow)',
+      () {
+        final notifier = CanvasNotifier();
+        notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.green);
+        notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.green);
+        notifier.handleDrawTap(const Offset(50, 100), fillColor: Colors.green);
+        notifier.closePolygon(Colors.green);
+        final aCorner = notifier.state.polygons.single.vertexIds[1]; // (100,0)
+
+        notifier.handleDrawTap(const Offset(400, 0), fillColor: Colors.purple);
+        notifier.handleDrawTap(const Offset(500, 0), fillColor: Colors.purple);
+        notifier.handleDrawTap(
+          const Offset(450, 100),
+          fillColor: Colors.purple,
+        );
+        notifier.closePolygon(Colors.purple);
+        final bCorner = notifier.state.polygons[1].vertexIds[0]; // (400,0)
+
+        // A draft bridging A's corner to B's corner — no single polygon owns
+        // both, so there's no shared arc to trace.
+        notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.orange);
+        notifier.handleDrawTap(
+          const Offset(250, 300),
+          fillColor: Colors.orange,
+        );
+        notifier.handleDrawTap(const Offset(400, 0), fillColor: Colors.orange);
+        notifier.closePolygon(Colors.orange);
+
+        final closed = notifier.state.polygons.last;
+        expect(closed.vertexIds, hasLength(3));
+        expect(closed.vertexIds.first, aCorner);
+        expect(closed.vertexIds.last, bCorner);
       },
     );
   });

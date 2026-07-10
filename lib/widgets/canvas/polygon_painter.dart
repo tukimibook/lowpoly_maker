@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../models/artwork.dart';
 import '../../models/canvas_mode.dart';
 import '../../models/polygon_shape.dart';
+import '../../providers/canvas_provider.dart' show kMinPolygonVertices;
 
 /// Paints all confirmed polygons plus the in-progress draft (points and
 /// connecting preview lines) for [artwork]. The vertex hint markers change
@@ -123,6 +124,16 @@ class PolygonPainter extends CustomPainter {
     for (final position in positions) {
       canvas.drawCircle(position, _vertexRadius, dotPaint);
       canvas.drawCircle(position, _vertexRadius, dotBorderPaint);
+    }
+
+    // Once there are enough points to form a polygon, ring the start point to
+    // signal "double-tap here to close" (the shape's self-close target).
+    if (positions.length >= kMinPolygonVertices) {
+      final closeHintPaint = Paint()
+        ..color = Colors.teal
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2;
+      canvas.drawCircle(positions.first, _vertexRadius + 4, closeHintPaint);
     }
   }
 
