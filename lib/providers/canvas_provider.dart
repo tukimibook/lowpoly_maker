@@ -460,6 +460,59 @@ class CanvasNotifier extends StateNotifier<Artwork> {
     return (polygon: owningPolygon[nearest.$1]!, vertexId: nearest.$1);
   }
 
+  /// Finds the nearest vertex referenced by the current artwork — confirmed
+  /// [Artwork.polygons] *and* the in-progress [Artwork.draftVertexIds] —
+  /// within [hitRadius] of [position], if any.
+  ///
+  /// Unlike [findPolygonVertexNear] (draw-mode magnet snap onto *confirmed*
+  /// corners only, excluding the draft), this is the edit-mode hit-test:
+  /// every corner the artist can see and might want to move is a candidate.
+  /// The nearest-neighbor search itself is still delegated to
+  /// [findNearestPoint].
+  String? findVertexNear(
+    Offset position, {
+    double hitRadius = kVertexHitRadius,
+  }) {
+    final referencedIds = <String>{...state.draftVertexIds};
+    for (final polygon in state.polygons) {
+      referencedIds.addAll(polygon.vertexIds);
+    }
+
+    final candidates = <PointCandidate<String>>[];
+    for (final vertexId in referencedIds) {
+      final vertex = state.vertices[vertexId];
+      if (vertex == null) continue;
+      candidates.add((vertexId, vertex.position));
+    }
+
+    final nearest = findNearestPoint(
+      position,
+      candidates,
+      maxDistance: hitRadius,
+    );
+    return nearest?.$1;
+  }
+
+  /// Commits a new world position for [vertexId] in the shared vertex pool.
+  ///
+  /// Every polygon and draft segment that references this ID — including
+  /// welded corners shared across multiple shapes — follows automatically
+  /// because they all read from the same [Vertex] entry. Records one undo
+  /// entry when the position actually changes.
+  void moveVertex(String vertexId, Offset newPosition) {
+    final vertex = state.vertices[vertexId];
+    if (vertex == null) return;
+    if (vertex.position == newPosition) return;
+
+    _recordUndo();
+    state = state.copyWith(
+      vertices: {
+        ...state.vertices,
+        vertexId: vertex.copyWith(position: newPosition),
+      },
+    );
+  }
+
   /// Starts a brand new draft polygon whose first point *is*
   /// [existingVertexId] (the very same vertex, not a copy). The polygon it
   /// belongs to is left completely untouched — this only seeds a new,

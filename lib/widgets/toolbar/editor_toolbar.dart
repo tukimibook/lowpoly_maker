@@ -4,13 +4,17 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../models/canvas_mode.dart';
 import '../../providers/canvas_provider.dart';
 import '../../providers/drag_preview_provider.dart';
+import '../../providers/selected_vertex_provider.dart';
+import '../../providers/vertex_drag_preview_provider.dart';
 
 /// Bottom toolbar for Phase 1.
 ///
-/// Always shows the draw/eraser mode switch. Below it, the controls change
-/// completely depending on the selected mode so the two behaviors never mix:
+/// Always shows the draw/eraser/edit mode switch. Below it, the controls
+/// change completely depending on the selected mode so the three behaviors
+/// never mix:
 /// - Draw mode: fill color palette + undo / close polygon.
 /// - Eraser mode: just a short instruction (tapping a vertex deletes it).
+/// - Edit mode: short instruction (tap to select, long-press drag to move).
 class EditorToolbar extends ConsumerWidget {
   const EditorToolbar({super.key});
 
@@ -28,10 +32,11 @@ class EditorToolbar extends ConsumerWidget {
           children: [
             _ModeSwitch(mode: mode),
             const SizedBox(height: 12),
-            if (mode == CanvasMode.draw)
-              const _DrawModeControls()
-            else
-              const _EraserModeHint(),
+            switch (mode) {
+              CanvasMode.draw => const _DrawModeControls(),
+              CanvasMode.eraser => const _EraserModeHint(),
+              CanvasMode.edit => const _EditModeControls(),
+            },
           ],
         ),
       ),
@@ -58,11 +63,20 @@ class _ModeSwitch extends ConsumerWidget {
           label: Text('消しゴム'),
           icon: Icon(Icons.backspace_outlined),
         ),
+        ButtonSegment(
+          value: CanvasMode.edit,
+          label: Text('編集'),
+          icon: Icon(Icons.open_with),
+        ),
       ],
       selected: {mode},
       onSelectionChanged: (selection) {
         final newMode = selection.first;
         ref.read(canvasModeProvider.notifier).state = newMode;
+        if (newMode != CanvasMode.edit) {
+          ref.read(selectedVertexProvider.notifier).state = null;
+          ref.read(vertexDragPreviewProvider).value = null;
+        }
         if (newMode != CanvasMode.draw) {
           ref.read(dragPreviewProvider).value = null;
         }
@@ -160,6 +174,45 @@ class _EraserModeHint extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _EditModeControls extends ConsumerWidget {
+  const _EditModeControls();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    ref.watch(canvasProvider);
+    final notifier = ref.read(canvasProvider.notifier);
+    final canUndo = notifier.canUndo;
+    final color = Theme.of(context).colorScheme.primary;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Row(
+            children: [
+              Icon(Icons.info_outline, size: 18, color: color),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '頂点をタップで選択、長押しドラッグで移動（共有の角は一緒に動きます）',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: color),
+                ),
+              ),
+            ],
+          ),
+        ),
+        OutlinedButton.icon(
+          onPressed: canUndo ? notifier.undo : null,
+          icon: const Icon(Icons.undo),
+          label: const Text('元に戻す'),
+        ),
+      ],
     );
   }
 }

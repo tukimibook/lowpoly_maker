@@ -942,5 +942,82 @@ void main() {
       );
     });
   });
-}
 
+  group('CanvasNotifier vertex edit (Phase D)', () {
+    test('findVertexNear matches draft vertices as well as confirmed ones', () {
+      final notifier = CanvasNotifier();
+      notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.red);
+      notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.red);
+
+      final draftId = notifier.findVertexNear(const Offset(100, 0));
+      expect(draftId, notifier.state.draftVertexIds.last);
+
+      notifier.handleDrawTap(const Offset(50, 100), fillColor: Colors.red);
+      notifier.closePolygon(Colors.red);
+      final confirmedId = notifier.findVertexNear(const Offset(0, 0));
+      expect(confirmedId, isNotNull);
+      expect(
+        notifier.state.polygons.single.vertexIds,
+        contains(confirmedId),
+      );
+    });
+
+    test('moveVertex updates the shared pool entry in place', () {
+      final notifier = CanvasNotifier();
+      notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.blue);
+      notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.blue);
+      notifier.handleDrawTap(const Offset(50, 100), fillColor: Colors.blue);
+      notifier.closePolygon(Colors.blue);
+
+      final vertexId = notifier.state.polygons.single.vertexIds.first;
+      notifier.moveVertex(vertexId, const Offset(10, 10));
+
+      expect(notifier.state.vertices[vertexId]!.position, const Offset(10, 10));
+    });
+
+    test(
+      'moving a welded corner updates every polygon that references that vertex ID',
+      () {
+        final notifier = CanvasNotifier();
+        notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.green);
+        notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.green);
+        notifier.handleDrawTap(const Offset(50, 100), fillColor: Colors.green);
+        notifier.closePolygon(Colors.green);
+        final sharedId = notifier.state.polygons.single.vertexIds[1];
+
+        notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.purple);
+        notifier.handleDrawTap(const Offset(200, 0), fillColor: Colors.purple);
+        notifier.handleDrawTap(const Offset(150, 100), fillColor: Colors.purple);
+        notifier.closePolygon(Colors.purple);
+
+        expect(
+          notifier.state.polygons.every((p) => p.vertexIds.contains(sharedId)),
+          isTrue,
+        );
+
+        notifier.moveVertex(sharedId, const Offset(100, 40));
+
+        expect(notifier.state.vertices[sharedId]!.position, const Offset(100, 40));
+        for (final polygon in notifier.state.polygons) {
+          expect(polygon.vertexIds, contains(sharedId));
+        }
+      },
+    );
+
+    test('undo restores a vertex position after moveVertex', () {
+      final notifier = CanvasNotifier();
+      notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.orange);
+      notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.orange);
+      notifier.handleDrawTap(const Offset(50, 100), fillColor: Colors.orange);
+      notifier.closePolygon(Colors.orange);
+
+      final vertexId = notifier.state.polygons.single.vertexIds.first;
+      final original = notifier.state.vertices[vertexId]!.position;
+
+      notifier.moveVertex(vertexId, const Offset(25, 25));
+      notifier.undo();
+
+      expect(notifier.state.vertices[vertexId]!.position, original);
+    });
+  });
+}
