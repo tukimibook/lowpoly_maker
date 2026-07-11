@@ -69,11 +69,21 @@ class PolygonCanvas extends ConsumerWidget {
     }
 
     void handleEditTap(Offset localPosition) {
-      final vertexId = notifier.findVertexNear(
+      final tappedId = notifier.findVertexNear(
         worldPosition(localPosition),
         hitRadius: hitRadius(),
       );
-      ref.read(selectedVertexProvider.notifier).state = vertexId;
+      final selected = ref.read(selectedVertexProvider);
+
+      if (selected != null && tappedId != null && tappedId != selected) {
+        if (notifier.weldVertices(selected, tappedId)) {
+          ref.read(selectedVertexProvider.notifier).state = selected;
+          HapticFeedback.mediumImpact();
+          return;
+        }
+      }
+
+      ref.read(selectedVertexProvider.notifier).state = tappedId;
     }
 
     void startVertexDrag(Offset localPosition) {

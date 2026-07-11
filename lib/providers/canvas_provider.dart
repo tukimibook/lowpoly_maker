@@ -513,6 +513,161 @@ class CanvasNotifier extends StateNotifier<Artwork> {
     );
   }
 
+  /// How many independent owners reference [vertexId]: one per polygon that
+  /// lists it, plus one if the in-progress draft lists it.
+  int _vertexOwnerCount(String vertexId) {
+    var count = 0;
+    if (state.draftVertexIds.contains(vertexId)) count++;
+    for (final polygon in state.polygons) {
+      if (polygon.vertexIds.contains(vertexId)) count++;
+    }
+    return count;
+  }
+
+  /// Whether [vertexId] is referenced by more than one polygon and/or draft.
+  bool isVertexShared(String vertexId) => _vertexOwnerCount(vertexId) > 1;
+
+  /// Every confirmed polygon whose ring lists [vertexId].
+  List<PolygonShape> polygonsReferencing(String vertexId) {
+    return [
+      for (final polygon in state.polygons)
+        if (polygon.vertexIds.contains(vertexId)) polygon,
+    ];
+  }
+
+  /// Whether the in-progress draft lists [vertexId].
+  bool draftReferencesVertex(String vertexId) =>
+      state.draftVertexIds.contains(vertexId);
+
+  /// Duplicates [vertexId] and swaps only [polygonId]'s reference to the copy,
+  /// leaving every other owner still welded to the original. No-op when the
+  /// vertex isn't shared or [polygonId] doesn't reference it. Returns the
+  /// new copy's ID on success.
+  String? detachVertexFromPolygon(String vertexId, String polygonId) {
+    if (!isVertexShared(vertexId)) return null;
+    final polygon = state.polygons
+        .where((p) => p.id == polygonId)
+        .firstOrNull;
+    if (polygon == null || !polygon.vertexIds.contains(vertexId)) return null;
+
+    _recordUndo();
+    final original = state.vertices[vertexId]!;
+    final copy = Vertex(id: _uuid.v4(), position: original.position);
+
+    final updatedPolygons = [
+      for (final p in state.polygons)
+        if (p.id == polygonId)
+          p.copyWith(
+            vertexIds: [
+              for (final id in p.vertexIds) id == vertexId ? copy.id : id,
+            ],
+          )
+        else
+          p,
+    ];
+
+    state = state.copyWith(
+      polygons: updatedPolygons,
+      vertices: {...state.vertices, copy.id: copy},
+    );
+    return copy.id;
+  }
+
+  /// Duplicates [vertexId] and swaps only the draft's reference to the copy.
+  /// No-op when the vertex isn't shared or the draft doesn't list it. Returns
+  /// the new copy's ID on success.
+  String? detachVertexFromDraft(String vertexId) {
+    if (!state.draftVertexIds.contains(vertexId)) return null;
+    if (!isVertexShared(vertexId)) return null;
+
+    _recordUndo();
+    final original = state.vertices[vertexId]!;
+    final copy = Vertex(id: _uuid.v4(), position: original.position);
+
+    state = state.copyWith(
+      draftVertexIds: [
+        for (final id in state.draftVertexIds) id == vertexId ? copy.id : id,
+      ],
+      vertices: {...state.vertices, copy.id: copy},
+    );
+    return copy.id;
+  }
+
+  /// Merges [mergeId] into [keepId] by replacing every reference to
+  /// [mergeId] with [keepId], collapsing consecutive duplicates in rings,
+  /// and pruning [mergeId] from the shared pool. Returns false when the weld
+  /// would dissolve a polygon below [kMinPolygonVertices].
+  bool weldVertices(String keepId, String mergeId) {
+    if (!_canWeldVertices(keepId, mergeId)) return false;
+
+    _recordUndo();
+
+    final updatedPolygons = [
+      for (final polygon in state.polygons)
+        polygon.copyWith(
+          vertexIds: _collapseConsecutiveRingIds([
+            for (final id in polygon.vertexIds) id == mergeId ? keepId : id,
+          ]),
+        ),
+    ];
+
+    final draftIds = _collapseConsecutiveOpenIds([
+      for (final id in state.draftVertexIds) id == mergeId ? keepId : id,
+    ]);
+
+    state = state.copyWith(
+      polygons: updatedPolygons,
+      draftVertexIds: draftIds,
+      vertices: _prune(
+        state.vertices,
+        mergeId,
+        polygons: updatedPolygons,
+        draftVertexIds: draftIds,
+      ),
+    );
+    return true;
+  }
+
+  bool _canWeldVertices(String keepId, String mergeId) {
+    if (keepId == mergeId) return false;
+    if (state.vertices[keepId] == null || state.vertices[mergeId] == null) {
+      return false;
+    }
+
+    for (final polygon in state.polygons) {
+      final collapsed = _collapseConsecutiveRingIds([
+        for (final id in polygon.vertexIds) id == mergeId ? keepId : id,
+      ]);
+      if (collapsed.length < kMinPolygonVertices) return false;
+    }
+
+    return true;
+  }
+
+  /// Removes consecutive duplicate IDs from a closed polygon ring. When the
+  /// first and last entries match after collapse, drops the trailing one.
+  List<String> _collapseConsecutiveRingIds(List<String> ids) {
+    if (ids.length < 2) return ids;
+    final result = <String>[ids.first];
+    for (var i = 1; i < ids.length; i++) {
+      if (ids[i] != result.last) result.add(ids[i]);
+    }
+    if (result.length > 1 && result.first == result.last) {
+      result.removeLast();
+    }
+    return result;
+  }
+
+  /// Removes consecutive duplicate IDs from an open draft polyline.
+  List<String> _collapseConsecutiveOpenIds(List<String> ids) {
+    if (ids.isEmpty) return ids;
+    final result = <String>[ids.first];
+    for (var i = 1; i < ids.length; i++) {
+      if (ids[i] != result.last) result.add(ids[i]);
+    }
+    return result;
+  }
+
   /// Starts a brand new draft polygon whose first point *is*
   /// [existingVertexId] (the very same vertex, not a copy). The polygon it
   /// belongs to is left completely untouched — this only seeds a new,

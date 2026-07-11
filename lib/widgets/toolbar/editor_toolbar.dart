@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../models/canvas_mode.dart';
+import '../../models/polygon_shape.dart';
 import '../../providers/canvas_provider.dart';
 import '../../providers/drag_preview_provider.dart';
 import '../../providers/selected_vertex_provider.dart';
@@ -184,9 +185,18 @@ class _EditModeControls extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     ref.watch(canvasProvider);
+    final selectedVertexId = ref.watch(selectedVertexProvider);
     final notifier = ref.read(canvasProvider.notifier);
     final canUndo = notifier.canUndo;
     final color = Theme.of(context).colorScheme.primary;
+
+    final showDetach = selectedVertexId != null &&
+        notifier.isVertexShared(selectedVertexId);
+    final referencingPolygons = showDetach
+        ? notifier.polygonsReferencing(selectedVertexId)
+        : const <PolygonShape>[];
+    final draftReferences = showDetach &&
+        notifier.draftReferencesVertex(selectedVertexId);
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -200,13 +210,75 @@ class _EditModeControls extends ConsumerWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  '頂点をタップで選択、長押しドラッグで移動（共有の角は一緒に動きます）',
+                  'タップで選択、長押しドラッグで移動。別の頂点をタップで溶接。共有の角は下のボタンで切り離し',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: color),
                 ),
               ),
             ],
           ),
         ),
+        if (showDetach) ...[
+          Text(
+            'この頂点を切り離す:',
+            style: Theme.of(context).textTheme.labelMedium,
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final polygon in referencingPolygons)
+                OutlinedButton(
+                  onPressed: () {
+                    final copyId = notifier.detachVertexFromPolygon(
+                      selectedVertexId,
+                      polygon.id,
+                    );
+                    if (copyId != null) {
+                      ref.read(selectedVertexProvider.notifier).state = copyId;
+                    }
+                  },
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    minimumSize: const Size(0, 36),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 16,
+                        height: 16,
+                        decoration: BoxDecoration(
+                          color: polygon.fillColor,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.black26),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      const Text('ポリゴン'),
+                    ],
+                  ),
+                ),
+              if (draftReferences)
+                OutlinedButton(
+                  onPressed: () {
+                    final copyId = notifier.detachVertexFromDraft(
+                      selectedVertexId,
+                    );
+                    if (copyId != null) {
+                      ref.read(selectedVertexProvider.notifier).state = copyId;
+                    }
+                  },
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    minimumSize: const Size(0, 36),
+                  ),
+                  child: const Text('下書き'),
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+        ],
         OutlinedButton.icon(
           onPressed: canUndo ? notifier.undo : null,
           icon: const Icon(Icons.undo),
