@@ -1,5 +1,6 @@
 import 'dart:ui';
 
+import 'package:collection/collection.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
@@ -15,15 +16,18 @@ const _uuid = Uuid();
 /// polygon.
 const int kMinPolygonVertices = 3;
 
-/// Tap distance (in world/logical pixels) within which tapping near an
-/// existing polygon's vertex snaps onto it, reusing that exact vertex so the
-/// two shapes truly share that corner in the data model ("weld"), not just
-/// visually (see [CanvasNotifier.findPolygonVertexNear]).
+/// Tap distance (in world/logical pixels *at zoom scale 1*) within which
+/// tapping near an existing polygon's vertex snaps onto it, reusing that
+/// exact vertex so the two shapes truly share that corner in the data model
+/// ("weld"), not just visually (see [CanvasNotifier.findPolygonVertexNear]).
 ///
 /// Sized to roughly a fingertip (~48 logical px / Material's 48dp touch
-/// target). When canvas zoom/pan is added later (Phase B), this should be
-/// treated as a *screen* tolerance and divided by the current zoom scale
-/// before hit-testing in world space.
+/// target). This is a *screen* tolerance — finger precision doesn't change
+/// with zoom — so every method below that hit-tests against it takes an
+/// explicit `hitRadius` parameter (defaulting to this constant) rather than
+/// using it directly. Callers that know the current viewport scale (e.g.
+/// `PolygonCanvas`) pass `kVertexHitRadius / transform.scale` so the
+/// on-screen tolerance stays constant regardless of zoom.
 const double kVertexHitRadius = 48.0;
 
 /// Perpendicular distance (in world/logical pixels) within which an
@@ -93,6 +97,36 @@ class CanvasNotifier extends StateNotifier<Artwork> {
   /// on the draft's own start (see [_tryCloseAtVertex]).
   int _lastTapInsertedCount = 0;
 
+  /// Snapshots of [Artwork] before each user-visible mutation, newest last.
+  /// Transient gesture state ([_lastTapAt], [dragPreviewProvider], etc.) is
+  /// never stored here — only committed artwork changes are undoable.
+  final List<Artwork> _undoStack = [];
+
+  /// Whether at least one committed artwork change can be reversed via [undo].
+  bool get canUndo => _undoStack.isNotEmpty;
+
+  /// Pushes the current [state] onto [_undoStack] so the next mutation can
+  /// be reversed. Called immediately before every user-visible artwork
+  /// change (point placement, close, erase, clear, …) but never for
+  /// layout-only updates ([setCanvasSize]) or internal bookkeeping such as
+  /// [_removeLastDraftVertex] during double-tap self-close.
+  void _recordUndo() {
+    _undoStack.add(state);
+  }
+
+  /// Reverses the most recent committed artwork change.
+  ///
+  /// Restores the [Artwork] snapshot pushed by [_recordUndo] before that
+  /// operation — including closing a polygon (undoing a close brings back
+  /// the open draft), erasing a vertex, or placing a point. Returns false
+  /// when there is nothing to undo; true when a snapshot was restored.
+  bool undo() {
+    if (_undoStack.isEmpty) return false;
+    _resetPendingTap();
+    state = _undoStack.removeLast();
+    return true;
+  }
+
   /// Records the rendered size of the canvas widget in world coordinates.
   void setCanvasSize(Size size) {
     if (state.canvasSize == size) return;
@@ -134,15 +168,31 @@ class CanvasNotifier extends StateNotifier<Artwork> {
   /// Returns the fill color of the polygon a new draft was started from,
   /// so the caller can sync the color picker to match it, or null
   /// otherwise.
-  Color? handleDrawTap(Offset position, {required Color fillColor}) {
+  ///
+  /// [position] must already be in world coordinates (see
+  /// `CoordinateTransform.screenToWorld`). [hitRadius] is the vertex-snap
+  /// tolerance in that same world space — pass `kVertexHitRadius /
+  /// transform.scale` so the tolerance stays a constant *screen* distance
+  /// regardless of zoom; it defaults to [kVertexHitRadius] unscaled for
+  /// callers (e.g. tests) that don't have a viewport transform.
+  Color? handleDrawTap(
+    Offset position, {
+    required Color fillColor,
+    double hitRadius = kVertexHitRadius,
+  }) {
     final now = DateTime.now();
     if (_isPseudoDoubleTap(position, now) &&
-        _tryCloseAtVertex(position, fillColor)) {
+        _tryCloseAtVertex(position, fillColor, hitRadius: hitRadius)) {
       return null;
     }
 
     final countBefore = state.draftVertexIds.length;
-    final result = _handleSingleDrawTap(position, fillColor: fillColor);
+    _recordUndo();
+    final result = _handleSingleDrawTap(
+      position,
+      fillColor: fillColor,
+      hitRadius: hitRadius,
+    );
     _lastTapInsertedCount = state.draftVertexIds.length - countBefore;
     _lastTapAt = now;
     _lastTapPosition = position;
@@ -161,32 +211,46 @@ class CanvasNotifier extends StateNotifier<Artwork> {
   ///   the draft, is excluded from [findPolygonVertexNear]). It is therefore
   ///   detected directly: the tap sits on the draft's end and that end is a
   ///   corner of a confirmed polygon. The shape simply closes (following the
-  ///   shared edge inside [closePolygon] when start and end share a polygon).
+  ///   shared edge inside [closePolygon] when start and end share a polygon)
+  ///   — unless doing so right now would silently cut a straight, unwelded
+  ///   edge between two unrelated existing polygons (see
+  ///   [_wouldCloseWithUnweldedGap]); in that case this returns false so the
+  ///   tap is kept as an ordinary point instead of surprising the artist
+  ///   with a seam they didn't ask for. The toolbar's explicit "close"
+  ///   button (calling [closePolygon] directly) always still works.
   /// - **the draft's own start** → self-close into a loop. Drawing-time
   ///   snapping excludes the draft's own points, so the first tap of the
   ///   double-tap dropped a throwaway point next to the start; it is removed
   ///   first so the shape closes as a clean loop of the points actually
   ///   drawn. (Removing just the first tap's own contribution — with no
   ///   re-search — avoids the old bug where a close could snap back toward
-  ///   the start.)
-  bool _tryCloseAtVertex(Offset position, Color fillColor) {
+  ///   the start.) Closing onto the draft's own start is never a "gap" —
+  ///   there's nothing else to weld to — so no such check applies here.
+  bool _tryCloseAtVertex(
+    Offset position,
+    Color fillColor, {
+    required double hitRadius,
+  }) {
     final draftIds = state.draftVertexIds;
     if (draftIds.isEmpty) return false;
 
     final endPosition = state.vertices[draftIds.last]!.position;
-    if ((position - endPosition).distance <= kVertexHitRadius &&
+    if ((position - endPosition).distance <= hitRadius &&
         _isConfirmedPolygonVertex(draftIds.last)) {
       if (draftIds.length < kMinPolygonVertices) return false;
+      if (_wouldCloseWithUnweldedGap(draftIds.first, draftIds.last)) {
+        return false;
+      }
       closePolygon(fillColor);
       return true;
     }
 
     final startPosition = state.vertices[draftIds.first]!.position;
-    if ((position - startPosition).distance <= kVertexHitRadius) {
+    if ((position - startPosition).distance <= hitRadius) {
       final strayCount = _lastTapInsertedCount;
       if (draftIds.length - strayCount < kMinPolygonVertices) return false;
       for (var i = 0; i < strayCount; i++) {
-        undoLastVertex();
+        _removeLastDraftVertex();
       }
       closePolygon(fillColor);
       return true;
@@ -203,10 +267,14 @@ class CanvasNotifier extends StateNotifier<Artwork> {
 
   /// The per-tap logic behind [handleDrawTap], run whenever the tap was
   /// *not* a pseudo double-tap.
-  Color? _handleSingleDrawTap(Offset position, {required Color fillColor}) {
+  Color? _handleSingleDrawTap(
+    Offset position, {
+    required Color fillColor,
+    required double hitRadius,
+  }) {
     final draftIds = state.draftVertexIds;
 
-    final hit = findPolygonVertexNear(position);
+    final hit = findPolygonVertexNear(position, hitRadius: hitRadius);
     if (hit != null) {
       if (draftIds.isEmpty) {
         startDraftFromExistingVertex(hit.vertexId);
@@ -250,12 +318,16 @@ class CanvasNotifier extends StateNotifier<Artwork> {
   }
 
   /// Handles a tap while in [CanvasMode.eraser]: deletes the single nearest
-  /// confirmed-polygon vertex to [position] (within [kVertexHitRadius]), if
-  /// any. Does nothing when no vertex is close enough.
-  void handleEraseTap(Offset position) {
+  /// confirmed-polygon vertex to [position] (within [hitRadius]), if any.
+  /// Does nothing when no vertex is close enough.
+  ///
+  /// [position] must already be in world coordinates; [hitRadius] follows
+  /// the same screen-tolerance convention as [handleDrawTap].
+  void handleEraseTap(Offset position, {double hitRadius = kVertexHitRadius}) {
     _resetPendingTap();
-    final hit = findPolygonVertexNear(position);
+    final hit = findPolygonVertexNear(position, hitRadius: hitRadius);
     if (hit == null) return;
+    _recordUndo();
     deletePolygonVertex(hit.polygon, hit.vertexId);
   }
 
@@ -276,7 +348,9 @@ class CanvasNotifier extends StateNotifier<Artwork> {
   /// have every vertex the line happens to pass close to (e.g. another
   /// shape's edge sitting between them) get folded into the new draft
   /// automatically, instead of requiring a separate tap on each one. See
-  /// [handleDrawTap].
+  /// [handleDrawTap]. [_closingEdgeVertices] reuses this same welding for
+  /// the implicit closing edge, so it never skips a vertex sitting on it
+  /// just because that edge wasn't drawn by an explicit tap.
   List<String> _absorbVerticesAlongNewSegment(
     Offset start,
     Offset end, {
@@ -355,7 +429,15 @@ class CanvasNotifier extends StateNotifier<Artwork> {
   /// polygon* a matched vertex belongs to (needed to pick up that
   /// polygon's fill color); the actual nearest-neighbor search itself is
   /// delegated to the plain-geometry [findNearestPoint].
-  PolygonVertexHit? findPolygonVertexNear(Offset position) {
+  ///
+  /// [hitRadius] follows the same screen-tolerance convention as
+  /// [handleDrawTap]: it defaults to unscaled [kVertexHitRadius], but
+  /// callers with a viewport transform should pass it divided by the
+  /// current zoom scale.
+  PolygonVertexHit? findPolygonVertexNear(
+    Offset position, {
+    double hitRadius = kVertexHitRadius,
+  }) {
     final draftIds = state.draftVertexIds.toSet();
     final owningPolygon = <String, PolygonShape>{};
     final candidates = <PointCandidate<String>>[];
@@ -372,7 +454,7 @@ class CanvasNotifier extends StateNotifier<Artwork> {
     final nearest = findNearestPoint(
       position,
       candidates,
-      maxDistance: kVertexHitRadius,
+      maxDistance: hitRadius,
     );
     if (nearest == null) return null;
     return (polygon: owningPolygon[nearest.$1]!, vertexId: nearest.$1);
@@ -461,20 +543,24 @@ class CanvasNotifier extends StateNotifier<Artwork> {
 
   /// Confirms the current draft vertices as a new filled polygon.
   ///
-  /// When the draft's first and last points both belong to the *same*
-  /// existing polygon, the shape is closed by following that polygon's own
-  /// boundary between them (see [_sharedBoundaryClosure]) instead of cutting a
-  /// straight edge from the last point back to the first. This lets an artist
-  /// draw a free-hand arc from one corner of an existing shape to another and
-  /// have the new shape tile seamlessly against it — sharing the whole edge in
-  /// between, not just the two endpoints.
+  /// The closing edge — from the draft's last point back to its first — is
+  /// resolved by one rule that applies no matter which polygons (if any)
+  /// the two ends happen to belong to (see [_closingEdgeVertices]): follow
+  /// the shortest existing chain of polygon boundaries connecting them —
+  /// whether that's one polygon's own two arcs or a route hopping across
+  /// several polygons that happen to share welded vertices — when there is
+  /// one, otherwise weld onto any existing vertex that happens to sit on
+  /// the straight line between them. Either way the shape tiles seamlessly
+  /// against whatever it touches, instead of the specific start/end
+  /// combination changing how (or whether) it welds.
   void closePolygon(Color fillColor) {
     _resetPendingTap();
     final draftIds = state.draftVertexIds;
     if (draftIds.length < kMinPolygonVertices) return;
+    _recordUndo();
     final vertexIds = [
       ...draftIds,
-      ..._sharedBoundaryClosure(draftIds.first, draftIds.last),
+      ..._closingEdgeVertices(draftIds.first, draftIds.last),
     ];
     final polygon = PolygonShape(
       id: _uuid.v4(),
@@ -489,80 +575,182 @@ class CanvasNotifier extends StateNotifier<Artwork> {
     );
   }
 
-  /// When [startId] and [endId] are both vertices of the *same* confirmed
-  /// polygon, returns that polygon's own boundary vertices lying strictly
-  /// between [endId] and [startId] — walking whichever of the two arcs around
-  /// the ring is geometrically shorter — so the draft can close by following
-  /// that shared edge rather than cutting straight back to its start.
+  /// Resolves what, if anything, belongs *between* the draft's last point
+  /// ([endId]) and its first ([startId]) when closing — the single rule
+  /// behind [closePolygon]:
+  /// - If there is any chain of existing polygons' own edges connecting
+  ///   them — whether that's the two arcs of one polygon they're both
+  ///   corners of, or a longer route hopping across several polygons that
+  ///   happen to share welded vertices along the way — follow the
+  ///   geometrically shortest such chain (see [_sharedBoundaryClosure])
+  ///   rather than cutting a straight edge. This lets an artist draw a
+  ///   free-hand arc from one shape's corner to another's and have the new
+  ///   shape tile seamlessly against everything already welded in
+  ///   between, not just the two endpoints it directly touches.
+  /// - Otherwise (no such chain exists) fall back to
+  ///   [_absorbVerticesAlongNewSegment], exactly the same welding every
+  ///   other, explicitly-drawn segment already gets. Without this
+  ///   fallback, the implicit closing edge was the one segment in the
+  ///   whole drawing model that could silently cut straight across
+  ///   (instead of weld to) another shape's corner sitting in its path,
+  ///   leaving a gap the artist never asked for.
   ///
-  /// The returned IDs are appended after the draft's last point, so the closing
-  /// path runs `last -> boundary... -> first`. They are the polygon's *own*
-  /// vertex IDs (reused, not copied), so the two shapes genuinely share that
-  /// edge in the [Artwork.vertices] pool ("weld"). Any vertex already present
-  /// in the draft is skipped to avoid duplicating a corner.
+  /// The returned IDs are appended after the draft's last point, so the
+  /// closing path runs `last -> ...returned... -> first` either way.
+  List<String> _closingEdgeVertices(String startId, String endId) {
+    final sharedBoundary = _sharedBoundaryClosure(startId, endId);
+    if (sharedBoundary.isNotEmpty) return sharedBoundary;
+
+    final startPosition = state.vertices[startId]!.position;
+    final endPosition = state.vertices[endId]!.position;
+    return _absorbVerticesAlongNewSegment(endPosition, startPosition);
+  }
+
+  /// True when closing the draft from [startId] to [endId] right now, via
+  /// [_closingEdgeVertices], would silently cut a straight, unwelded edge
+  /// between two *different* existing polygons that share no boundary or
+  /// welded chain — i.e. would create a seam the artist likely didn't
+  /// intend, rather than follow a real shared boundary or weld onto
+  /// something sitting in between.
   ///
-  /// Returns an empty list when the two points don't share a polygon (or are
-  /// the same point, or are adjacent with nothing in between); the draft then
-  /// closes with a plain straight edge exactly as before.
+  /// Used by [_tryCloseAtVertex] to keep the implicit double-tap gesture
+  /// "safe": it should only ever close when the result is unsurprising —
+  /// a fresh loop back to the draft's own start, a shared or chained
+  /// boundary, or a weld onto a vertex sitting on the closing line. When
+  /// either end isn't a confirmed polygon vertex at all, there is nothing
+  /// to unexpectedly cut across, so this returns false. The toolbar's
+  /// explicit "close" button (which calls [closePolygon] directly,
+  /// bypassing this check) remains available to force a plain straight
+  /// edge when the artist deliberately wants one even though nothing
+  /// connects the two ends.
+  bool _wouldCloseWithUnweldedGap(String startId, String endId) {
+    if (startId == endId) return false;
+    if (!_isConfirmedPolygonVertex(startId) ||
+        !_isConfirmedPolygonVertex(endId)) {
+      return false;
+    }
+    if (_shortestBoundaryPath(endId, startId) != null) return false;
+
+    final startPosition = state.vertices[startId]!.position;
+    final endPosition = state.vertices[endId]!.position;
+    return _absorbVerticesAlongNewSegment(endPosition, startPosition).isEmpty;
+  }
+
+  /// When [startId] and [endId] are connected by some chain of existing
+  /// polygons' own edges (see [_shortestBoundaryPath]), returns the
+  /// vertices strictly between them along the geometrically shortest such
+  /// chain, so the draft can close by following it rather than cutting
+  /// straight back to its start.
+  ///
+  /// The returned IDs are appended after the draft's last point, so the
+  /// closing path runs `last -> boundary... -> first`. They are reused
+  /// vertex IDs (not copies), so every polygon along the chain genuinely
+  /// shares that edge in the [Artwork.vertices] pool ("weld").
+  ///
+  /// Returns an empty list when no such chain exists (or the two points are
+  /// the same, or directly adjacent with nothing in between);
+  /// [_closingEdgeVertices] then falls back to absorbing any existing
+  /// vertex that sits on the straight closing line instead of a shared
+  /// boundary.
   List<String> _sharedBoundaryClosure(String startId, String endId) {
-    if (startId == endId) return const [];
-    final draftSet = state.draftVertexIds.toSet();
+    final path = _shortestBoundaryPath(endId, startId);
+    if (path == null || path.length <= 2) return const [];
+    return path.sublist(1, path.length - 1);
+  }
+
+  /// Geometrically shortest path from [fromId] to [toId] that travels only
+  /// along existing confirmed polygons' own edges (every vertex connected
+  /// to its immediate ring neighbors in each polygon it's a corner of),
+  /// weighted by on-screen distance — or `null` when no such path exists.
+  ///
+  /// This is what lets a new draft tile seamlessly against whatever it
+  /// touches: when [fromId] and [toId] are both corners of the *same*
+  /// polygon, this naturally reduces to whichever of that polygon's two
+  /// boundary arcs between them is shorter (the graph has no other edges
+  /// to offer there). When they belong to two *different* polygons that
+  /// happen to share a welded vertex somewhere — directly, or via a chain
+  /// of further shared vertices — this finds the route through that chain
+  /// instead, so drawing a shape from one existing corner to another never
+  /// cuts straight across a boundary that's actually already there.
+  ///
+  /// Vertices belonging to the *current* draft are never used as a
+  /// mid-path hop (only [toId] itself — the draft's own other end — is
+  /// allowed as the destination): they're already accounted for elsewhere
+  /// in the draft, so routing through one would duplicate a corner into a
+  /// self-intersecting loop instead of a clean weld.
+  List<String>? _shortestBoundaryPath(String fromId, String toId) {
+    if (fromId == toId) return [fromId];
+    final graph = _polygonEdgeGraph();
+    if (!graph.containsKey(fromId) || !graph.containsKey(toId)) return null;
+
+    final blockedHops = state.draftVertexIds.toSet()..remove(toId);
+    final best = <String, double>{fromId: 0};
+    final previous = <String, String>{};
+    final settled = <String>{};
+    final queue = PriorityQueue<(double, String)>(
+      (a, b) => a.$1.compareTo(b.$1),
+    );
+    queue.add((0.0, fromId));
+
+    while (queue.isNotEmpty) {
+      final (dist, current) = queue.removeFirst();
+      if (!settled.add(current)) continue;
+      if (current == toId) break;
+      for (final (neighborId, weight)
+          in graph[current] ?? const <(String, double)>[]) {
+        if (blockedHops.contains(neighborId)) continue;
+        final candidate = dist + weight;
+        if (candidate < (best[neighborId] ?? double.infinity)) {
+          best[neighborId] = candidate;
+          previous[neighborId] = current;
+          queue.add((candidate, neighborId));
+        }
+      }
+    }
+
+    if (!settled.contains(toId)) return null;
+    final path = <String>[toId];
+    var node = toId;
+    while (node != fromId) {
+      final prev = previous[node];
+      if (prev == null) return null;
+      path.add(prev);
+      node = prev;
+    }
+    return path.reversed.toList();
+  }
+
+  /// Builds an undirected graph over every confirmed polygon's own ring of
+  /// edges (each vertex linked to its immediate neighbors within each
+  /// polygon it belongs to), weighted by on-screen distance between them.
+  /// Used by [_shortestBoundaryPath] to route a closing edge along
+  /// whatever boundary is already there instead of cutting straight
+  /// through it.
+  Map<String, List<(String, double)>> _polygonEdgeGraph() {
+    final graph = <String, List<(String, double)>>{};
+    void addEdge(String a, String b) {
+      final va = state.vertices[a];
+      final vb = state.vertices[b];
+      if (va == null || vb == null) return;
+      final weight = (vb.position - va.position).distance;
+      (graph[a] ??= []).add((b, weight));
+      (graph[b] ??= []).add((a, weight));
+    }
+
     for (final polygon in state.polygons) {
       final ids = polygon.vertexIds;
-      final iStart = ids.indexOf(startId);
-      final iEnd = ids.indexOf(endId);
-      if (iStart < 0 || iEnd < 0) continue;
-
-      final forward = _arcVertices(ids, iEnd, iStart, forward: true);
-      final backward = _arcVertices(ids, iEnd, iStart, forward: false);
-      final chosen = _pathLength(forward) <= _pathLength(backward)
-          ? forward
-          : backward;
-
-      // `chosen` runs [endId, ...intermediates..., startId]; keep only the
-      // in-between vertices that aren't already in the draft.
-      return [
-        for (final id in chosen.sublist(1, chosen.length - 1))
-          if (!draftSet.contains(id)) id,
-      ];
+      for (var i = 0; i < ids.length; i++) {
+        addEdge(ids[i], ids[(i + 1) % ids.length]);
+      }
     }
-    return const [];
+    return graph;
   }
 
-  /// Walks the closed ring [ids] from index [from] to index [to] (inclusive of
-  /// both) in the given direction, returning the vertex IDs visited in order.
-  List<String> _arcVertices(
-    List<String> ids,
-    int from,
-    int to, {
-    required bool forward,
-  }) {
-    final n = ids.length;
-    final result = <String>[ids[from]];
-    var i = from;
-    while (i != to) {
-      i = forward ? (i + 1) % n : (i - 1 + n) % n;
-      result.add(ids[i]);
-    }
-    return result;
-  }
-
-  /// Total length of the polyline through [vertexIds], in world pixels.
-  double _pathLength(List<String> vertexIds) {
-    var total = 0.0;
-    for (var i = 0; i + 1 < vertexIds.length; i++) {
-      final a = state.vertices[vertexIds[i]];
-      final b = state.vertices[vertexIds[i + 1]];
-      if (a == null || b == null) continue;
-      total += (b.position - a.position).distance;
-    }
-    return total;
-  }
-
-  /// Removes the most recently placed draft vertex, pruning it from the
-  /// shared pool if nothing else references it.
-  void undoLastVertex() {
-    _resetPendingTap();
+  /// Removes the most recently placed draft vertex without recording an undo
+  /// entry. Used internally when double-tap self-close discards the
+  /// throwaway first tap of the pair before [closePolygon] records a single
+  /// undo for the close itself.
+  void _removeLastDraftVertex() {
     final draftIds = state.draftVertexIds;
     if (draftIds.isEmpty) return;
     final removedId = draftIds.last;
@@ -584,6 +772,7 @@ class CanvasNotifier extends StateNotifier<Artwork> {
     _resetPendingTap();
     final draftIds = state.draftVertexIds;
     if (draftIds.isEmpty) return;
+    _recordUndo();
     var vertices = state.vertices;
     for (final id in draftIds) {
       vertices = _prune(
@@ -600,6 +789,8 @@ class CanvasNotifier extends StateNotifier<Artwork> {
   /// every vertex in the shared pool.
   void clearAll() {
     _resetPendingTap();
+    if (state.polygons.isEmpty && state.draftVertexIds.isEmpty) return;
+    _recordUndo();
     state = state.copyWith(
       vertices: const {},
       polygons: const [],

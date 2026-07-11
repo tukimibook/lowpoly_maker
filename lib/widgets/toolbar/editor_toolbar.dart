@@ -3,12 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../models/canvas_mode.dart';
 import '../../providers/canvas_provider.dart';
+import '../../providers/drag_preview_provider.dart';
 
 /// Bottom toolbar for Phase 1.
 ///
 /// Always shows the draw/eraser mode switch. Below it, the controls change
 /// completely depending on the selected mode so the two behaviors never mix:
-/// - Draw mode: fill color palette + undo last point / close polygon.
+/// - Draw mode: fill color palette + undo / close polygon.
 /// - Eraser mode: just a short instruction (tapping a vertex deletes it).
 class EditorToolbar extends ConsumerWidget {
   const EditorToolbar({super.key});
@@ -27,7 +28,10 @@ class EditorToolbar extends ConsumerWidget {
           children: [
             _ModeSwitch(mode: mode),
             const SizedBox(height: 12),
-            if (mode == CanvasMode.draw) const _DrawModeControls() else const _EraserModeHint(),
+            if (mode == CanvasMode.draw)
+              const _DrawModeControls()
+            else
+              const _EraserModeHint(),
           ],
         ),
       ),
@@ -57,7 +61,11 @@ class _ModeSwitch extends ConsumerWidget {
       ],
       selected: {mode},
       onSelectionChanged: (selection) {
-        ref.read(canvasModeProvider.notifier).state = selection.first;
+        final newMode = selection.first;
+        ref.read(canvasModeProvider.notifier).state = newMode;
+        if (newMode != CanvasMode.draw) {
+          ref.read(dragPreviewProvider).value = null;
+        }
       },
     );
   }
@@ -72,7 +80,7 @@ class _DrawModeControls extends ConsumerWidget {
     final notifier = ref.read(canvasProvider.notifier);
     final selectedColor = ref.watch(selectedFillColorProvider);
 
-    final canUndo = artwork.draftVertexIds.isNotEmpty;
+    final canUndo = notifier.canUndo;
     final canClose = artwork.draftVertexIds.length >= kMinPolygonVertices;
 
     return Column(
@@ -112,9 +120,9 @@ class _DrawModeControls extends ConsumerWidget {
           children: [
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: canUndo ? notifier.undoLastVertex : null,
+                onPressed: canUndo ? notifier.undo : null,
                 icon: const Icon(Icons.undo),
-                label: const Text('1点戻す'),
+                label: const Text('元に戻す'),
               ),
             ),
             const SizedBox(width: 12),

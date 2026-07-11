@@ -1,43 +1,68 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../models/artwork.dart';
 import '../../models/canvas_mode.dart';
 import '../../models/polygon_shape.dart';
 import '../../providers/canvas_provider.dart' show kMinPolygonVertices;
+import '../../providers/drag_preview_provider.dart';
+import '../../services/coordinate_transform.dart';
 
 /// Paints all confirmed polygons plus the in-progress draft (points and
 /// connecting preview lines) for [artwork]. The vertex hint markers change
 /// appearance depending on [mode] so it's clear whether tapping a vertex
 /// will start a new shape (draw mode) or delete it (eraser mode).
 class PolygonPainter extends CustomPainter {
-  const PolygonPainter({required this.artwork, required this.mode});
+  PolygonPainter({
+    required this.artwork,
+    required this.mode,
+    required this.viewport,
+    required this.dragPreview,
+    required this.canvasBrightness,
+  }) : super(repaint: Listenable.merge([viewport, dragPreview]));
 
   final Artwork artwork;
   final CanvasMode mode;
+  final ValueListenable<ViewportTransform> viewport;
+  final ValueListenable<DragPreview?> dragPreview;
+  final Brightness canvasBrightness;
 
   static const double _vertexRadius = 5;
   static const double _continuationHandleRadius = 4;
-
-  /// Fill opacity applied to every polygon (~30%), independent of the
-  /// selected palette color. A per-polygon opacity control is planned for
-  /// a later phase.
   static const int _fillAlpha = 77;
+
+  Color get _onCanvasColor =>
+      canvasBrightness == Brightness.dark ? Colors.white : Colors.black;
+
+  Color get _canvasContrastColor =>
+      canvasBrightness == Brightness.dark ? Colors.black : Colors.white;
 
   @override
   void paint(Canvas canvas, Size size) {
+    final transform = viewport.value;
+    canvas.save();
+    canvas.translate(transform.offset.dx, transform.offset.dy);
+    canvas.scale(transform.scale);
+
     for (final polygon in artwork.polygons) {
       _paintPolygon(canvas, polygon);
     }
 
-    // Vertex hints stay visible even while a draft is in progress, so users
-    // can see exactly where the in-progress line can snap onto and close.
-    _paintVertexHints(canvas, artwork.polygons, hasDraft: artwork.draftVertexIds.isNotEmpty);
+    _paintVertexHints(
+      canvas,
+      artwork.polygons,
+      hasDraft: artwork.draftVertexIds.isNotEmpty,
+    );
 
     _paintDraft(canvas, artwork.draftVertexIds);
+
+    if (mode == CanvasMode.draw) {
+      _paintDragPreview(canvas, artwork.draftVertexIds);
+    }
+
+    canvas.restore();
   }
 
-  /// Resolves a polygon's or the draft's vertex IDs into actual on-screen
-  /// positions via the shared vertex pool ([Artwork.vertices]).
   List<Offset> _resolvePositions(List<String> vertexIds) {
     return [for (final id in vertexIds) artwork.vertices[id]!.position];
   }
@@ -65,14 +90,6 @@ class PolygonPainter extends CustomPainter {
     canvas.drawPath(path, strokePaint);
   }
 
-  /// Small markers hinting what tapping a confirmed polygon's vertex will
-  /// do:
-  /// - eraser mode: delete just that point (red),
-  /// - draw mode with a draft in progress: snap the in-progress line's next
-  ///   point onto that exact vertex, sharing the corner with no gap — this
-  ///   never closes the shape by itself (teal),
-  /// - draw mode with no draft: start a brand new polygon from that point
-  ///   (black).
   void _paintVertexHints(
     Canvas canvas,
     List<PolygonShape> polygons, {
@@ -84,14 +101,15 @@ class PolygonPainter extends CustomPainter {
     } else if (hasDraft) {
       color = Colors.teal;
     } else {
-      color = Colors.black;
+      color = _onCanvasColor;
     }
     final isEmphasized = mode == CanvasMode.eraser || hasDraft;
 
     final handlePaint = Paint()
       ..color = color.withAlpha(isEmphasized ? 210 : 140)
       ..style = PaintingStyle.fill;
-    final radius = isEmphasized ? _continuationHandleRadius + 1 : _continuationHandleRadius;
+    final radius =
+        isEmphasized ? _continuationHandleRadius + 1 : _continuationHandleRadius;
 
     for (final polygon in polygons) {
       for (final position in _resolvePositions(polygon.vertexIds)) {
@@ -105,7 +123,7 @@ class PolygonPainter extends CustomPainter {
     final positions = _resolvePositions(draftVertexIds);
 
     final linePaint = Paint()
-      ..color = Colors.black87
+      ..color = _onCanvasColor.withAlpha(221)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2;
 
@@ -114,10 +132,10 @@ class PolygonPainter extends CustomPainter {
     }
 
     final dotPaint = Paint()
-      ..color = Colors.black
+      ..color = _onCanvasColor
       ..style = PaintingStyle.fill;
     final dotBorderPaint = Paint()
-      ..color = Colors.white
+      ..color = _canvasContrastColor
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.5;
 
@@ -126,8 +144,6 @@ class PolygonPainter extends CustomPainter {
       canvas.drawCircle(position, _vertexRadius, dotBorderPaint);
     }
 
-    // Once there are enough points to form a polygon, ring the start point to
-    // signal "double-tap here to close" (the shape's self-close target).
     if (positions.length >= kMinPolygonVertices) {
       final closeHintPaint = Paint()
         ..color = Colors.teal
@@ -137,8 +153,41 @@ class PolygonPainter extends CustomPainter {
     }
   }
 
+  void _paintDragPreview(Canvas canvas, List<String> draftVertexIds) {
+    final preview = dragPreview.value;
+    if (preview == null) return;
+
+    if (draftVertexIds.isNotEmpty) {
+      final lastPosition = artwork.vertices[draftVertexIds.last]!.position;
+      final previewLinePaint = Paint()
+        ..color = _onCanvasColor.withAlpha(120)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5;
+      canvas.drawLine(lastPosition, preview.position, previewLinePaint);
+    }
+
+    final snappedId = preview.snappedVertexId;
+    if (snappedId == null) return;
+    final snapPosition = artwork.vertices[snappedId]!.position;
+
+    final magnetRingPaint = Paint()
+      ..color = Colors.teal
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3;
+    canvas.drawCircle(snapPosition, _vertexRadius + 7, magnetRingPaint);
+
+    final magnetGlowPaint = Paint()
+      ..color = Colors.teal.withAlpha(50)
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(snapPosition, _vertexRadius + 7, magnetGlowPaint);
+  }
+
   @override
   bool shouldRepaint(covariant PolygonPainter oldDelegate) {
-    return oldDelegate.artwork != artwork || oldDelegate.mode != mode;
+    return oldDelegate.artwork != artwork ||
+        oldDelegate.mode != mode ||
+        oldDelegate.viewport != viewport ||
+        oldDelegate.dragPreview != dragPreview ||
+        oldDelegate.canvasBrightness != canvasBrightness;
   }
 }
