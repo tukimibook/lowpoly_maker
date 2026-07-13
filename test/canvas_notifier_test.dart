@@ -1216,4 +1216,257 @@ void main() {
       },
     );
   });
+
+  group('CanvasNotifier undo stack limit (Phase E+, #5)', () {
+    test('undo stack is capped so it does not grow without bound', () {
+      final notifier = CanvasNotifier();
+      // Each tap lands far enough from the previous one that it's never
+      // mistaken for a pseudo double-tap close — every call just grows a
+      // single ever-longer draft, one undo entry each.
+      for (var i = 0; i < kUndoStackLimit + 20; i++) {
+        notifier.handleDrawTap(Offset(i * 100.0, 0), fillColor: Colors.red);
+      }
+
+      var undoCount = 0;
+      while (notifier.undo()) {
+        undoCount++;
+      }
+
+      // The oldest 20 entries were dropped, so only the cap's worth remain.
+      expect(undoCount, kUndoStackLimit);
+    });
+  });
+
+  group('CanvasNotifier weldVertices figure-8 guard (Phase E+, #7)', () {
+    test(
+      'weldVertices rejects a merge that would pinch a quadrilateral into '
+      'a self-touching figure-8/bowtie',
+      () {
+        final notifier = CanvasNotifier();
+        notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.teal);
+        notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.teal);
+        notifier.handleDrawTap(
+          const Offset(100, 100),
+          fillColor: Colors.teal,
+        );
+        notifier.handleDrawTap(const Offset(0, 100), fillColor: Colors.teal);
+        notifier.closePolygon(Colors.teal);
+        final ids = notifier.state.polygons.single.vertexIds;
+        final keepId = ids[1]; // (100, 0)
+        final mergeId = ids[3]; // (0, 100) — the opposite corner
+
+        expect(notifier.weldVertices(keepId, mergeId), isFalse);
+        // Nothing changed: the ring, and both vertices, are left intact.
+        expect(notifier.state.polygons.single.vertexIds, ids);
+        expect(notifier.state.vertices.containsKey(keepId), isTrue);
+        expect(notifier.state.vertices.containsKey(mergeId), isTrue);
+      },
+    );
+
+    test(
+      'weldVertices still allows an ordinary merge between two otherwise '
+      'unrelated polygons (no figure-8 introduced)',
+      () {
+        final notifier = CanvasNotifier();
+        notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.blue);
+        notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.blue);
+        notifier.handleDrawTap(const Offset(50, 100), fillColor: Colors.blue);
+        notifier.closePolygon(Colors.blue);
+        final keepId = notifier.state.polygons.single.vertexIds[1];
+
+        notifier.handleDrawTap(const Offset(300, 0), fillColor: Colors.red);
+        notifier.handleDrawTap(const Offset(400, 0), fillColor: Colors.red);
+        notifier.handleDrawTap(
+          const Offset(350, 100),
+          fillColor: Colors.red,
+        );
+        notifier.closePolygon(Colors.red);
+        final mergeId = notifier.state.polygons[1].vertexIds[0];
+
+        expect(notifier.weldVertices(keepId, mergeId), isTrue);
+        expect(notifier.state.vertices.containsKey(mergeId), isFalse);
+      },
+    );
+  });
+
+  group(
+    'CanvasNotifier clearDraft / clearAll undo coverage (Phase E+, #15)',
+    () {
+      test('undo restores the draft after clearDraft', () {
+        final notifier = CanvasNotifier();
+        notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.red);
+        notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.red);
+        final draftBeforeClear = List<String>.from(
+          notifier.state.draftVertexIds,
+        );
+
+        notifier.clearDraft();
+        expect(notifier.state.draftVertexIds, isEmpty);
+
+        expect(notifier.undo(), isTrue);
+        expect(notifier.state.draftVertexIds, draftBeforeClear);
+      });
+
+      test(
+        'undo restores polygons, draft, and vertices after clearAll',
+        () {
+          final notifier = CanvasNotifier();
+          notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.blue);
+          notifier.handleDrawTap(
+            const Offset(100, 0),
+            fillColor: Colors.blue,
+          );
+          notifier.handleDrawTap(
+            const Offset(50, 100),
+            fillColor: Colors.blue,
+          );
+          notifier.closePolygon(Colors.blue);
+          notifier.handleDrawTap(
+            const Offset(300, 300),
+            fillColor: Colors.orange,
+          );
+          final beforeClear = notifier.state;
+
+          notifier.clearAll();
+          expect(notifier.state.polygons, isEmpty);
+          expect(notifier.state.draftVertexIds, isEmpty);
+          expect(notifier.state.vertices, isEmpty);
+
+          expect(notifier.undo(), isTrue);
+          expect(notifier.state, beforeClear);
+        },
+      );
+
+      test(
+        'clearDraft and clearAll on an already-empty canvas are no-ops and '
+        'push no undo entry',
+        () {
+          final notifier = CanvasNotifier();
+          notifier.clearDraft();
+          expect(notifier.canUndo, isFalse);
+
+          notifier.clearAll();
+          expect(notifier.canUndo, isFalse);
+        },
+      );
+    },
+  );
+
+  group(
+    'CanvasNotifier detachVertexFromDraft coverage (Phase E+, #16)',
+    () {
+      test(
+        'detaching a vertex shared between a confirmed polygon and the '
+        'draft lets the draft move independently',
+        () {
+          final notifier = CanvasNotifier();
+          notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.green);
+          notifier.handleDrawTap(
+            const Offset(100, 0),
+            fillColor: Colors.green,
+          );
+          notifier.handleDrawTap(
+            const Offset(50, 100),
+            fillColor: Colors.green,
+          );
+          notifier.closePolygon(Colors.green);
+          final sharedId =
+              notifier.state.polygons.single.vertexIds[1]; // (100, 0)
+
+          // A brand new draft starts by snapping onto that same vertex —
+          // now shared between the confirmed polygon and the in-progress
+          // draft.
+          notifier.handleDrawTap(
+            const Offset(100, 0),
+            fillColor: Colors.purple,
+          );
+          expect(notifier.state.draftVertexIds, [sharedId]);
+          expect(notifier.isVertexShared(sharedId), isTrue);
+
+          final copyId = notifier.detachVertexFromDraft(sharedId);
+          expect(copyId, isNotNull);
+          expect(notifier.state.draftVertexIds, [copyId]);
+          expect(
+            notifier.state.polygons.single.vertexIds,
+            contains(sharedId),
+          );
+          expect(
+            notifier.state.polygons.single.vertexIds,
+            isNot(contains(copyId)),
+          );
+
+          notifier.moveVertex(copyId!, const Offset(120, 20));
+
+          expect(
+            notifier.state.vertices[sharedId]!.position,
+            const Offset(100, 0),
+          );
+          expect(
+            notifier.state.vertices[copyId]!.position,
+            const Offset(120, 20),
+          );
+        },
+      );
+
+      test(
+        'detachVertexFromDraft is a no-op when the vertex is not shared',
+        () {
+          final notifier = CanvasNotifier();
+          notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.red);
+          final onlyId = notifier.state.draftVertexIds.single;
+
+          expect(notifier.detachVertexFromDraft(onlyId), isNull);
+          expect(notifier.state.draftVertexIds, [onlyId]);
+        },
+      );
+
+      test(
+        'detachVertexFromDraft is a no-op when the draft does not '
+        'reference the vertex at all',
+        () {
+          final notifier = CanvasNotifier();
+          notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.green);
+          notifier.handleDrawTap(
+            const Offset(100, 0),
+            fillColor: Colors.green,
+          );
+          notifier.handleDrawTap(
+            const Offset(50, 100),
+            fillColor: Colors.green,
+          );
+          notifier.closePolygon(Colors.green);
+          final polygonOnlyId = notifier.state.polygons.single.vertexIds[0];
+
+          notifier.handleDrawTap(
+            const Offset(500, 500),
+            fillColor: Colors.orange,
+          );
+
+          expect(notifier.detachVertexFromDraft(polygonOnlyId), isNull);
+        },
+      );
+
+      test('undo restores artwork after detachVertexFromDraft', () {
+        final notifier = CanvasNotifier();
+        notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.green);
+        notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.green);
+        notifier.handleDrawTap(
+          const Offset(50, 100),
+          fillColor: Colors.green,
+        );
+        notifier.closePolygon(Colors.green);
+        final sharedId = notifier.state.polygons.single.vertexIds[1];
+
+        notifier.handleDrawTap(
+          const Offset(100, 0),
+          fillColor: Colors.purple,
+        );
+        final beforeDetach = notifier.state;
+
+        notifier.detachVertexFromDraft(sharedId);
+        expect(notifier.undo(), isTrue);
+        expect(notifier.state, beforeDetach);
+      });
+    },
+  );
 }

@@ -51,6 +51,15 @@ const Duration kDoubleTapMaxInterval = Duration(milliseconds: 300);
 /// deliberate single taps placed in different spots while sketching.
 const double kDoubleTapMaxDistance = 20.0;
 
+/// Maximum number of committed [Artwork] snapshots kept in [_undoStack].
+/// Once exceeded, the oldest entry is dropped so undo history doesn't grow
+/// without bound — relevant once later phases (e.g. Phase G's bulk
+/// tessellation output, or a long Phase F trace) can push many commits, or
+/// a single commit containing thousands of vertices, in one session.
+/// Redo and cross-session persistence of this history are out of scope
+/// here (see Phase H+). → 検討メモ（2026-07-13 追記続き2）参照。
+const int kUndoStackLimit = 100;
+
 /// Preset fill colors offered in Phase 1. A full color picker / palette
 /// manager is introduced in a later phase.
 const List<Color> kDefaultPolygonPalette = [
@@ -110,8 +119,14 @@ class CanvasNotifier extends StateNotifier<Artwork> {
   /// change (point placement, close, erase, clear, …) but never for
   /// layout-only updates ([setCanvasSize]) or internal bookkeeping such as
   /// [_removeLastDraftVertex] during double-tap self-close.
+  ///
+  /// Caps the stack at [kUndoStackLimit], dropping the oldest snapshot once
+  /// exceeded, so a long session can't grow this list without bound.
   void _recordUndo() {
     _undoStack.add(state);
+    if (_undoStack.length > kUndoStackLimit) {
+      _undoStack.removeAt(0);
+    }
   }
 
   /// Reverses the most recent committed artwork change.
@@ -639,9 +654,31 @@ class CanvasNotifier extends StateNotifier<Artwork> {
         for (final id in polygon.vertexIds) id == mergeId ? keepId : id,
       ]);
       if (collapsed.length < kMinPolygonVertices) return false;
+      if (_hasNonConsecutiveDuplicate(collapsed)) return false;
     }
 
+    final collapsedDraft = _collapseConsecutiveOpenIds([
+      for (final id in state.draftVertexIds) id == mergeId ? keepId : id,
+    ]);
+    if (_hasNonConsecutiveDuplicate(collapsedDraft)) return false;
+
     return true;
+  }
+
+  /// True when [ids] — already collapsed of merely *consecutive*
+  /// duplicates by [_collapseConsecutiveRingIds] / [_collapseConsecutiveOpenIds]
+  /// — still contains the same ID more than once, e.g. `[A, keep, B, keep,
+  /// C]`. For a closed polygon ring this means the shape revisits the same
+  /// point non-consecutively: a self-touching "figure-8"/bowtie, such as
+  /// pinching two opposite corners of a quadrilateral together. That's
+  /// silently allowed by the *consecutive*-only collapse above (which only
+  /// catches a point immediately welded to its own ring neighbor), yet it
+  /// breaks the "one simple closed curve per polygon" assumption later
+  /// stages — notably Phase G's tessellation — rely on. [weldVertices]
+  /// refuses any merge that would produce one rather than let degenerate
+  /// geometry into the shared pool. → 検討メモ（2026-07-13 追記続き2）参照。
+  bool _hasNonConsecutiveDuplicate(List<String> ids) {
+    return ids.toSet().length != ids.length;
   }
 
   /// Removes consecutive duplicate IDs from a closed polygon ring. When the
