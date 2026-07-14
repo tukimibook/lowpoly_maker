@@ -1,10 +1,12 @@
 import 'dart:ui';
 
-import 'package:collection/collection.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
+import '../geometry/line_absorption.dart';
 import '../geometry/nearest_point.dart';
+import '../geometry/polygon_graph.dart';
+import '../geometry/ring_collapse.dart';
 import '../models/artwork.dart';
 import '../models/canvas_mode.dart';
 import '../models/polygon_shape.dart';
@@ -178,7 +180,7 @@ class CanvasNotifier extends StateNotifier<Artwork> {
   /// resolved (snapped onto an existing vertex or placed freehand), any
   /// existing vertex that the *new segment* back to the previous draft
   /// point happens to pass close by gets absorbed into the draft too — see
-  /// [_absorbVerticesAlongNewSegment].
+  /// [_insertAbsorbedVertices] / [findVerticesAlongSegment].
   ///
   /// Returns the fill color of the polygon a new draft was started from,
   /// so the caller can sync the color picker to match it, or null
@@ -346,79 +348,23 @@ class CanvasNotifier extends StateNotifier<Artwork> {
     deletePolygonVertex(hit.polygon, hit.vertexId);
   }
 
-  /// Finds existing confirmed-polygon vertices that lie almost exactly on
-  /// the new segment from [start] to [end] — within
-  /// [kLineAbsorptionTolerance] of perpendicular distance from the line,
-  /// and strictly between its two ends — ordered by how far along the
-  /// segment they fall. [excludeVertexId] additionally excludes the vertex
-  /// [end] itself resolves to, if any (it's the segment's own endpoint,
-  /// not one to absorb *into* the middle of it).
-  ///
-  /// Vertices already part of the current draft (including its own start)
-  /// are always excluded too, since they're already accounted for and
-  /// re-inserting one mid-draft would create a self-intersecting loop
-  /// instead of a straight pass-through.
-  ///
-  /// This lets an artist connect two distant corners with a single tap and
-  /// have every vertex the line happens to pass close to (e.g. another
-  /// shape's edge sitting between them) get folded into the new draft
-  /// automatically, instead of requiring a separate tap on each one. See
-  /// [handleDrawTap]. [_closingEdgeVertices] reuses this same welding for
-  /// the implicit closing edge, so it never skips a vertex sitting on it
-  /// just because that edge wasn't drawn by an explicit tap.
-  List<String> _absorbVerticesAlongNewSegment(
-    Offset start,
-    Offset end, {
-    String? excludeVertexId,
-  }) {
-    final segment = end - start;
-    final lengthSquared = segment.dx * segment.dx + segment.dy * segment.dy;
-    if (lengthSquared == 0) return const [];
-
-    final alreadyInDraft = state.draftVertexIds.toSet();
-    final candidates = <(double t, String vertexId)>[];
-
-    for (final polygon in state.polygons) {
-      for (final vertexId in polygon.vertexIds) {
-        if (vertexId == excludeVertexId || alreadyInDraft.contains(vertexId)) {
-          continue;
-        }
-        final vertex = state.vertices[vertexId];
-        if (vertex == null) continue;
-
-        final toVertex = vertex.position - start;
-        final t =
-            (toVertex.dx * segment.dx + toVertex.dy * segment.dy) /
-            lengthSquared;
-        if (t <= 0 || t >= 1) continue; // strictly between the two endpoints
-
-        final projection = start + segment * t;
-        if ((vertex.position - projection).distance <=
-            kLineAbsorptionTolerance) {
-          candidates.add((t, vertexId));
-        }
-      }
-    }
-
-    candidates.sort((a, b) => a.$1.compareTo(b.$1));
-    final seen = <String>{};
-    return [
-      for (final candidate in candidates)
-        if (seen.add(candidate.$2)) candidate.$2,
-    ];
-  }
-
-  /// Splices every vertex [_absorbVerticesAlongNewSegment] finds between
-  /// [start] and [end] into the draft, in order, ahead of whatever the
-  /// caller appends next.
+  /// Splices every vertex [findVerticesAlongSegment] finds between [start]
+  /// and [end] into the draft, in order, ahead of whatever the caller
+  /// appends next. [excludeVertexId] excludes the vertex [end] itself
+  /// resolves to, if any (it's the segment's own endpoint, not one to
+  /// absorb *into* the middle of it).
   void _insertAbsorbedVertices(
     Offset start,
     Offset end, {
     String? excludeVertexId,
   }) {
-    final absorbed = _absorbVerticesAlongNewSegment(
+    final absorbed = findVerticesAlongSegment(
       start,
       end,
+      vertices: state.vertices,
+      polygons: state.polygons,
+      draftVertexIds: state.draftVertexIds.toSet(),
+      tolerance: kLineAbsorptionTolerance,
       excludeVertexId: excludeVertexId,
     );
     for (final vertexId in absorbed) {
@@ -620,13 +566,13 @@ class CanvasNotifier extends StateNotifier<Artwork> {
     final updatedPolygons = [
       for (final polygon in state.polygons)
         polygon.copyWith(
-          vertexIds: _collapseConsecutiveRingIds([
+          vertexIds: collapseConsecutiveRingIds([
             for (final id in polygon.vertexIds) id == mergeId ? keepId : id,
           ]),
         ),
     ];
 
-    final draftIds = _collapseConsecutiveOpenIds([
+    final draftIds = collapseConsecutiveOpenIds([
       for (final id in state.draftVertexIds) id == mergeId ? keepId : id,
     ]);
 
@@ -650,59 +596,19 @@ class CanvasNotifier extends StateNotifier<Artwork> {
     }
 
     for (final polygon in state.polygons) {
-      final collapsed = _collapseConsecutiveRingIds([
+      final collapsed = collapseConsecutiveRingIds([
         for (final id in polygon.vertexIds) id == mergeId ? keepId : id,
       ]);
       if (collapsed.length < kMinPolygonVertices) return false;
-      if (_hasNonConsecutiveDuplicate(collapsed)) return false;
+      if (hasNonConsecutiveDuplicate(collapsed)) return false;
     }
 
-    final collapsedDraft = _collapseConsecutiveOpenIds([
+    final collapsedDraft = collapseConsecutiveOpenIds([
       for (final id in state.draftVertexIds) id == mergeId ? keepId : id,
     ]);
-    if (_hasNonConsecutiveDuplicate(collapsedDraft)) return false;
+    if (hasNonConsecutiveDuplicate(collapsedDraft)) return false;
 
     return true;
-  }
-
-  /// True when [ids] — already collapsed of merely *consecutive*
-  /// duplicates by [_collapseConsecutiveRingIds] / [_collapseConsecutiveOpenIds]
-  /// — still contains the same ID more than once, e.g. `[A, keep, B, keep,
-  /// C]`. For a closed polygon ring this means the shape revisits the same
-  /// point non-consecutively: a self-touching "figure-8"/bowtie, such as
-  /// pinching two opposite corners of a quadrilateral together. That's
-  /// silently allowed by the *consecutive*-only collapse above (which only
-  /// catches a point immediately welded to its own ring neighbor), yet it
-  /// breaks the "one simple closed curve per polygon" assumption later
-  /// stages — notably Phase G's tessellation — rely on. [weldVertices]
-  /// refuses any merge that would produce one rather than let degenerate
-  /// geometry into the shared pool. → 検討メモ（2026-07-13 追記続き2）参照。
-  bool _hasNonConsecutiveDuplicate(List<String> ids) {
-    return ids.toSet().length != ids.length;
-  }
-
-  /// Removes consecutive duplicate IDs from a closed polygon ring. When the
-  /// first and last entries match after collapse, drops the trailing one.
-  List<String> _collapseConsecutiveRingIds(List<String> ids) {
-    if (ids.length < 2) return ids;
-    final result = <String>[ids.first];
-    for (var i = 1; i < ids.length; i++) {
-      if (ids[i] != result.last) result.add(ids[i]);
-    }
-    if (result.length > 1 && result.first == result.last) {
-      result.removeLast();
-    }
-    return result;
-  }
-
-  /// Removes consecutive duplicate IDs from an open draft polyline.
-  List<String> _collapseConsecutiveOpenIds(List<String> ids) {
-    if (ids.isEmpty) return ids;
-    final result = <String>[ids.first];
-    for (var i = 1; i < ids.length; i++) {
-      if (ids[i] != result.last) result.add(ids[i]);
-    }
-    return result;
   }
 
   /// Starts a brand new draft polygon whose first point *is*
@@ -833,7 +739,7 @@ class CanvasNotifier extends StateNotifier<Artwork> {
   ///   shape tile seamlessly against everything already welded in
   ///   between, not just the two endpoints it directly touches.
   /// - Otherwise (no such chain exists) fall back to
-  ///   [_absorbVerticesAlongNewSegment], exactly the same welding every
+  ///   [findVerticesAlongSegment], exactly the same welding every
   ///   other, explicitly-drawn segment already gets. Without this
   ///   fallback, the implicit closing edge was the one segment in the
   ///   whole drawing model that could silently cut straight across
@@ -848,7 +754,14 @@ class CanvasNotifier extends StateNotifier<Artwork> {
 
     final startPosition = state.vertices[startId]!.position;
     final endPosition = state.vertices[endId]!.position;
-    return _absorbVerticesAlongNewSegment(endPosition, startPosition);
+    return findVerticesAlongSegment(
+      endPosition,
+      startPosition,
+      vertices: state.vertices,
+      polygons: state.polygons,
+      draftVertexIds: state.draftVertexIds.toSet(),
+      tolerance: kLineAbsorptionTolerance,
+    );
   }
 
   /// True when closing the draft from [startId] to [endId] right now, via
@@ -874,15 +787,31 @@ class CanvasNotifier extends StateNotifier<Artwork> {
         !_isConfirmedPolygonVertex(endId)) {
       return false;
     }
-    if (_shortestBoundaryPath(endId, startId) != null) return false;
+    final graph = buildPolygonEdgeGraph(state.polygons, state.vertices);
+    if (findShortestBoundaryPath(
+          endId,
+          startId,
+          graph: graph,
+          draftVertexIds: state.draftVertexIds.toSet(),
+        ) !=
+        null) {
+      return false;
+    }
 
     final startPosition = state.vertices[startId]!.position;
     final endPosition = state.vertices[endId]!.position;
-    return _absorbVerticesAlongNewSegment(endPosition, startPosition).isEmpty;
+    return findVerticesAlongSegment(
+      endPosition,
+      startPosition,
+      vertices: state.vertices,
+      polygons: state.polygons,
+      draftVertexIds: state.draftVertexIds.toSet(),
+      tolerance: kLineAbsorptionTolerance,
+    ).isEmpty;
   }
 
   /// When [startId] and [endId] are connected by some chain of existing
-  /// polygons' own edges (see [_shortestBoundaryPath]), returns the
+  /// polygons' own edges (see [findShortestBoundaryPath]), returns the
   /// vertices strictly between them along the geometrically shortest such
   /// chain, so the draft can close by following it rather than cutting
   /// straight back to its start.
@@ -898,97 +827,15 @@ class CanvasNotifier extends StateNotifier<Artwork> {
   /// vertex that sits on the straight closing line instead of a shared
   /// boundary.
   List<String> _sharedBoundaryClosure(String startId, String endId) {
-    final path = _shortestBoundaryPath(endId, startId);
+    final graph = buildPolygonEdgeGraph(state.polygons, state.vertices);
+    final path = findShortestBoundaryPath(
+      endId,
+      startId,
+      graph: graph,
+      draftVertexIds: state.draftVertexIds.toSet(),
+    );
     if (path == null || path.length <= 2) return const [];
     return path.sublist(1, path.length - 1);
-  }
-
-  /// Geometrically shortest path from [fromId] to [toId] that travels only
-  /// along existing confirmed polygons' own edges (every vertex connected
-  /// to its immediate ring neighbors in each polygon it's a corner of),
-  /// weighted by on-screen distance — or `null` when no such path exists.
-  ///
-  /// This is what lets a new draft tile seamlessly against whatever it
-  /// touches: when [fromId] and [toId] are both corners of the *same*
-  /// polygon, this naturally reduces to whichever of that polygon's two
-  /// boundary arcs between them is shorter (the graph has no other edges
-  /// to offer there). When they belong to two *different* polygons that
-  /// happen to share a welded vertex somewhere — directly, or via a chain
-  /// of further shared vertices — this finds the route through that chain
-  /// instead, so drawing a shape from one existing corner to another never
-  /// cuts straight across a boundary that's actually already there.
-  ///
-  /// Vertices belonging to the *current* draft are never used as a
-  /// mid-path hop (only [toId] itself — the draft's own other end — is
-  /// allowed as the destination): they're already accounted for elsewhere
-  /// in the draft, so routing through one would duplicate a corner into a
-  /// self-intersecting loop instead of a clean weld.
-  List<String>? _shortestBoundaryPath(String fromId, String toId) {
-    if (fromId == toId) return [fromId];
-    final graph = _polygonEdgeGraph();
-    if (!graph.containsKey(fromId) || !graph.containsKey(toId)) return null;
-
-    final blockedHops = state.draftVertexIds.toSet()..remove(toId);
-    final best = <String, double>{fromId: 0};
-    final previous = <String, String>{};
-    final settled = <String>{};
-    final queue = PriorityQueue<(double, String)>(
-      (a, b) => a.$1.compareTo(b.$1),
-    );
-    queue.add((0.0, fromId));
-
-    while (queue.isNotEmpty) {
-      final (dist, current) = queue.removeFirst();
-      if (!settled.add(current)) continue;
-      if (current == toId) break;
-      for (final (neighborId, weight)
-          in graph[current] ?? const <(String, double)>[]) {
-        if (blockedHops.contains(neighborId)) continue;
-        final candidate = dist + weight;
-        if (candidate < (best[neighborId] ?? double.infinity)) {
-          best[neighborId] = candidate;
-          previous[neighborId] = current;
-          queue.add((candidate, neighborId));
-        }
-      }
-    }
-
-    if (!settled.contains(toId)) return null;
-    final path = <String>[toId];
-    var node = toId;
-    while (node != fromId) {
-      final prev = previous[node];
-      if (prev == null) return null;
-      path.add(prev);
-      node = prev;
-    }
-    return path.reversed.toList();
-  }
-
-  /// Builds an undirected graph over every confirmed polygon's own ring of
-  /// edges (each vertex linked to its immediate neighbors within each
-  /// polygon it belongs to), weighted by on-screen distance between them.
-  /// Used by [_shortestBoundaryPath] to route a closing edge along
-  /// whatever boundary is already there instead of cutting straight
-  /// through it.
-  Map<String, List<(String, double)>> _polygonEdgeGraph() {
-    final graph = <String, List<(String, double)>>{};
-    void addEdge(String a, String b) {
-      final va = state.vertices[a];
-      final vb = state.vertices[b];
-      if (va == null || vb == null) return;
-      final weight = (vb.position - va.position).distance;
-      (graph[a] ??= []).add((b, weight));
-      (graph[b] ??= []).add((a, weight));
-    }
-
-    for (final polygon in state.polygons) {
-      final ids = polygon.vertexIds;
-      for (var i = 0; i < ids.length; i++) {
-        addEdge(ids[i], ids[(i + 1) % ids.length]);
-      }
-    }
-    return graph;
   }
 
   /// Removes the most recently placed draft vertex without recording an undo
