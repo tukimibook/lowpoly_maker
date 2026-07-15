@@ -694,14 +694,14 @@ Phase A〜E 完了時点の外部レビューを「コード品質・修正前�
     },
     "underlay": {
       "imagePath": "assets/images/sample.png",
-      "layout": { "offsetX": 0.0, "offsetY": 0.0, "scale": 1.0 }
+      "layout": { "offsetX": 0.0, "offsetY": 0.0, "scale": 1.0, "opacity": 1.0 }
     }
   }
   ```
   - `version`: スキーマバージョン。将来の移行（migration）判定に使う。
   - `artwork.vertices`: UUIDキーの `Vertex` プール（座標のみ、`Float32List`→`double`変換済み）。
   - `artwork.polygons`: `id` と `vertexIds`（UUID参照）、`color`（ARGB int）を持つ配列。
-  - `underlay`: 下絵の画像パスと、`UnderlayLayout`（オフセット・スケール）。`canvasSize` は含めない（前述の理由）。
+  - `underlay`: 下絵の画像パスと、`UnderlayLayout`（オフセット・スケール・不透明度）。`canvasSize` は含めない（前述の理由）。`opacity` は2026-07-15 Hα実装時に追加（`UnderlayLayout` 本体に追加した不透明度フィールドをそのまま反映）。表示ON/OFF（`visible`）は非永続 — Hγ実装時に「保存対象に含めるか」を決定する（現時点では未決定）。
 - **Go/No-Go**: 既存 `Artwork`/`Vertex`/`PolygonShape` の各フィールドがそのままJSONにマッピングできる（UUID・座標・色のみで、Notifier内部の一時状態は含まない）ため、追加のモデル変更は不要と判断 → **Go**。
 
 **追記: 2026-07-15 Phase G-spike 完了とGo判定**

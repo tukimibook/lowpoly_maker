@@ -3,8 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/canvas_background_provider.dart';
 import '../providers/canvas_provider.dart';
+import '../providers/underlay_provider.dart';
 import '../widgets/canvas/polygon_canvas.dart';
 import '../widgets/toolbar/editor_toolbar.dart';
+import '../widgets/underlay/underlay_settings_sheet.dart';
 
 /// Canvas background colors for each [Brightness] choice offered by
 /// [canvasBackgroundProvider]. Deliberately separate from the app's own
@@ -22,11 +24,39 @@ class EditorScreen extends ConsumerWidget {
     final isEmpty = artwork.polygons.isEmpty && artwork.draftVertexIds.isEmpty;
     final canvasBrightness = ref.watch(canvasBackgroundProvider);
     final isCanvasDark = canvasBrightness == Brightness.dark;
+    final underlayImagePath = ref.watch(underlayProvider.select((state) => state.imagePath));
+
+    // Picking success is now visible directly on the canvas (the underlay
+    // is drawn immediately, fit to the canvas — see `UnderlayLayer`), so
+    // only pick *failures* need a toast; only surfaces *changes*, so
+    // re-opening the editor doesn't re-toast an error from a previous
+    // session.
+    ref.listen<UnderlayState>(underlayProvider, (previous, next) {
+      if (next.errorMessage != null && next.errorMessage != previous?.errorMessage) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(next.errorMessage!)));
+      }
+    });
 
     return Scaffold(
       appBar: AppBar(
         title: Text(artwork.title),
         actions: [
+          IconButton(
+            tooltip: underlayImagePath == null ? '下絵を選択' : '下絵を変更',
+            onPressed: () => ref.read(underlayProvider.notifier).pickImage(),
+            icon: Icon(underlayImagePath == null ? Icons.image_outlined : Icons.image),
+          ),
+          IconButton(
+            tooltip: '下絵設定',
+            onPressed: underlayImagePath == null
+                ? null
+                : () => showModalBottomSheet<void>(
+                    context: context,
+                    showDragHandle: true,
+                    builder: (context) => const UnderlaySettingsSheet(),
+                  ),
+            icon: const Icon(Icons.tune),
+          ),
           IconButton(
             tooltip: isCanvasDark ? 'キャンバスをライトに切り替え' : 'キャンバスをダークに切り替え',
             onPressed: () {

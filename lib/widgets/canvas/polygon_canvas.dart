@@ -10,6 +10,7 @@ import '../../providers/selected_vertex_provider.dart';
 import '../../providers/vertex_drag_preview_provider.dart';
 import '../../providers/viewport_provider.dart';
 import 'polygon_painter.dart';
+import 'underlay_layer.dart';
 
 /// The drawable surface: renders confirmed polygons and the in-progress
 /// draft, and interprets touches according to the current [CanvasMode]:
@@ -127,17 +128,27 @@ class PolygonCanvas extends ConsumerWidget {
           notifier.setCanvasSize(size);
         });
 
-        final painter = CustomPaint(
-          size: size,
-          painter: PolygonPainter(
-            artwork: artwork,
-            mode: mode,
-            viewport: viewport,
-            dragPreview: dragPreview,
-            vertexDragPreview: vertexDragPreview,
-            selectedVertexId: selectedVertexId,
-            canvasBrightness: canvasBrightness,
-          ),
+        // The underlay paints behind the polygon layer; each gets its own
+        // `RepaintBoundary` so redrawing one (e.g. an opacity change, or a
+        // vertex drag) never forces the other to repaint too.
+        final content = Stack(
+          children: [
+            UnderlayLayer(size: size),
+            RepaintBoundary(
+              child: CustomPaint(
+                size: size,
+                painter: PolygonPainter(
+                  artwork: artwork,
+                  mode: mode,
+                  viewport: viewport,
+                  dragPreview: dragPreview,
+                  vertexDragPreview: vertexDragPreview,
+                  selectedVertexId: selectedVertexId,
+                  canvasBrightness: canvasBrightness,
+                ),
+              ),
+            ),
+          ],
         );
 
         if (mode == CanvasMode.edit) {
@@ -152,7 +163,7 @@ class PolygonCanvas extends ConsumerWidget {
             onLongPressCancel: () {
               vertexDragPreview.value = null;
             },
-            child: painter,
+            child: content,
           );
         }
 
@@ -180,7 +191,7 @@ class PolygonCanvas extends ConsumerWidget {
             if (mode == CanvasMode.eraser) return;
             dragPreview.value = null;
           },
-          child: painter,
+          child: content,
         );
       },
     );
