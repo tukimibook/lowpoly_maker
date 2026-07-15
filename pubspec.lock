@@ -153,6 +153,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.1.7"
+  delaunay:
+    dependency: "direct main"
+    description:
+      name: delaunay
+      sha256: "8e8d3e4ab511efd2f82bf4cf43f61b9232a7d93dd6d0024069b423a72e04f007"
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.0.0"
   fake_async:
     dependency: transitive
     description:
