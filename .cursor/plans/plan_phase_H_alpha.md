@@ -5,7 +5,7 @@
 
 ## 📍 現在のステータス (2026-07-16)
 - **完了フェーズ**: Phase G-spike が大成功で完了（無限ループのバグの種もジッター付与で事前解決済み、本番実装は Tier B に確定）。
-- **現在のフェーズ**: Phase Hα（下絵インポート・キャンバス準備）に着手中。実機での表示自体には成功したが、特定のJPEG（過去に画像処理を経た少し特殊なもの）で下1/3が黒く表示されるバグを検出・修正した（下記「2026-07-16」検討メモ参照）。
+- **現在のフェーズ**: Phase Hα（下絵インポート・キャンバス準備）に着手中。実機での表示自体には成功したが、特定のJPEG（過去に画像処理を経た少し特殊なもの）で下1/3が黒く表示されるバグを検出・修正した（下記「2026-07-16: 特殊なJPEG...」検討メモ参照）。さらに、モード切替時に下絵の表示位置がズレる不具合を発端に、ボトムツールバーの構造とUI/UXを刷新した（下記「2026-07-16: 下絵位置ズレバグの根本解決...」検討メモ参照）。この刷新の副産物として生まれた「編集モードで頂点が未選択のときは何もできない」というUXの穴を埋めるため、図形/辺のトグル選択・平行移動・中点への頂点挿入・図形削除を追加した（下記「2026-07-16: 編集モードのUX強化...」検討メモ参照）。これは下絵の機能そのものではないが、同じ2026-07-16のボトムツールバー刷新作業の一部として連続して実施した。
 
 ## Phase Hα: 下絵（背景画像）
 
@@ -14,7 +14,7 @@
 - `image_picker` でギャラリーから選択。`UnderlayLayout`（画像参照 + world rect + opacity）を独立モデルに。`Artwork` 本体とは分離し、保存時は Hγ で JSON に含める。
 - **取り込み時に上限解像度（`maxWidth: 1920` / `maxHeight: 1080`、2026-07-16改訂）へダウンサンプリング（＝標準化）してから保持・表示する**（#18）。理由: 端末カメラの写真は4K以上の高解像度が普通で、そのままメモリ上に展開するとデコード時点でネイティブメモリを圧迫し、OOM（メモリ不足）でクラッシュするため。加えて、`maxWidth`/`maxHeight` 指定はプラットフォーム側でのリサイズ＋標準JPEG形式への再エンコードも兼ねるため、非標準的な形式のJPEGに対するデコード失敗（下記「2026-07-16」検討メモ参照）の回避にも寄与する。`image_picker` の `maxWidth`/`maxHeight` 指定で実現（アプリ内コピーとして再保存はしない）。
 - `PolygonPainter` とは別の `CustomPaint`（`UnderlayPainter`）として、viewport 変換**内側**（world 固定）に下絵を描画。ポリゴンより背面、両方を個別の `RepaintBoundary` で分離。
-- 透過: スライダーではなく「20/40/60/80/100%」の5段階ボタン（`SegmentedButton`）。表示 ON/OFF トグル（`SwitchListTile`）。いずれもタップのみで完結する `showModalBottomSheet`（AppBar の「下絵設定」ボタンから開く）に格納 — スワイプ操作によるOSジェスチャー誤爆を避けるため（2026-07-15 決定、下記検討メモ参照）。
+- 透過: スライダーではなく段階的なボタン操作（スワイプ操作によるOSジェスチャー誤爆を避けるため、2026-07-15 決定）。~~5段階ボタン（`SegmentedButton`）＋表示ON/OFFトグル（`SwitchListTile`）を `showModalBottomSheet`（AppBarの「下絵設定」ボタンから開く）に格納。~~ → **2026-07-16 改訂**: モーダルシートを廃止し、ボトムツールバー上段に「💧 NN%」の単一トグルボタン（タップで10/30/50/70/100%をループ）＋表示ON/OFFアイコンボタンとして統合（タップ数削減、下記「2026-07-16: 下絵位置ズレバグの根本解決...」検討メモ参照）。
 - v1 は**キャンバスへのフィット固定**（拡大・回転・自由配置は見送り）。下絵の配置（`offset`/`scale`）は `fitUnderlayToCanvas` が画像インポート時・キャンバスリサイズ時にのみ算出し、`Artwork` の Undo スタックの対象外（幾何ではなく表示状態のため）。
 - スポイト（色取得）は v1.1。
 
@@ -44,7 +44,10 @@
 - 画像ダウンサンプリング関数が上限解像度に収まる出力を返すこと（#18）
 - `fitUnderlayToCanvas` が画像/キャンバスの縦横比に応じて正しくフィットする（contain-fit・中央寄せ・縦横どちらが基準辺になるケースも）こと（実施済み）
 - `UnderlayLayout`（`copyWith`/`toMap`/`fromMap`/`worldToLocal`）の単体テスト（実施済み）
-- 下絵設定ボトムシート（表示ON/OFFトグル・5段階不透明度ボタン）が操作に応じて即座に `UnderlayLayoutController` を更新するウィジェットテスト（実施済み）
+- ~~下絵設定ボトムシート（表示ON/OFFトグル・5段階不透明度ボタン）が操作に応じて即座に `UnderlayLayoutController` を更新するウィジェットテスト（実施済み）~~ → シート廃止（2026-07-16）に伴い削除。後継の `UnderlayLayoutController.cycleOpacity()` の単体テストを実施済み（下記検討メモ参照）。
+- `resolveDetachTarget`（共有頂点の切り離し対象を解決する純関数）の単体テスト（実施済み）
+- `edgeMidpoint`／`resolvePolygonTarget`／`resolveEdgeTarget`（図形・辺のトグル選択を解決する純関数群）の単体テスト（実施済み）
+- `CanvasNotifier.translatePolygon`／`insertVertexAtEdge`／`deletePolygon` の単体テスト（Undo復元込み、実施済み）
 
 ## 検討メモ（直近）
 
@@ -121,3 +124,59 @@
 **スコープ外（切り分け・再現テスト）**: 原因を厳密に切り分けるための再現テスト（問題のJPEGバイナリを使った単体テスト等）は、問題画像がユーザーの手元にしかなく用意できないため見送り。実機での再確認（同じ画像を再インポートしても黒くならないこと）をもって修正の確認とする。
 
 **確認**: `flutter analyze` 0件 / `flutter test`（96件、既存分すべて）パス。実機での再確認は本タスク完了後にユーザーが実施予定。
+
+### 2026-07-16: 下絵位置ズレバグの根本解決とボトムツールバーのUI/UX刷新（ハイブリッド2段構成・バリア構造・トグル式UI）
+
+**症状**: 画面下部の「描画」/「編集」ボタンでモードを切り替えた際、下絵（背景画像）の表示位置がズレる。
+
+**原因（調査結果）**: `Scaffold.bottomNavigationBar`（旧 `EditorToolbar`）はモードごとに高さが異なっていた（描画モードはカラーパレット行、編集モードは共有頂点操作の行など）。`Scaffold` はボディに残りの領域を渡すため、ボトムバーの高さが変わるたびに `PolygonCanvas` の `LayoutBuilder` が受け取る `constraints` も変化し、`canvasProvider.setCanvasSize()` → `underlayFitCoordinatorProvider`（`canvasSize` の変化を監視）→ `fitUnderlayToCanvas` の再計算が走り、下絵の `offset`/`scale` が毎回再フィットされていた。ポリゴン自体は `canvasSize` に依存しない座標系で描かれるため影響を受けず、下絵だけがズレて見えていた。**意図しないバグ**と判断（「やむを得ない仕様」ではない）。
+
+**検討した方針**:
+- 方針A（旧）: ボトムバーの高さを固定するのみ。
+- 方針B: `canvasSize` が変化しても、縦横比が変わらない限り再フィットしないようガードするロジック変更。将来のズーム/パン実装（Hβ）への影響リスクがあるため不採用。
+- 方針C→採用: **ロジック（`canvasProvider`/`fitUnderlayToCanvas`）には一切手を入れず、レイアウト構造を変更**。`Scaffold.bottomNavigationBar` を廃止し、`body` 内で `Stack` を使い `PolygonCanvas` を全面（`Positioned.fill`）、`EditorToolbar` を最前面下部に `Positioned` でオーバーレイ配置。これにより `PolygonCanvas` が受け取る領域サイズはボトムバーの高さに関係なく常に一定になり、根本的に再フィットの発生条件そのものを消す。
+
+**Stack オーバーレイ案の技術的懸念と対応**:
+- **タップの貫通（懸念）**: `Stack` は子を重ねるだけなので、ツールバーの背面にあるボタン間の隙間をタップすると、そのタップがそのまま背面の `PolygonCanvas` にも渡ってしまう（意図しない頂点追加等を誘発しうる）。
+  - **対応**: `EditorToolbar` の外側を丸ごと `GestureDetector(behavior: HitTestBehavior.opaque)` でラップ（`_ToolbarBarrier`、[lib/screens/editor_screen.dart](lib/screens/editor_screen.dart)）。Flutter の `RenderBox.hitTest` は子（ここではツールバー内の各アイコンボタン）を先にテストしてから自身の判定を行うため、`opaque` はツールバー自身の各ボタンの動作を一切妨げない。一方 `RenderStack` は子のヒットテストが一度 `true` を返すと以降のZ順で背面の兄弟（`PolygonCanvas`）のテストを打ち切るため、`opaque` により「ツールバーの矩形内で起きたタップは、ボタンの有無に関わらず必ずここで吸収され、背面には絶対に届かない」ことが保証される。`AbsorbPointer` は使わない（ツールバー自身のボタンの操作も一緒に吸収してしまうため不適）。
+  - この設計により、ボトムバーの実際の高さが将来的に変動しても（`_kRowHeight` 定数の変更など）、バリアはツールバー自身の外形にそのまま追従するため、高さを厳密に固定する必要は構造上なくなった。
+- **描画面積の実質的な増加はない（既知のトレードオフ）**: ツールバーが浮いている領域は依然としてタップ不可（バリアがある）なので、キャンバスの「使える」面積自体はボトムナビゲーションバー方式と変わらない。今回の主目的は面積拡大ではなく「レイアウトシフトの根絶」。
+- **既存テストの前提崩れ**: `farPoint`（キャンバス右下付近を使った磁石スナップのテスト）がボトムバーの直下に来なくなり、逆にツールバーの真下（バリアで吸収される領域）に入ってしまうケースがあったため、[test/widget_test.dart](test/widget_test.dart) の該当テストを「キャンバス右上付近」を使うよう修正。
+
+**UI/UX刷新（ユーザー最終承認済みの基本仕様）**: 上記の構造変更に合わせ、モダンな描画アプリとしての操作性向上も同時に実施。
+- **完全アイコン化**: すべてのボタンからテキストラベルを排除し、`Icons.xxx` のみ＋`Tooltip`（読み上げ・長押しヒント用のアクセシブルネーム）とした。言語依存をなくし、UIをより簡潔にする狙い。
+- **2段構成（[lib/widgets/toolbar/editor_toolbar.dart](lib/widgets/toolbar/editor_toolbar.dart) を全面再実装）**:
+  - **上段（Row 1・全モード共通）**: モード切替（`SegmentedButton`、描画=`Icons.draw_outlined`／消しゴム=`Icons.backspace_outlined`／編集=`Icons.open_with`）、下絵の表示ON/OFF（`Icons.visibility`/`visibility_off`）、下絵の不透明度トグル（`Icons.opacity` ＋現在値「NN%」の1ボタン、タップで10→30→50→70→100%をループ）、元に戻す（`Icons.undo`）。**下絵設定を旧モーダルシート（`UnderlaySettingsSheet`、廃止・削除）から常時表示の上段に統合**し、タップ1回で操作可能に。
+  - **下段（Row 2・モード別）**: 描画=カラーパレット（横スクロール）＋閉じるボタン（`Icons.check_circle`）。消しゴム=装飾的な `Icons.delete_outline`（非操作、頂点タップで削除する旨のヒント表示のみ）。編集（頂点未選択 or 非共有頂点）=装飾的な `Icons.touch_app_outlined`。編集（共有頂点選択中）=「切り離し対象の切り替え」（`Icons.autorenew`）＋「切り離し実行」（`Icons.content_cut`）の2ボタンのみ（旧: 共有先の多角形数だけボタンが並ぶ可変UI → 固定2ボタンに削減）。
+- **状態管理**:
+  - `UnderlayLayoutController.cycleOpacity()`（[lib/providers/underlay_layout_provider.dart](lib/providers/underlay_layout_provider.dart)）: 新規 `kUnderlayOpacitySteps = [0.1, 0.3, 0.5, 0.7, 1.0]` を巡回。現在値に最も近いステップを求めてから次に進めるため、想定外の中間値からの復帰にも安全。新規Providerは追加せず既存の `ValueNotifier` に集約。
+  - `detachCycleIndexProvider`（`StateProvider<int>`）＋純関数 `resolveDetachTarget`（[lib/providers/detach_cycle_provider.dart](lib/providers/detach_cycle_provider.dart)、新設）: 「切り離し対象」の巡回位置を保持する未クランプの生カウンタと、それを候補数で剰余して現在の対象（確定済み多角形のいずれか、または下書き）を解決する純関数に分離。ツールバーのボタンと `PolygonPainter` のハイライトが同じ関数を呼ぶことで、両者が指す対象を常に一致させる。カウンタのリセット（3箇所）: (1) [lib/widgets/canvas/polygon_canvas.dart](lib/widgets/canvas/polygon_canvas.dart) の `handleEditTap` で新しい頂点を選択した瞬間、(2) [lib/widgets/toolbar/editor_toolbar.dart](lib/widgets/toolbar/editor_toolbar.dart) でモードを編集以外に切り替えた瞬間、(3) 「切り離し実行」成功直後。
+  - ハイライト: `PolygonPainter`（[lib/widgets/canvas/polygon_painter.dart](lib/widgets/canvas/polygon_painter.dart)）に `highlightedPolygonId` を追加。対象の多角形のみ塗り透過度を `_highlightedFillAlpha`（153、約60%）に、それ以外は既存の `_fillAlpha`（77、約30%）のまま描画。`PolygonCanvas` が `resolveDetachTarget` の結果から算出して渡す。
+- **AppBar側の変更**: [lib/screens/editor_screen.dart](lib/screens/editor_screen.dart) の「下絵設定」ボタン（`Icons.tune`）を削除（機能はツールバー上段へ移動）。「下絵を選択/変更」ボタンは頻度の低い単発操作のため AppBar に残置。
+
+**テスト**:
+- [test/detach_cycle_provider_test.dart](test/detach_cycle_provider_test.dart)（新設）: `resolveDetachTarget` の単体テスト（候補0件でnull、単一候補、複数候補の巡回順、ラップアラウンド、下書きが末尾に来ること、下書き単体、候補数が減った後の生カウンタが範囲外にならないこと）。
+- [test/underlay_layout_provider_test.dart](test/underlay_layout_provider_test.dart): `cycleOpacity` のテスト3件（順序通りに巡回してラップアラウンドすること、中間値からは最も近いステップの次に進むこと、opacity以外のフィールドに影響しないこと）を追加。
+- [test/widgets/underlay_settings_sheet_test.dart](test/widgets/underlay_settings_sheet_test.dart)（削除）: `UnderlaySettingsSheet` 自体の削除に伴い不要化。
+- [test/widget_test.dart](test/widget_test.dart): 「閉じる」ボタンの `find.text` 依存（テキストラベル廃止のため）を `IconButton.tooltip` によるカスタム `Finder`（`_iconButtonByTooltip`）に置き換え。`farPoint`（磁石スナップのテスト）をキャンバス右上付近に変更（上記「既存テストの前提崩れ」参照）。
+
+**確認**: `flutter analyze` 0件 / `flutter test`（103件、新規10件・既存4件修正）パス。実機での見た目確認（実際にモード切替で下絵がズレないこと、新UIの操作感）は本タスク完了後にユーザーが実施予定。
+
+### 2026-07-16: 編集モードのUX強化（図形/辺トグル・平行移動・中点挿入・図形削除）
+
+**背景**: 直前のツールバー刷新で「編集モード・頂点未選択時」の下段は装飾的なヒントアイコン（`Icons.touch_app_outlined`）のみだった。細い辺や小さい図形に対してピクセル単位の正確なタップを要求する既存の操作感（タップで頂点選択、長押しドラッグで移動）を補い、トグル選択とハイライトだけで「図形全体の移動」「辺への頂点追加」「図形削除」まで行えるようにする。
+
+**採用した設計（実装前にユーザー承認済み）**:
+- **状態管理**: [lib/providers/polygon_edit_target_provider.dart](lib/providers/polygon_edit_target_provider.dart)（新設）に `polygonCycleIndexProvider`／`edgeCycleIndexProvider`（いずれも初期値 `-1` = 「まだ選んでいない」の意図的なセンチネル）と、それを候補数で剰余して解決する純関数 `resolvePolygonTarget`／`resolveEdgeTarget` を用意。`detachCycleIndexProvider`（初期値0、常に候補が1件以上ある前提）と違い、この機能は編集モードに入った直後・候補ゼロの状態からすでにUIが有効なため、`-1` を「まだ何も選んでいない」と「巡回して1周した」の区別に使う。カウンタのリセット（5箇所）: (1) [lib/widgets/toolbar/editor_toolbar.dart](lib/widgets/toolbar/editor_toolbar.dart) で編集モードを離れた瞬間（両方）、(2) [lib/widgets/canvas/polygon_canvas.dart](lib/widgets/canvas/polygon_canvas.dart) の `handleEditTap` で頂点が新たに選択された瞬間（両方）、(3) 「図形を切り替え」ボタン押下時（`edgeCycleIndexProvider` のみ — 辺の意味は対象図形に依存するため）、(4) 「ここに頂点を追加」成功後（両方）、(5) 「図形を削除」成功後（両方）。
+- **ハイライト描画**: `PolygonPainter`（[lib/widgets/canvas/polygon_painter.dart](lib/widgets/canvas/polygon_painter.dart)）の既存 `highlightedPolygonId` を「切り離し対象」と「図形トグル対象」の両方で流用（頂点選択の有無で排他的に切り替わるため、フィールドを分けずに済ませた）。新規フィールド `targetEdge`（`PolygonEdge?`）を追加し、新設メソッド `_paintTargetEdge` で対象の辺だけをアクセントカラー（`Colors.blueAccent`）・太めのストローク（3.0）で上書き描画。
+- **平行移動（commit-on-release）**: [lib/providers/polygon_drag_preview_provider.dart](lib/providers/polygon_drag_preview_provider.dart)（新設）に `PolygonDragPreview`（対象図形の全頂点ID＋ドラッグ中の変位）と `PolygonDragPreviewController`（`ValueNotifier`、他のドラッグプレビュー同様に `CustomPainter.repaint` の購読対象とすることでRiverpod経由の再構築を伴わず毎フレーム再描画）。`PolygonPainter._positionFor` を拡張し、対象図形の頂点をプレビューの変位分だけオフセットして描画。`PolygonCanvas` の編集モード用 `GestureDetector` に素の `onPan*`（`onLongPress*` とは別系統）を追加。図形がトグルで選ばれている（かつ頂点未選択の）ときだけ有効になり、指を離した瞬間に一度だけ `CanvasNotifier.translatePolygon` を呼んでUndoに記録する。既存の「長押しで頂点ドラッグ」とはFlutterのジェスチャーアリーナ機構により排他（長押しの待機中に素早く動かせばpanが、動かさず待てば長押しが勝つ）。
+- **幾何ロジック**: [lib/geometry/edge_midpoint.dart](lib/geometry/edge_midpoint.dart)（新設）に純関数 `edgeMidpoint`。`CanvasNotifier`（[lib/providers/canvas_provider.dart](lib/providers/canvas_provider.dart)）に3メソッドを追加: `translatePolygon(polygonId, delta)`（対象図形の全頂点を一括平行移動、共有頂点は他の図形からも動いて見える）、`insertVertexAtEdge(polygonId, ringIndex)`（指定辺の中点に新頂点を挿入して`vertexIds`へスプライスし、新頂点IDを返す — 呼び出し側が即座に選択状態にできる）、`deletePolygon(polygonId)`（対象図形を削除し、他から参照されなくなった頂点のみプール剪定）。いずれもUndo記録込み。
+- **UI**: [lib/widgets/toolbar/editor_toolbar.dart](lib/widgets/toolbar/editor_toolbar.dart) の編集モード・頂点未選択時の下段を新設 `_NoSelectionRow` に置き換え、4アイコンボタン（♻️「図形を切り替え」`Icons.autorenew`／⏭️「辺を切り替え」`Icons.skip_next`／➕「ここに頂点を追加」`Icons.add_circle_outline`／🗑️「図形を削除」`Icons.delete_outline`）を配置。対象未確定の段階では該当ボタンを `onPressed: null` で無効化（`辺を切り替え`/`ここに頂点を追加`/`図形を削除` は対象図形が要る、`ここに頂点を追加` はさらに対象辺も要る）。頂点選択済み・非共有頂点のときの装飾ヒント表示はそのまま維持。
+
+**テスト**:
+- [test/geometry/edge_midpoint_test.dart](test/geometry/edge_midpoint_test.dart)（新設）: `edgeMidpoint` の単体テスト5件。
+- [test/polygon_edit_target_provider_test.dart](test/polygon_edit_target_provider_test.dart)（新設）: `polygonCycleIndexProvider`/`edgeCycleIndexProvider` の初期値、`resolvePolygonTarget`/`resolveEdgeTarget` の巡回・ラップアラウンド・センチネル・縮退ケースの単体テスト。
+- [test/canvas_notifier_edit_test.dart](test/canvas_notifier_edit_test.dart): `translatePolygon`/`insertVertexAtEdge`/`deletePolygon` の単体テスト（共有頂点の伝播、無効ID/範囲外インデックスでのno-op、Undo復元）を追加。
+- [test/widget_test.dart](test/widget_test.dart): 4ボタンの表示・無効化状態、図形ハイライト、辺選択→中点挿入で新頂点が即選択されること、図形削除、実際のpanジェスチャーによる平行移動（Flutterの `DragStartBehavior.start` 既定動作により、アリーナ勝利の契機となる最初の move は変位0として消費される点に注意 — 2回目以降のmoveで実際の変位が計測される）をウィジェットテストで確認。
+
+**確認**: `flutter analyze` 0件 / `flutter test`（138件、新規22件）パス。実機での操作感確認は本タスク完了後にユーザーが実施予定。

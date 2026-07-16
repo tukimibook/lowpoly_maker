@@ -537,4 +537,230 @@ void main() {
       });
     },
   );
+
+  group('CanvasNotifier translatePolygon (edit mode whole-shape drag, 2026-07-16)', () {
+    test('shifts every one of the polygon\'s vertices by the same delta', () {
+      final notifier = CanvasNotifier();
+      notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.blue);
+      notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.blue);
+      notifier.handleDrawTap(const Offset(50, 100), fillColor: Colors.blue);
+      notifier.closePolygon(Colors.blue);
+      final polygonId = notifier.state.polygons.single.id;
+
+      notifier.translatePolygon(polygonId, const Offset(10, 20));
+
+      final positions = notifier.state.polygons.single.vertexIds
+          .map((id) => notifier.state.vertices[id]!.position);
+      expect(positions, [
+        const Offset(10, 20),
+        const Offset(110, 20),
+        const Offset(60, 120),
+      ]);
+    });
+
+    test(
+      'a corner welded to a neighboring polygon moves for both shapes',
+      () {
+        final notifier = CanvasNotifier();
+        notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.green);
+        notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.green);
+        notifier.handleDrawTap(const Offset(50, 100), fillColor: Colors.green);
+        notifier.closePolygon(Colors.green);
+        final greenId = notifier.state.polygons.single.id;
+        final sharedId = notifier.state.polygons.single.vertexIds[1]; // (100, 0)
+
+        notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.purple);
+        notifier.handleDrawTap(const Offset(200, 0), fillColor: Colors.purple);
+        notifier.handleDrawTap(const Offset(150, 100), fillColor: Colors.purple);
+        notifier.closePolygon(Colors.purple);
+        final purplePolygon = notifier.state.polygons[1];
+        final purpleOnlyId = purplePolygon.vertexIds[1]; // (200, 0)
+
+        notifier.translatePolygon(greenId, const Offset(0, 50));
+
+        // The shared corner moved (both shapes now see it at its new spot)...
+        expect(notifier.state.vertices[sharedId]!.position, const Offset(100, 50));
+        // ...but the purple polygon's *own* unshared vertex did not, since
+        // only the green polygon's own vertices were translated.
+        expect(notifier.state.vertices[purpleOnlyId]!.position, const Offset(200, 0));
+      },
+    );
+
+    test('is a no-op for an unknown polygon ID or a zero delta', () {
+      final notifier = CanvasNotifier();
+      notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.teal);
+      notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.teal);
+      notifier.handleDrawTap(const Offset(50, 100), fillColor: Colors.teal);
+      notifier.closePolygon(Colors.teal);
+      final before = notifier.state;
+
+      notifier.translatePolygon('does-not-exist', const Offset(5, 5));
+      expect(notifier.state, before);
+
+      notifier.translatePolygon(notifier.state.polygons.single.id, Offset.zero);
+      expect(notifier.state, before);
+    });
+
+    test('undo restores every vertex to its pre-translation position', () {
+      final notifier = CanvasNotifier();
+      notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.orange);
+      notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.orange);
+      notifier.handleDrawTap(const Offset(50, 100), fillColor: Colors.orange);
+      notifier.closePolygon(Colors.orange);
+      final before = notifier.state;
+
+      notifier.translatePolygon(notifier.state.polygons.single.id, const Offset(30, -10));
+      expect(notifier.undo(), isTrue);
+      expect(notifier.state, before);
+    });
+  });
+
+  group('CanvasNotifier insertVertexAtEdge (edit mode "➕", 2026-07-16)', () {
+    test('splices a new vertex at the edge\'s midpoint', () {
+      final notifier = CanvasNotifier();
+      notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.blue);
+      notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.blue);
+      notifier.handleDrawTap(const Offset(100, 100), fillColor: Colors.blue);
+      notifier.handleDrawTap(const Offset(0, 100), fillColor: Colors.blue);
+      notifier.closePolygon(Colors.blue);
+      final polygonId = notifier.state.polygons.single.id;
+      final originalIds = notifier.state.polygons.single.vertexIds;
+
+      // Edge 0 runs from vertexIds[0] (0,0) to vertexIds[1] (100,0).
+      final newId = notifier.insertVertexAtEdge(polygonId, 0);
+
+      expect(newId, isNotNull);
+      expect(notifier.state.vertices[newId]!.position, const Offset(50, 0));
+      expect(
+        notifier.state.polygons.single.vertexIds,
+        [originalIds[0], newId, originalIds[1], originalIds[2], originalIds[3]],
+      );
+    });
+
+    test('wraps around: the last ring index subdivides the closing edge', () {
+      final notifier = CanvasNotifier();
+      notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.green);
+      notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.green);
+      notifier.handleDrawTap(const Offset(0, 100), fillColor: Colors.green);
+      notifier.closePolygon(Colors.green);
+      final polygon = notifier.state.polygons.single;
+      final lastIndex = polygon.vertexIds.length - 1;
+
+      final newId = notifier.insertVertexAtEdge(polygon.id, lastIndex);
+
+      // The closing edge runs from the last vertex (0,100) back to the
+      // first (0,0).
+      expect(newId, isNotNull);
+      expect(notifier.state.vertices[newId]!.position, const Offset(0, 50));
+      expect(notifier.state.polygons.single.vertexIds.last, newId);
+    });
+
+    test('the new vertex is unshared, so it belongs only to this polygon', () {
+      final notifier = CanvasNotifier();
+      notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.blue);
+      notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.blue);
+      notifier.handleDrawTap(const Offset(50, 100), fillColor: Colors.blue);
+      notifier.closePolygon(Colors.blue);
+      final polygonId = notifier.state.polygons.single.id;
+
+      final newId = notifier.insertVertexAtEdge(polygonId, 0)!;
+
+      expect(notifier.isVertexShared(newId), isFalse);
+    });
+
+    test('returns null for an unknown polygon or an out-of-range ring index', () {
+      final notifier = CanvasNotifier();
+      notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.red);
+      notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.red);
+      notifier.handleDrawTap(const Offset(50, 100), fillColor: Colors.red);
+      notifier.closePolygon(Colors.red);
+      final polygonId = notifier.state.polygons.single.id;
+
+      expect(notifier.insertVertexAtEdge('does-not-exist', 0), isNull);
+      expect(notifier.insertVertexAtEdge(polygonId, -1), isNull);
+      expect(notifier.insertVertexAtEdge(polygonId, 99), isNull);
+    });
+
+    test('undo removes the inserted vertex and restores the original ring', () {
+      final notifier = CanvasNotifier();
+      notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.purple);
+      notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.purple);
+      notifier.handleDrawTap(const Offset(50, 100), fillColor: Colors.purple);
+      notifier.closePolygon(Colors.purple);
+      final before = notifier.state;
+
+      final newId = notifier.insertVertexAtEdge(notifier.state.polygons.single.id, 0);
+      expect(notifier.undo(), isTrue);
+      expect(notifier.state, before);
+      expect(notifier.state.vertices.containsKey(newId), isFalse);
+    });
+  });
+
+  group('CanvasNotifier deletePolygon (edit mode "🗑️", 2026-07-16)', () {
+    test('removes the polygon and prunes its now-unreferenced vertices', () {
+      final notifier = CanvasNotifier();
+      notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.blue);
+      notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.blue);
+      notifier.handleDrawTap(const Offset(50, 100), fillColor: Colors.blue);
+      notifier.closePolygon(Colors.blue);
+      final polygon = notifier.state.polygons.single;
+
+      notifier.deletePolygon(polygon.id);
+
+      expect(notifier.state.polygons, isEmpty);
+      for (final vertexId in polygon.vertexIds) {
+        expect(notifier.state.vertices.containsKey(vertexId), isFalse);
+      }
+    });
+
+    test(
+      'a corner welded to another polygon survives deletion for that polygon',
+      () {
+        final notifier = CanvasNotifier();
+        notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.green);
+        notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.green);
+        notifier.handleDrawTap(const Offset(50, 100), fillColor: Colors.green);
+        notifier.closePolygon(Colors.green);
+        final greenPolygon = notifier.state.polygons.single;
+        final sharedId = greenPolygon.vertexIds[1]; // (100, 0)
+
+        notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.purple);
+        notifier.handleDrawTap(const Offset(200, 0), fillColor: Colors.purple);
+        notifier.handleDrawTap(const Offset(150, 100), fillColor: Colors.purple);
+        notifier.closePolygon(Colors.purple);
+
+        notifier.deletePolygon(greenPolygon.id);
+
+        expect(notifier.state.polygons, hasLength(1));
+        expect(notifier.state.polygons.single.vertexIds, contains(sharedId));
+        expect(notifier.state.vertices.containsKey(sharedId), isTrue);
+      },
+    );
+
+    test('is a no-op for an unknown polygon ID', () {
+      final notifier = CanvasNotifier();
+      notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.teal);
+      notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.teal);
+      notifier.handleDrawTap(const Offset(50, 100), fillColor: Colors.teal);
+      notifier.closePolygon(Colors.teal);
+      final before = notifier.state;
+
+      notifier.deletePolygon('does-not-exist');
+
+      expect(notifier.state, before);
+    });
+
+    test('undo restores the deleted polygon and its vertices', () {
+      final notifier = CanvasNotifier();
+      notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.orange);
+      notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.orange);
+      notifier.handleDrawTap(const Offset(50, 100), fillColor: Colors.orange);
+      notifier.closePolygon(Colors.orange);
+      final before = notifier.state;
+
+      notifier.deletePolygon(notifier.state.polygons.single.id);
+      expect(notifier.undo(), isTrue);
+      expect(notifier.state, before);
+    });
+  });
 }

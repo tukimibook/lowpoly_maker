@@ -6,7 +6,6 @@ import '../providers/canvas_provider.dart';
 import '../providers/underlay_provider.dart';
 import '../widgets/canvas/polygon_canvas.dart';
 import '../widgets/toolbar/editor_toolbar.dart';
-import '../widgets/underlay/underlay_settings_sheet.dart';
 
 /// Canvas background colors for each [Brightness] choice offered by
 /// [canvasBackgroundProvider]. Deliberately separate from the app's own
@@ -47,17 +46,6 @@ class EditorScreen extends ConsumerWidget {
             icon: Icon(underlayImagePath == null ? Icons.image_outlined : Icons.image),
           ),
           IconButton(
-            tooltip: '下絵設定',
-            onPressed: underlayImagePath == null
-                ? null
-                : () => showModalBottomSheet<void>(
-                    context: context,
-                    showDragHandle: true,
-                    builder: (context) => const UnderlaySettingsSheet(),
-                  ),
-            icon: const Icon(Icons.tune),
-          ),
-          IconButton(
             tooltip: isCanvasDark ? 'キャンバスをライトに切り替え' : 'キャンバスをダークに切り替え',
             onPressed: () {
               ref.read(canvasBackgroundProvider.notifier).state =
@@ -72,14 +60,58 @@ class EditorScreen extends ConsumerWidget {
           ),
         ],
       ),
-      body: ColoredBox(
-        color: isCanvasDark ? _darkCanvasBackground : _lightCanvasBackground,
-        child: const PolygonCanvas(),
+      // `Stack` overlay instead of `Scaffold.bottomNavigationBar` (2026-07-16
+      // — see `.cursor/plans/plan_phase_H_alpha.md`): `PolygonCanvas` fills
+      // the entire body, at a size that no longer depends on the toolbar's
+      // height at all, so switching between draw/eraser/edit — whose
+      // toolbar rows used to differ in height — can never again trigger
+      // the underlay's fit-to-canvas recompute (`underlayFitCoordinatorProvider`
+      // listens for `canvasProvider`'s `canvasSize` to change) and make the
+      // underlay visibly jump. `EditorToolbar` floats on top, at the
+      // bottom, as a normal `Positioned` overlay.
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: ColoredBox(
+              color: isCanvasDark ? _darkCanvasBackground : _lightCanvasBackground,
+              child: const PolygonCanvas(),
+            ),
+          ),
+          const Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: _ToolbarBarrier(child: EditorToolbar()),
+          ),
+        ],
       ),
-      bottomNavigationBar: const Material(
-        elevation: 8,
-        child: EditorToolbar(),
-      ),
+    );
+  }
+}
+
+/// Wraps [EditorToolbar] so every tap landing anywhere within its bounds —
+/// including the gaps between icons/rows, not just the icons themselves —
+/// is claimed here and never reaches [PolygonCanvas] underneath in the
+/// `Stack` (`HitTestBehavior.opaque` makes this render object's own
+/// `hitTest` succeed unconditionally for any position inside it, which is
+/// exactly what makes `RenderStack` stop testing the sibling behind it —
+/// see `.cursor/plans/plan_phase_H_alpha.md`, 2026-07-16 検討メモ).
+///
+/// This does *not* interfere with the toolbar's own buttons: hit-testing
+/// always tests descendants first regardless of `behavior`, so every
+/// `IconButton`/`SegmentedButton` inside still receives its own taps
+/// normally. No `onTap`/other callback is needed here — `behavior` alone
+/// governs whether this render object counts as "hit".
+class _ToolbarBarrier extends StatelessWidget {
+  const _ToolbarBarrier({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      child: Material(elevation: 8, child: child),
     );
   }
 }

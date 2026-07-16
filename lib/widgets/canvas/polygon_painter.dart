@@ -6,6 +6,8 @@ import '../../models/canvas_mode.dart';
 import '../../models/polygon_shape.dart';
 import '../../providers/canvas_provider.dart' show kMinPolygonVertices;
 import '../../providers/drag_preview_provider.dart';
+import '../../providers/polygon_drag_preview_provider.dart';
+import '../../providers/polygon_edit_target_provider.dart' show PolygonEdge;
 import '../../providers/vertex_drag_preview_provider.dart';
 import '../../services/coordinate_transform.dart';
 
@@ -21,10 +23,18 @@ class PolygonPainter extends CustomPainter {
     required this.viewport,
     required this.dragPreview,
     required this.vertexDragPreview,
+    required this.polygonDragPreview,
     required this.selectedVertexId,
+    required this.highlightedPolygonId,
+    required this.targetEdge,
     required this.canvasBrightness,
   }) : super(
-         repaint: Listenable.merge([viewport, dragPreview, vertexDragPreview]),
+         repaint: Listenable.merge([
+           viewport,
+           dragPreview,
+           vertexDragPreview,
+           polygonDragPreview,
+         ]),
        );
 
   final Artwork artwork;
@@ -32,13 +42,41 @@ class PolygonPainter extends CustomPainter {
   final ValueListenable<ViewportTransform> viewport;
   final ValueListenable<DragPreview?> dragPreview;
   final ValueListenable<VertexDragPreview?> vertexDragPreview;
+
+  /// Live displacement while the edit mode's whole-polygon drag (see
+  /// `PolygonDragPreview`'s doc) is in progress, or `null` between drags.
+  final ValueListenable<PolygonDragPreview?> polygonDragPreview;
   final String? selectedVertexId;
+
+  /// The one polygon currently emphasized in edit mode — either the
+  /// shared-vertex "切り離し" cycle/execute target (see `resolveDetachTarget`
+  /// in `providers/detach_cycle_provider.dart`, when a vertex is selected),
+  /// or the whole-shape "図形切替"/"辺切替"/"ここに追加"/"削除" target (see
+  /// `resolvePolygonTarget` in `providers/polygon_edit_target_provider.dart`,
+  /// when no vertex is selected). These two never apply at once — vertex
+  /// selection state alone decides which — so both features share this one
+  /// field rather than duplicating the highlight rendering. Painted at
+  /// [_highlightedFillAlpha] instead of [_fillAlpha] either way, so the
+  /// artist can see, at a glance, which shape a toolbar action would
+  /// currently affect — this is the *only* signal for that; the toolbar
+  /// buttons themselves carry no per-target label.
+  final String? highlightedPolygonId;
+
+  /// The one edge of [highlightedPolygonId] currently targeted by the edit
+  /// mode's "辺を切り替え"/"ここに追加" buttons, or `null` when no vertex is
+  /// selected but no edge has been cycled to yet (or a vertex *is*
+  /// selected, in which case this feature isn't active at all). Painted as
+  /// a plain accent-colored overwrite of that one segment — see
+  /// [_paintTargetEdge] — rather than a dashed outline, to keep the
+  /// drawing logic trivial.
+  final PolygonEdge? targetEdge;
   final Brightness canvasBrightness;
 
   static const double _vertexRadius = 5;
   static const double _continuationHandleRadius = 4;
 
-  static const int _fillAlpha = 77;
+  static const int _fillAlpha = 77; // ~30%
+  static const int _highlightedFillAlpha = 153; // ~60%
 
   Color get _onCanvasColor =>
       canvasBrightness == Brightness.dark ? Colors.white : Colors.black;
@@ -56,6 +94,7 @@ class PolygonPainter extends CustomPainter {
     for (final polygon in artwork.polygons) {
       _paintPolygon(canvas, polygon);
     }
+    _paintTargetEdge(canvas);
 
     if (mode == CanvasMode.edit) {
       _paintEditVertexHandles(canvas);
@@ -85,6 +124,10 @@ class PolygonPainter extends CustomPainter {
     if (drag != null && drag.vertexId == vertexId) {
       return drag.position;
     }
+    final polygonDrag = polygonDragPreview.value;
+    if (polygonDrag != null && polygonDrag.affectedVertexIds.contains(vertexId)) {
+      return artwork.vertices[vertexId]!.position + polygonDrag.delta;
+    }
     return artwork.vertices[vertexId]!.position;
   }
 
@@ -102,8 +145,9 @@ class PolygonPainter extends CustomPainter {
     }
     path.close();
 
+    final alpha = polygon.id == highlightedPolygonId ? _highlightedFillAlpha : _fillAlpha;
     final fillPaint = Paint()
-      ..color = polygon.fillColor.withAlpha(_fillAlpha)
+      ..color = polygon.fillColor.withAlpha(alpha)
       ..style = PaintingStyle.fill;
     canvas.drawPath(path, fillPaint);
 
@@ -113,6 +157,33 @@ class PolygonPainter extends CustomPainter {
       ..strokeWidth = polygon.strokeWidth
       ..strokeJoin = StrokeJoin.round;
     canvas.drawPath(path, strokePaint);
+  }
+
+  /// Overwrites [targetEdge] with a thicker, accent-colored stroke, on top
+  /// of the plain polygon outline already drawn by [_paintPolygon] — the
+  /// "辺を切り替え" button's sole visual feedback. Deliberately a single
+  /// [Canvas.drawLine] rather than a dashed outline (avoids the extra
+  /// geometry a dash pattern would need for no real gain here). Uses the
+  /// same [Colors.blueAccent] as [_paintEditVertexHandles]'s handles for a
+  /// consistent "edit mode = blue" color language.
+  void _paintTargetEdge(Canvas canvas) {
+    final edge = targetEdge;
+    if (edge == null) return;
+    if (artwork.vertices[edge.startVertexId] == null ||
+        artwork.vertices[edge.endVertexId] == null) {
+      return;
+    }
+
+    final accentPaint = Paint()
+      ..color = Colors.blueAccent
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3.0
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(
+      _positionFor(edge.startVertexId),
+      _positionFor(edge.endVertexId),
+      accentPaint,
+    );
   }
 
   void _paintVertexHints(
@@ -254,7 +325,10 @@ class PolygonPainter extends CustomPainter {
         oldDelegate.viewport != viewport ||
         oldDelegate.dragPreview != dragPreview ||
         oldDelegate.vertexDragPreview != vertexDragPreview ||
+        oldDelegate.polygonDragPreview != polygonDragPreview ||
         oldDelegate.selectedVertexId != selectedVertexId ||
+        oldDelegate.highlightedPolygonId != highlightedPolygonId ||
+        oldDelegate.targetEdge != targetEdge ||
         oldDelegate.canvasBrightness != canvasBrightness;
   }
 }

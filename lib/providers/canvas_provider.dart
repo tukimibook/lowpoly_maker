@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
+import '../geometry/edge_midpoint.dart';
 import '../geometry/line_absorption.dart';
 import '../geometry/nearest_point.dart';
 import '../geometry/polygon_graph.dart';
@@ -472,6 +473,102 @@ class CanvasNotifier extends StateNotifier<Artwork> {
         vertexId: vertex.copyWith(position: newPosition),
       },
     );
+  }
+
+  /// Translates every vertex [polygonId] references by [delta], as a
+  /// single undo entry — the commit-on-release counterpart of the edit
+  /// mode's whole-polygon drag (a plain pan, active only while no vertex
+  /// is selected; see `PolygonDragPreview` and
+  /// `.cursor/plans/plan_phase_H_alpha.md`, 2026-07-16 検討メモ). Called
+  /// exactly once, when the finger lifts — the live drag itself only ever
+  /// touches `PolygonDragPreview`, never [state].
+  ///
+  /// A corner welded to a neighboring polygon moves for *both* shapes,
+  /// exactly like dragging that single shared vertex with [moveVertex]
+  /// already does today — this is simply that same rule applied to every
+  /// vertex of one polygon at once, not a new kind of propagation. No-op
+  /// when [polygonId] doesn't exist or [delta] is zero.
+  void translatePolygon(String polygonId, Offset delta) {
+    if (delta == Offset.zero) return;
+    final polygon = state.polygons.where((p) => p.id == polygonId).firstOrNull;
+    if (polygon == null) return;
+
+    _recordUndo();
+    final updatedVertices = {...state.vertices};
+    for (final vertexId in polygon.vertexIds) {
+      final vertex = updatedVertices[vertexId];
+      if (vertex == null) continue;
+      updatedVertices[vertexId] = vertex.copyWith(position: vertex.position + delta);
+    }
+    state = state.copyWith(vertices: updatedVertices);
+  }
+
+  /// Subdivides [polygonId]'s edge starting at ring index [ringIndex] —
+  /// i.e. between `vertexIds[ringIndex]` and its successor, wrapping after
+  /// the last — by inserting a brand-new [Vertex] at the segment's
+  /// [edgeMidpoint], spliced into the ring right between the two (see the
+  /// edit mode's "➕ ここに追加" button, active once a target polygon *and*
+  /// edge have been chosen via `resolvePolygonTarget`/`resolveEdgeTarget`).
+  ///
+  /// The new vertex belongs *only* to [polygonId] — unshared, exactly like
+  /// a freshly placed freehand point — so the artist can immediately drag
+  /// it to reshape this one edge without disturbing any neighboring
+  /// polygon it happens to run alongside. Returns the new vertex's ID (so
+  /// the caller can select it immediately, letting drag-to-move start with
+  /// no extra tap), or `null` when [polygonId] doesn't exist or
+  /// [ringIndex] is out of range.
+  String? insertVertexAtEdge(String polygonId, int ringIndex) {
+    final polygon = state.polygons.where((p) => p.id == polygonId).firstOrNull;
+    if (polygon == null) return null;
+    final vertexIds = polygon.vertexIds;
+    if (ringIndex < 0 || ringIndex >= vertexIds.length) return null;
+
+    final start = state.vertices[vertexIds[ringIndex]];
+    final end = state.vertices[vertexIds[(ringIndex + 1) % vertexIds.length]];
+    if (start == null || end == null) return null;
+
+    _recordUndo();
+    final newVertex = Vertex(
+      id: _uuid.v4(),
+      position: edgeMidpoint(start.position, end.position),
+    );
+    final updatedVertexIds = [
+      ...vertexIds.sublist(0, ringIndex + 1),
+      newVertex.id,
+      ...vertexIds.sublist(ringIndex + 1),
+    ];
+    state = state.copyWith(
+      polygons: [
+        for (final p in state.polygons)
+          if (p.id == polygonId) p.copyWith(vertexIds: updatedVertexIds) else p,
+      ],
+      vertices: {...state.vertices, newVertex.id: newVertex},
+    );
+    return newVertex.id;
+  }
+
+  /// Deletes [polygonId] entirely (the edit mode's "🗑️ 図形の削除" button).
+  /// Any of its vertices still referenced elsewhere — a corner welded to a
+  /// neighboring polygon, or to the open draft — are kept; the rest are
+  /// pruned from the shared pool, mirroring [deletePolygonVertex]'s
+  /// dissolve branch and [clearAll]'s pruning loop. No-op when [polygonId]
+  /// doesn't exist.
+  void deletePolygon(String polygonId) {
+    final polygon = state.polygons.where((p) => p.id == polygonId).firstOrNull;
+    if (polygon == null) return;
+
+    _recordUndo();
+    final remainingPolygons = state.polygons.where((p) => p.id != polygonId).toList();
+    var vertices = state.vertices;
+    for (final vertexId in polygon.vertexIds) {
+      vertices = _prune(
+        vertices,
+        vertexId,
+        polygons: remainingPolygons,
+        draftVertexIds: state.draftVertexIds,
+      );
+    }
+    state = state.copyWith(polygons: remainingPolygons, vertices: vertices);
   }
 
   /// How many independent owners reference [vertexId]: one per polygon that

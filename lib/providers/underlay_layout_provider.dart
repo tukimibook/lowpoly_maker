@@ -3,6 +3,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/underlay_layout.dart';
 
+/// The opacity steps [UnderlayLayoutController.cycleOpacity] loops through,
+/// in order. Replaces the five-segment button the "下絵設定" bottom sheet
+/// used to offer (removed 2026-07-16 — see `.cursor/plans/
+/// plan_phase_H_alpha.md`) with a single icon-only toggle in the toolbar's
+/// common row, so the control stays language-independent (a numeral + `%`
+/// is a universal symbol, not a translated word).
+const List<double> kUnderlayOpacitySteps = [0.1, 0.3, 0.5, 0.7, 1.0];
+
 /// Tracks the current [UnderlayLayout] for the (single, v1) underlay photo.
 ///
 /// A [ValueNotifier] — like `ViewportController`/`DragPreviewController` in
@@ -29,6 +37,25 @@ class UnderlayLayoutController extends ValueNotifier<UnderlayLayout> {
   void setVisible(bool visible) => value = value.copyWith(visible: visible);
 
   void setOpacity(double opacity) => value = value.copyWith(opacity: opacity);
+
+  /// Advances [UnderlayLayout.opacity] to the next step in
+  /// [kUnderlayOpacitySteps], wrapping back to the first after the last —
+  /// the toolbar's single "💧 NN%" toggle button, replacing the old
+  /// five-segment picker with one tap that loops through every step.
+  ///
+  /// Snaps to the *nearest* step first (rather than requiring an exact
+  /// match) before advancing, so a stray future writer or floating-point
+  /// rounding can't leave this stuck between two steps.
+  void cycleOpacity() {
+    final steps = kUnderlayOpacitySteps;
+    var nearestIndex = 0;
+    for (var i = 1; i < steps.length; i++) {
+      if ((steps[i] - value.opacity).abs() < (steps[nearestIndex] - value.opacity).abs()) {
+        nearestIndex = i;
+      }
+    }
+    setOpacity(steps[(nearestIndex + 1) % steps.length]);
+  }
 }
 
 /// Provides the single, stable [UnderlayLayoutController] instance for the

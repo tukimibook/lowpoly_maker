@@ -5,7 +5,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../models/canvas_mode.dart';
 import '../../providers/canvas_background_provider.dart';
 import '../../providers/canvas_provider.dart';
+import '../../providers/detach_cycle_provider.dart';
 import '../../providers/drag_preview_provider.dart';
+import '../../providers/polygon_drag_preview_provider.dart';
+import '../../providers/polygon_edit_target_provider.dart';
 import '../../providers/selected_vertex_provider.dart';
 import '../../providers/vertex_drag_preview_provider.dart';
 import '../../providers/viewport_provider.dart';
@@ -29,7 +32,45 @@ class PolygonCanvas extends ConsumerWidget {
     final viewport = ref.watch(viewportProvider);
     final dragPreview = ref.watch(dragPreviewProvider);
     final vertexDragPreview = ref.watch(vertexDragPreviewProvider);
+    final polygonDragPreview = ref.watch(polygonDragPreviewProvider);
     final canvasBrightness = ref.watch(canvasBackgroundProvider);
+    final detachCycleIndex = ref.watch(detachCycleIndexProvider);
+    final polygonCycleIndex = ref.watch(polygonCycleIndexProvider);
+    final edgeCycleIndex = ref.watch(edgeCycleIndexProvider);
+
+    // Which polygon edit mode currently emphasizes, and — while no vertex
+    // is selected — which of its edges, if any. Exactly one of these two
+    // features is ever active at a time (selection state alone decides
+    // which), so both resolve into the same `highlightedPolygonId` the
+    // painter takes — see that field's doc for why. Computed once here,
+    // rather than duplicated in the toolbar, so the canvas and toolbar
+    // buttons can never disagree about the current target.
+    String? highlightedPolygonId;
+    PolygonEdge? targetEdge;
+    if (mode == CanvasMode.edit) {
+      if (selectedVertexId != null) {
+        highlightedPolygonId = resolveDetachTarget(
+          referencingPolygons: notifier.polygonsReferencing(selectedVertexId),
+          draftReferences: notifier.draftReferencesVertex(selectedVertexId),
+          rawCycleIndex: detachCycleIndex,
+        )?.polygonId;
+      } else {
+        highlightedPolygonId = resolvePolygonTarget(
+          polygons: artwork.polygons,
+          rawCycleIndex: polygonCycleIndex,
+        );
+        final targetPolygon = artwork.polygons
+            .where((p) => p.id == highlightedPolygonId)
+            .firstOrNull;
+        if (targetPolygon != null) {
+          targetEdge = resolveEdgeTarget(
+            polygon: targetPolygon,
+            rawCycleIndex: edgeCycleIndex,
+          );
+        }
+      }
+    }
+    final targetPolygonId = selectedVertexId == null ? highlightedPolygonId : null;
 
     double hitRadius() => kVertexHitRadius / viewport.value.scale;
 
@@ -85,6 +126,42 @@ class PolygonCanvas extends ConsumerWidget {
       }
 
       ref.read(selectedVertexProvider.notifier).state = tappedId;
+      ref.read(detachCycleIndexProvider.notifier).state = 0;
+      if (tappedId != null) {
+        // A vertex just became selected — the whole-shape target UI (図形
+        // 切替/辺切替/追加/削除) that only shows while nothing is selected
+        // is about to disappear, so leave it starting fresh next time.
+        ref.read(polygonCycleIndexProvider.notifier).state = -1;
+        ref.read(edgeCycleIndexProvider.notifier).state = -1;
+      }
+    }
+
+    void startPolygonDrag() {
+      final polygonId = targetPolygonId;
+      if (polygonId == null) return;
+      final polygon = artwork.polygons.where((p) => p.id == polygonId).firstOrNull;
+      if (polygon == null) return;
+      polygonDragPreview.value = PolygonDragPreview(
+        affectedVertexIds: polygon.vertexIds.toSet(),
+        delta: Offset.zero,
+      );
+    }
+
+    void updatePolygonDrag(Offset localDelta) {
+      final preview = polygonDragPreview.value;
+      if (preview == null) return;
+      polygonDragPreview.value = PolygonDragPreview(
+        affectedVertexIds: preview.affectedVertexIds,
+        delta: preview.delta + localDelta / viewport.value.scale,
+      );
+    }
+
+    void commitPolygonDrag() {
+      final preview = polygonDragPreview.value;
+      polygonDragPreview.value = null;
+      final polygonId = targetPolygonId;
+      if (preview == null || polygonId == null) return;
+      notifier.translatePolygon(polygonId, preview.delta);
     }
 
     void startVertexDrag(Offset localPosition) {
@@ -143,7 +220,10 @@ class PolygonCanvas extends ConsumerWidget {
                   viewport: viewport,
                   dragPreview: dragPreview,
                   vertexDragPreview: vertexDragPreview,
+                  polygonDragPreview: polygonDragPreview,
                   selectedVertexId: selectedVertexId,
+                  highlightedPolygonId: highlightedPolygonId,
+                  targetEdge: targetEdge,
                   canvasBrightness: canvasBrightness,
                 ),
               ),
@@ -162,6 +242,17 @@ class PolygonCanvas extends ConsumerWidget {
             onLongPressEnd: (details) => commitVertexDrag(),
             onLongPressCancel: () {
               vertexDragPreview.value = null;
+            },
+            // A plain (non-long-press) drag translates the whole "図形
+            // 切替" target instead — active only while no vertex is
+            // selected and a target has actually been chosen (see
+            // `targetPolygonId`'s doc above); with neither, this is a
+            // no-op, exactly like today's plain drag in edit mode.
+            onPanStart: (details) => startPolygonDrag(),
+            onPanUpdate: (details) => updatePolygonDrag(details.delta),
+            onPanEnd: (details) => commitPolygonDrag(),
+            onPanCancel: () {
+              polygonDragPreview.value = null;
             },
             child: content,
           );
