@@ -11,6 +11,7 @@ import '../../providers/selected_vertex_provider.dart';
 import '../../providers/underlay_layout_provider.dart';
 import '../../providers/underlay_provider.dart';
 import '../../providers/vertex_drag_preview_provider.dart';
+import '../../providers/viewport_provider.dart';
 
 /// Height each row (common + mode-specific) reserves. Two rows land the
 /// whole bar in the ~120–150px "ゆったりとしたスペース" range agreed for a
@@ -158,6 +159,11 @@ class _CommonRow extends ConsumerWidget {
               },
             ),
             IconButton(
+              tooltip: '全体表示に戻す',
+              onPressed: ref.read(viewportProvider).reset,
+              icon: const Icon(Icons.fit_screen),
+            ),
+            IconButton(
               tooltip: '元に戻す',
               onPressed: canUndo ? ref.read(canvasProvider.notifier).undo : null,
               icon: const Icon(Icons.undo),
@@ -180,6 +186,13 @@ class _DrawModeRow extends ConsumerWidget {
     final notifier = ref.read(canvasProvider.notifier);
     final selectedColor = ref.watch(selectedFillColorProvider);
     final canClose = artwork.draftVertexIds.length >= kMinPolygonVertices;
+    // The toolbar's own tap has no gesture-side viewport scale to read from
+    // directly (unlike `PolygonCanvas`'s `hitRadius()`/`lineAbsorptionTolerance()`
+    // helpers), so it reads the current scale here instead — Phase Hβ's
+    // screen-px unification (`.cursor/plans/plan_phase_H_beta.md`) applies
+    // to this explicit "閉じる" action just as much as to the implicit
+    // double-tap close it mirrors.
+    final viewportScale = ref.read(viewportProvider).value.scale;
 
     return SizedBox(
       height: _kRowHeight,
@@ -221,7 +234,12 @@ class _DrawModeRow extends ConsumerWidget {
             IconButton(
               tooltip: '多角形を閉じる',
               iconSize: 32,
-              onPressed: canClose ? () => notifier.closePolygon(selectedColor) : null,
+              onPressed: canClose
+                  ? () => notifier.closePolygon(
+                      selectedColor,
+                      lineAbsorptionTolerance: kLineAbsorptionTolerance / viewportScale,
+                    )
+                  : null,
               icon: const Icon(Icons.check_circle),
             ),
           ],

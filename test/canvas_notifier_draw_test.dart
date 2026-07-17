@@ -497,4 +497,169 @@ void main() {
       },
     );
   });
+
+  group(
+    'CanvasNotifier screen-px tolerance scaling (Phase Hβ, 2026-07-17: '
+    'doubleTapMaxDistance/lineAbsorptionTolerance)',
+    () {
+      test(
+        'two taps 18px apart are read as a pseudo double-tap (closing the '
+        'draft onto its own nearby start) at the default tolerance (20px), '
+        'but not once scaled down to a tighter screen distance (e.g. '
+        'zoomed in to scale 2, i.e. 10px)',
+        () {
+          void buildDraftNearOwnStart(CanvasNotifier notifier) {
+            notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.orange);
+            notifier.handleDrawTap(
+              const Offset(300, 0),
+              fillColor: Colors.orange,
+            );
+            notifier.handleDrawTap(
+              const Offset(150, 300),
+              fillColor: Colors.orange,
+            );
+            // First tap of the pair: near the draft's own start (well
+            // within kVertexHitRadius), so it's eligible to trigger a
+            // self-close — but only once a *second* tap close enough to
+            // this one arrives within kDoubleTapMaxInterval.
+            notifier.handleDrawTap(const Offset(5, 0), fillColor: Colors.orange);
+          }
+
+          final atDefault = CanvasNotifier();
+          buildDraftNearOwnStart(atDefault);
+          // Second tap, 18px from the first: within the default 20px
+          // tolerance, so this reads as a pseudo double-tap and self-closes.
+          atDefault.handleDrawTap(const Offset(5, 18), fillColor: Colors.orange);
+          expect(atDefault.state.polygons, hasLength(1));
+          expect(atDefault.state.draftVertexIds, isEmpty);
+
+          final scaledDown = CanvasNotifier();
+          buildDraftNearOwnStart(scaledDown);
+          // Same 18px gap between the two taps, but the caller is at scale
+          // 2 (zoomed in), so it passes half the default tolerance — 18px
+          // now exceeds it, so this must NOT be read as a pseudo
+          // double-tap; it just leaves an ordinary fifth point instead.
+          scaledDown.handleDrawTap(
+            const Offset(5, 18),
+            fillColor: Colors.orange,
+            doubleTapMaxDistance: kDoubleTapMaxDistance / 2,
+          );
+          expect(scaledDown.state.polygons, isEmpty);
+          expect(scaledDown.state.draftVertexIds, hasLength(5));
+        },
+      );
+
+      test(
+        'a vertex 10px off a new segment is absorbed at the default line '
+        'tolerance (15px), but not once scaled down to a tighter screen '
+        'distance (e.g. zoomed in to scale 2, i.e. 7.5px)',
+        () {
+          final atDefault = CanvasNotifier();
+          atDefault.handleDrawTap(const Offset(50, 10), fillColor: Colors.green);
+          atDefault.handleDrawTap(const Offset(90, 150), fillColor: Colors.green);
+          atDefault.handleDrawTap(const Offset(10, 150), fillColor: Colors.green);
+          atDefault.closePolygon(Colors.green);
+          atDefault.handleDrawTap(const Offset(0, 0), fillColor: Colors.orange);
+          atDefault.handleDrawTap(const Offset(100, 0), fillColor: Colors.orange);
+          expect(atDefault.state.draftVertexIds, hasLength(3));
+
+          final scaledDown = CanvasNotifier();
+          scaledDown.handleDrawTap(const Offset(50, 10), fillColor: Colors.green);
+          scaledDown.handleDrawTap(const Offset(90, 150), fillColor: Colors.green);
+          scaledDown.handleDrawTap(const Offset(10, 150), fillColor: Colors.green);
+          scaledDown.closePolygon(Colors.green);
+          scaledDown.handleDrawTap(const Offset(0, 0), fillColor: Colors.orange);
+          scaledDown.handleDrawTap(
+            const Offset(100, 0),
+            fillColor: Colors.orange,
+            lineAbsorptionTolerance: kLineAbsorptionTolerance / 2,
+          );
+          expect(scaledDown.state.draftVertexIds, hasLength(2));
+        },
+      );
+
+      test(
+        "closePolygon's implicit closing edge absorbs a vertex sitting "
+        '10px off it at the default tolerance (15px), but not once scaled '
+        'down to a tighter screen distance (e.g. zoomed in to scale 2, '
+        'i.e. 7.5px)',
+        () {
+          // Mirrors canvas_notifier_closure_test.dart's un-scaled "welds
+          // onto an existing vertex sitting on the straight closing line"
+          // scenario, except the vertex sits 10px *off* that line (not
+          // exactly on it), so it's the tolerance itself — not just "any
+          // nonzero tolerance" — being exercised.
+          void buildUpToClose(CanvasNotifier notifier) {
+            // Polygon A: a vertex 10px above the eventual closing edge
+            // (the horizontal line from (100,0) back to (0,0)).
+            notifier.handleDrawTap(const Offset(50, 10), fillColor: Colors.green);
+            notifier.handleDrawTap(
+              const Offset(90, 300),
+              fillColor: Colors.green,
+            );
+            notifier.handleDrawTap(
+              const Offset(10, 300),
+              fillColor: Colors.green,
+            );
+            notifier.closePolygon(Colors.green);
+
+            // Polygon B supplies the vertex the draft's end will weld onto.
+            notifier.handleDrawTap(
+              const Offset(100, 0),
+              fillColor: Colors.purple,
+            );
+            notifier.handleDrawTap(
+              const Offset(140, 300),
+              fillColor: Colors.purple,
+            );
+            notifier.handleDrawTap(
+              const Offset(60, 300),
+              fillColor: Colors.purple,
+            );
+            notifier.closePolygon(Colors.purple);
+
+            // Draft C: starts at (0,0), a freehand point, then welds its end
+            // onto B's (100,0) — the closing edge runs (100,0) -> (0,0).
+            notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.orange);
+            notifier.handleDrawTap(
+              const Offset(0, 300),
+              fillColor: Colors.orange,
+            );
+            notifier.handleDrawTap(
+              const Offset(100, 0),
+              fillColor: Colors.orange,
+            );
+          }
+
+          final atDefault = CanvasNotifier();
+          buildUpToClose(atDefault);
+          final onLineVertexId =
+              atDefault.state.polygons.first.vertexIds.first; // (50, 10)
+          atDefault.closePolygon(Colors.orange);
+          // Default tolerance (15px) absorbs the 10px-off vertex into the
+          // closing edge, so the new shape gains a fourth corner.
+          expect(atDefault.state.polygons.last.vertexIds, hasLength(4));
+          expect(
+            atDefault.state.polygons.last.vertexIds,
+            contains(onLineVertexId),
+          );
+
+          final scaledDown = CanvasNotifier();
+          buildUpToClose(scaledDown);
+          // Zoomed in to scale 2: the effective on-screen tolerance is now
+          // half the on-screen distance of the same 10px gap, so it's no
+          // longer close enough to be woven into the closing edge.
+          scaledDown.closePolygon(
+            Colors.orange,
+            lineAbsorptionTolerance: kLineAbsorptionTolerance / 2,
+          );
+          expect(scaledDown.state.polygons.last.vertexIds, hasLength(3));
+          expect(
+            scaledDown.state.polygons.last.vertexIds,
+            isNot(contains(onLineVertexId)),
+          );
+        },
+      );
+    },
+  );
 }

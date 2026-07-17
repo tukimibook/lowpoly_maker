@@ -15,6 +15,13 @@ import '../services/coordinate_transform.dart';
 /// time the viewport moves either.
 class ViewportController extends ValueNotifier<ViewportTransform> {
   ViewportController() : super(ViewportTransform.identity);
+
+  /// Resets pan/zoom back to [ViewportTransform.identity] — the toolbar's
+  /// "全体表示に戻す" button (Phase Hβ, `.cursor/plans/
+  /// plan_phase_H_beta.md`).
+  void reset() {
+    value = ViewportTransform.identity;
+  }
 }
 
 /// Provides the single, stable [ViewportController] instance for the

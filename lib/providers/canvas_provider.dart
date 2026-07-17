@@ -193,14 +193,29 @@ class CanvasNotifier extends StateNotifier<Artwork> {
   /// transform.scale` so the tolerance stays a constant *screen* distance
   /// regardless of zoom; it defaults to [kVertexHitRadius] unscaled for
   /// callers (e.g. tests) that don't have a viewport transform.
+  /// [doubleTapMaxDistance] and [lineAbsorptionTolerance] follow the exact
+  /// same screen-tolerance convention, for [_isPseudoDoubleTap] and the
+  /// line-absorption search (see [_insertAbsorbedVertices]/
+  /// [_closingEdgeVertices]) respectively — Phase Hβ's screen-px
+  /// unification (`.cursor/plans/plan_phase_H_beta.md`, 着手前チェックリス
+  /// ト #1): before this, both were compared directly against
+  /// world-space distances, so they silently shrank/grew on screen once a
+  /// pinch-zoom gesture existed.
   Color? handleDrawTap(
     Offset position, {
     required Color fillColor,
     double hitRadius = kVertexHitRadius,
+    double doubleTapMaxDistance = kDoubleTapMaxDistance,
+    double lineAbsorptionTolerance = kLineAbsorptionTolerance,
   }) {
     final now = DateTime.now();
-    if (_isPseudoDoubleTap(position, now) &&
-        _tryCloseAtVertex(position, fillColor, hitRadius: hitRadius)) {
+    if (_isPseudoDoubleTap(position, now, maxDistance: doubleTapMaxDistance) &&
+        _tryCloseAtVertex(
+          position,
+          fillColor,
+          hitRadius: hitRadius,
+          lineAbsorptionTolerance: lineAbsorptionTolerance,
+        )) {
       return null;
     }
 
@@ -210,6 +225,7 @@ class CanvasNotifier extends StateNotifier<Artwork> {
       position,
       fillColor: fillColor,
       hitRadius: hitRadius,
+      lineAbsorptionTolerance: lineAbsorptionTolerance,
     );
     _lastTapInsertedCount = state.draftVertexIds.length - countBefore;
     _lastTapAt = now;
@@ -248,6 +264,7 @@ class CanvasNotifier extends StateNotifier<Artwork> {
     Offset position,
     Color fillColor, {
     required double hitRadius,
+    required double lineAbsorptionTolerance,
   }) {
     final draftIds = state.draftVertexIds;
     if (draftIds.isEmpty) return false;
@@ -256,10 +273,14 @@ class CanvasNotifier extends StateNotifier<Artwork> {
     if ((position - endPosition).distance <= hitRadius &&
         _isConfirmedPolygonVertex(draftIds.last)) {
       if (draftIds.length < kMinPolygonVertices) return false;
-      if (_wouldCloseWithUnweldedGap(draftIds.first, draftIds.last)) {
+      if (_wouldCloseWithUnweldedGap(
+        draftIds.first,
+        draftIds.last,
+        lineAbsorptionTolerance: lineAbsorptionTolerance,
+      )) {
         return false;
       }
-      closePolygon(fillColor);
+      closePolygon(fillColor, lineAbsorptionTolerance: lineAbsorptionTolerance);
       return true;
     }
 
@@ -270,7 +291,7 @@ class CanvasNotifier extends StateNotifier<Artwork> {
       for (var i = 0; i < strayCount; i++) {
         _removeLastDraftVertex();
       }
-      closePolygon(fillColor);
+      closePolygon(fillColor, lineAbsorptionTolerance: lineAbsorptionTolerance);
       return true;
     }
 
@@ -289,6 +310,7 @@ class CanvasNotifier extends StateNotifier<Artwork> {
     Offset position, {
     required Color fillColor,
     required double hitRadius,
+    required double lineAbsorptionTolerance,
   }) {
     final draftIds = state.draftVertexIds;
 
@@ -301,6 +323,7 @@ class CanvasNotifier extends StateNotifier<Artwork> {
       _insertAbsorbedVertices(
         state.vertices[draftIds.last]!.position,
         state.vertices[hit.vertexId]!.position,
+        tolerance: lineAbsorptionTolerance,
         excludeVertexId: hit.vertexId,
       );
       snapDraftEndToExistingVertex(hit.vertexId);
@@ -311,6 +334,7 @@ class CanvasNotifier extends StateNotifier<Artwork> {
       _insertAbsorbedVertices(
         state.vertices[draftIds.last]!.position,
         position,
+        tolerance: lineAbsorptionTolerance,
       );
     }
     _appendFreehandDraftVertex(position);
@@ -327,12 +351,16 @@ class CanvasNotifier extends StateNotifier<Artwork> {
   /// would make the whole drawing experience feel sluggish. Instead, every
   /// tap is handled immediately by [handleDrawTap] as normal, and a second
   /// one close enough to the first is treated as a close.
-  bool _isPseudoDoubleTap(Offset position, DateTime now) {
+  bool _isPseudoDoubleTap(
+    Offset position,
+    DateTime now, {
+    required double maxDistance,
+  }) {
     final lastAt = _lastTapAt;
     final lastPosition = _lastTapPosition;
     if (lastAt == null || lastPosition == null) return false;
     return now.difference(lastAt) <= kDoubleTapMaxInterval &&
-        (position - lastPosition).distance <= kDoubleTapMaxDistance;
+        (position - lastPosition).distance <= maxDistance;
   }
 
   /// Handles a tap while in [CanvasMode.eraser]: deletes the single nearest
@@ -358,6 +386,7 @@ class CanvasNotifier extends StateNotifier<Artwork> {
     Offset start,
     Offset end, {
     String? excludeVertexId,
+    double tolerance = kLineAbsorptionTolerance,
   }) {
     final absorbed = findVerticesAlongSegment(
       start,
@@ -365,7 +394,7 @@ class CanvasNotifier extends StateNotifier<Artwork> {
       vertices: state.vertices,
       polygons: state.polygons,
       draftVertexIds: state.draftVertexIds.toSet(),
-      tolerance: kLineAbsorptionTolerance,
+      tolerance: tolerance,
       excludeVertexId: excludeVertexId,
     );
     for (final vertexId in absorbed) {
@@ -814,14 +843,26 @@ class CanvasNotifier extends StateNotifier<Artwork> {
   /// the straight line between them. Either way the shape tiles seamlessly
   /// against whatever it touches, instead of the specific start/end
   /// combination changing how (or whether) it welds.
-  void closePolygon(Color fillColor) {
+  ///
+  /// [lineAbsorptionTolerance] follows the same screen-tolerance convention
+  /// as [handleDrawTap]'s own parameter of the same name — callers with a
+  /// viewport transform (the toolbar's "閉じる" button included) should
+  /// pass `kLineAbsorptionTolerance / transform.scale`.
+  void closePolygon(
+    Color fillColor, {
+    double lineAbsorptionTolerance = kLineAbsorptionTolerance,
+  }) {
     _resetPendingTap();
     final draftIds = state.draftVertexIds;
     if (draftIds.length < kMinPolygonVertices) return;
     _recordUndo();
     final vertexIds = [
       ...draftIds,
-      ..._closingEdgeVertices(draftIds.first, draftIds.last),
+      ..._closingEdgeVertices(
+        draftIds.first,
+        draftIds.last,
+        tolerance: lineAbsorptionTolerance,
+      ),
     ];
     final polygon = PolygonShape(
       id: _uuid.v4(),
@@ -858,7 +899,11 @@ class CanvasNotifier extends StateNotifier<Artwork> {
   ///
   /// The returned IDs are appended after the draft's last point, so the
   /// closing path runs `last -> ...returned... -> first` either way.
-  List<String> _closingEdgeVertices(String startId, String endId) {
+  List<String> _closingEdgeVertices(
+    String startId,
+    String endId, {
+    required double tolerance,
+  }) {
     final sharedBoundary = _sharedBoundaryClosure(startId, endId);
     if (sharedBoundary.isNotEmpty) return sharedBoundary;
 
@@ -870,7 +915,7 @@ class CanvasNotifier extends StateNotifier<Artwork> {
       vertices: state.vertices,
       polygons: state.polygons,
       draftVertexIds: state.draftVertexIds.toSet(),
-      tolerance: kLineAbsorptionTolerance,
+      tolerance: tolerance,
     );
   }
 
@@ -891,7 +936,11 @@ class CanvasNotifier extends StateNotifier<Artwork> {
   /// bypassing this check) remains available to force a plain straight
   /// edge when the artist deliberately wants one even though nothing
   /// connects the two ends.
-  bool _wouldCloseWithUnweldedGap(String startId, String endId) {
+  bool _wouldCloseWithUnweldedGap(
+    String startId,
+    String endId, {
+    required double lineAbsorptionTolerance,
+  }) {
     if (startId == endId) return false;
     if (!_isConfirmedPolygonVertex(startId) ||
         !_isConfirmedPolygonVertex(endId)) {
@@ -916,7 +965,7 @@ class CanvasNotifier extends StateNotifier<Artwork> {
       vertices: state.vertices,
       polygons: state.polygons,
       draftVertexIds: state.draftVertexIds.toSet(),
-      tolerance: kLineAbsorptionTolerance,
+      tolerance: lineAbsorptionTolerance,
     ).isEmpty;
   }
 

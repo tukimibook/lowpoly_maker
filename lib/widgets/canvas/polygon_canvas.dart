@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../geometry/viewport_pinch.dart';
 import '../../models/canvas_mode.dart';
 import '../../providers/canvas_background_provider.dart';
 import '../../providers/canvas_provider.dart';
@@ -11,6 +12,7 @@ import '../../providers/polygon_drag_preview_provider.dart';
 import '../../providers/polygon_edit_target_provider.dart';
 import '../../providers/selected_vertex_provider.dart';
 import '../../providers/vertex_drag_preview_provider.dart';
+import '../../providers/viewport_gesture_provider.dart';
 import '../../providers/viewport_provider.dart';
 import 'polygon_painter.dart';
 import 'underlay_layer.dart';
@@ -20,6 +22,12 @@ import 'underlay_layer.dart';
 /// - [CanvasMode.draw]: place/extend/close polygons.
 /// - [CanvasMode.eraser]: delete a single touched vertex.
 /// - [CanvasMode.edit]: tap to select a vertex; long-press drag to move it.
+///
+/// Every mode also recognizes a 2-finger pinch/pan as a *viewport* gesture
+/// (Phase Hβ, `.cursor/plans/plan_phase_H_beta.md`) rather than whatever
+/// that mode's own 1-finger gesture means — see the gesture-sub-cycle
+/// helpers inside [build] and `providers/viewport_gesture_provider.dart`
+/// for how the two are told apart on every single `onScale*` callback.
 class PolygonCanvas extends ConsumerWidget {
   const PolygonCanvas({super.key});
 
@@ -30,6 +38,7 @@ class PolygonCanvas extends ConsumerWidget {
     final selectedVertexId = ref.watch(selectedVertexProvider);
     final notifier = ref.read(canvasProvider.notifier);
     final viewport = ref.watch(viewportProvider);
+    final gestureBaseline = ref.watch(viewportGestureProvider);
     final dragPreview = ref.watch(dragPreviewProvider);
     final vertexDragPreview = ref.watch(vertexDragPreviewProvider);
     final polygonDragPreview = ref.watch(polygonDragPreviewProvider);
@@ -73,9 +82,85 @@ class PolygonCanvas extends ConsumerWidget {
     final targetPolygonId = selectedVertexId == null ? highlightedPolygonId : null;
 
     double hitRadius() => kVertexHitRadius / viewport.value.scale;
+    double doubleTapMaxDistance() => kDoubleTapMaxDistance / viewport.value.scale;
+    double lineAbsorptionTolerance() => kLineAbsorptionTolerance / viewport.value.scale;
 
     Offset worldPosition(Offset localPosition) {
       return viewport.value.screenToWorld(localPosition);
+    }
+
+    // --- Viewport (pinch/pan) gesture bookkeeping -------------------------
+    //
+    // Shared across all three modes' `GestureDetector`s below: each one
+    // still owns its own `onScale*` callbacks (since each mode's 1-finger
+    // meaning is different), but every one of them starts with
+    // `beginGestureSubCycle`, defers to `applyViewportUpdate` first inside
+    // `onScaleUpdate`, and asks `endGestureSubCycle` whether to run its own
+    // commit logic inside `onScaleEnd` — see `ViewportGestureBaseline`'s
+    // doc (`providers/viewport_gesture_provider.dart`) for exactly what
+    // problem this solves and why a plain `onPan*` can't express it
+    // (`GestureDetector` cannot have both `onPan*` and `onScale*` at once —
+    // pinch-zoom needs the latter, so every mode's previously-`onPan*`
+    // 1-finger gesture had to move to `onScale*` too).
+
+    void beginGestureSubCycle(ScaleStartDetails details) {
+      final previous = gestureBaseline.value;
+      gestureBaseline.value = ViewportGestureBaseline(
+        pointerCount: details.pointerCount,
+        transform: viewport.value,
+        focalPoint: details.localFocalPoint,
+        hadMultiFinger:
+            (previous?.hadMultiFinger ?? false) || details.pointerCount >= 2,
+      );
+    }
+
+    /// True while the *whole physical gesture so far* is (or, per
+    /// [ViewportGestureBaseline.hadMultiFinger], recently was) a 2+-finger
+    /// pinch/pan — i.e. whenever a mode's own single-finger draw/erase/drag
+    /// logic must stay out of the way entirely.
+    bool isViewportGesture() {
+      final baseline = gestureBaseline.value;
+      return baseline != null &&
+          (baseline.pointerCount >= 2 || baseline.hadMultiFinger);
+    }
+
+    /// Applies pinch/pan to the viewport if [isViewportGesture] (returning
+    /// true, so the caller skips its own single-finger update path
+    /// entirely); otherwise a no-op returning false. While
+    /// [hadMultiFinger] is riding out a lifted finger
+    /// (`details.pointerCount < 2` even though this whole gesture has
+    /// already seen 2), the viewport is deliberately left untouched rather
+    /// than reinterpreting the one remaining finger as a 1-finger pan.
+    bool applyViewportUpdate(ScaleUpdateDetails details) {
+      if (!isViewportGesture()) return false;
+      if (details.pointerCount >= 2) {
+        final baseline = gestureBaseline.value!;
+        viewport.value = applyPinchPan(
+          baselineTransform: baseline.transform,
+          baselineFocalPoint: baseline.focalPoint,
+          scale: details.scale,
+          focalPoint: details.localFocalPoint,
+        );
+      }
+      return true;
+    }
+
+    /// Ends the current gesture sub-cycle — clearing the baseline entirely
+    /// once every finger has actually lifted (`details.pointerCount == 0`;
+    /// a mid-gesture pointer-count change instead reports whatever the new
+    /// nonzero count is, so the baseline must survive those to keep
+    /// [ViewportGestureBaseline.hadMultiFinger] sticky) — and returns
+    /// whether the mode's own single-finger commit logic
+    /// (`commitDrawDrag`/`commitPolygonDrag`/...) should run: true only
+    /// when this whole physical gesture never involved a second finger.
+    bool endGestureSubCycle(ScaleEndDetails details) {
+      final baseline = gestureBaseline.value;
+      if (details.pointerCount == 0) {
+        gestureBaseline.value = null;
+      }
+      return baseline != null &&
+          !baseline.hadMultiFinger &&
+          baseline.pointerCount < 2;
     }
 
     void updateDrawPreview(Offset localPosition) {
@@ -104,6 +189,8 @@ class PolygonCanvas extends ConsumerWidget {
         preview.position,
         fillColor: fillColor,
         hitRadius: hitRadius(),
+        doubleTapMaxDistance: doubleTapMaxDistance(),
+        lineAbsorptionTolerance: lineAbsorptionTolerance(),
       );
       if (matchedColor != null) {
         ref.read(selectedFillColorProvider.notifier).state = matchedColor;
@@ -271,16 +358,26 @@ class PolygonCanvas extends ConsumerWidget {
             onLongPressCancel: () {
               vertexDragPreview.value = null;
             },
-            // A plain (non-long-press) drag translates the whole "図形
-            // 切替" target instead — active only while no vertex is
+            // A plain (non-long-press) 1-finger drag translates the whole
+            // "図形切替" target instead — active only while no vertex is
             // selected and a target has actually been chosen (see
-            // `targetPolygonId`'s doc above); with neither, this is a
-            // no-op, exactly like today's plain drag in edit mode.
-            onPanStart: (details) => startPolygonDrag(),
-            onPanUpdate: (details) => updatePolygonDrag(details.delta),
-            onPanEnd: (details) => commitPolygonDrag(),
-            onPanCancel: () {
-              polygonDragPreview.value = null;
+            // `targetPolygonId`'s doc above); with neither, `startPolygonDrag`
+            // is a no-op, exactly like today's plain drag in edit mode. A
+            // 2-finger drag instead pans/zooms the viewport — see the
+            // gesture-sub-cycle helpers above.
+            onScaleStart: (details) {
+              beginGestureSubCycle(details);
+              if (isViewportGesture()) return;
+              startPolygonDrag();
+            },
+            onScaleUpdate: (details) {
+              if (applyViewportUpdate(details)) return;
+              updatePolygonDrag(details.focalPointDelta);
+            },
+            onScaleEnd: (details) {
+              final shouldCommit = endGestureSubCycle(details);
+              if (!shouldCommit) return;
+              commitPolygonDrag();
             },
             child: content,
           );
@@ -288,27 +385,28 @@ class PolygonCanvas extends ConsumerWidget {
 
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onPanDown: (details) {
+          onScaleStart: (details) {
+            beginGestureSubCycle(details);
+            if (isViewportGesture()) return;
             if (mode == CanvasMode.eraser) {
               notifier.handleEraseTap(
-                worldPosition(details.localPosition),
+                worldPosition(details.localFocalPoint),
                 hitRadius: hitRadius(),
               );
               return;
             }
-            updateDrawPreview(details.localPosition);
+            updateDrawPreview(details.localFocalPoint);
           },
-          onPanUpdate: (details) {
+          onScaleUpdate: (details) {
+            if (applyViewportUpdate(details)) return;
             if (mode == CanvasMode.eraser) return;
-            updateDrawPreview(details.localPosition);
+            updateDrawPreview(details.localFocalPoint);
           },
-          onPanEnd: (details) {
+          onScaleEnd: (details) {
+            final shouldCommit = endGestureSubCycle(details);
+            if (!shouldCommit) return;
             if (mode == CanvasMode.eraser) return;
             commitDrawDrag();
-          },
-          onPanCancel: () {
-            if (mode == CanvasMode.eraser) return;
-            dragPreview.value = null;
           },
           child: content,
         );

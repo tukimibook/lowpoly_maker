@@ -9,6 +9,8 @@ import 'package:polygon_art_app/providers/detach_cycle_provider.dart';
 import 'package:polygon_art_app/providers/drag_preview_provider.dart';
 import 'package:polygon_art_app/providers/polygon_edit_target_provider.dart';
 import 'package:polygon_art_app/providers/selected_vertex_provider.dart';
+import 'package:polygon_art_app/providers/viewport_provider.dart';
+import 'package:polygon_art_app/services/coordinate_transform.dart';
 import 'package:polygon_art_app/widgets/canvas/polygon_painter.dart';
 
 /// Finds the canvas's own [CustomPaint] specifically (there is exactly one
@@ -425,20 +427,20 @@ void main() {
         await tester.tap(_iconButtonByTooltip('図形を切り替え'));
         await tester.pump();
 
-        // Two separate moves are required: the first must clear Flutter's
-        // own pan-vs-tap/long-press arena slop (`kPanSlop`, 36 logical px)
-        // for `onPanStart` to win the arena over `onLongPressStart` at
-        // all — but with the default `DragStartBehavior.start`, that very
-        // move is entirely consumed by establishing the drag's starting
-        // position and reports as a zero delta. Only the *second* move,
-        // once the gesture is already accepted, produces a real
-        // `onPanUpdate` delta — that is what should end up translating
-        // the polygon.
+        // A single move, well past Flutter's own scale-vs-tap/long-press
+        // arena slop (`kPanSlop`, 36 logical px — needed for `onScaleStart`
+        // to win the arena over `onLongPressStart` at all), is enough: unlike
+        // `PanGestureRecognizer` (whose very first accepted move used to be
+        // entirely consumed by establishing the drag's starting position
+        // and reported as a zero delta, requiring an extra throwaway move
+        // before this test's real one), `ScaleGestureRecognizer` reports
+        // `ScaleUpdateDetails.focalPointDelta` as the *actual* incremental
+        // movement for every update, including the one that just won the
+        // arena — see `.cursor/plans/plan_phase_H_beta.md`, 2026-07-17
+        // 検討メモ.
         const dragBy = Offset(60, 40);
         final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
         final gesture = await tester.startGesture(canvasTopLeft + const Offset(20, 20));
-        await tester.pump();
-        await gesture.moveBy(const Offset(50, 30)); // clears kPanSlop; contributes no delta
         await tester.pump();
         await gesture.moveBy(dragBy);
         await tester.pump();
@@ -622,4 +624,232 @@ void main() {
       );
     },
   );
+
+  group('Phase Hβ: viewport pinch/pan gesture (2026-07-17)', () {
+    Future<ProviderContainer> pumpEditor(WidgetTester tester) async {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const PolygonArtApp(),
+        ),
+      );
+      await tester.tap(find.text('新規作成'));
+      await tester.pumpAndSettle();
+      return container;
+    }
+
+    testWidgets(
+      'pinching outward with two fingers zooms in (scale increases) around '
+      'their fixed midpoint, without placing any draft point',
+      (tester) async {
+        final container = await pumpEditor(tester);
+        // Eraser mode, on an empty canvas: its 1-finger action
+        // (`handleEraseTap`, fired once from `onScaleStart`) is a no-op
+        // with nothing under the touch to erase, so a pinch/pan started
+        // here is guaranteed to have no side effect on `Artwork` — while
+        // still sharing draw mode's `GestureDetector` (a lone
+        // `ScaleGestureRecognizer`, no competing tap/long-press
+        // recognizers), so the arena resolves immediately with no slop,
+        // just like a real single-`ScaleGestureRecognizer` widget. Edit
+        // mode's extra tap/long-press recognizers would otherwise eat a
+        // chunk of these small steps as slop before the arena resolves.
+        await tester.tap(find.byTooltip('消しゴムモード'));
+        await tester.pump();
+        final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
+        // Symmetric about a fixed midpoint (200, 150), so the focal point
+        // never moves — isolates the scale change from any panning.
+        final finger1 = await tester.startGesture(
+          canvasTopLeft + const Offset(150, 150),
+        );
+        await tester.pump();
+        final finger2 = await tester.startGesture(
+          canvasTopLeft + const Offset(250, 150),
+        );
+        await tester.pump();
+
+        // Small, interleaved steps for *both* fingers — real touch hardware
+        // reports incremental movement for every pointer roughly in sync;
+        // moving one finger's full distance in a single jump before the
+        // other has moved at all (which a real pinch never does) would
+        // itself distort the focal point Flutter reports, since
+        // `onScaleStart` for the newly-added second finger only fires on
+        // the *next* pointer event after it touches down — by which point
+        // this step's own movement has already happened.
+        const steps = 50;
+        for (var i = 0; i < steps; i++) {
+          await finger1.moveBy(const Offset(-1, 0));
+          await finger2.moveBy(const Offset(1, 0));
+        }
+        await tester.pump();
+        await finger1.up();
+        await finger2.up();
+        await tester.pump();
+
+        final transform = container.read(viewportProvider).value;
+        expect(transform.scale, closeTo(2.0, 0.1));
+        // The world point under the fixed midpoint (200, 150) — which,
+        // since the viewport started at identity, is itself — must still
+        // render right there after zooming around it.
+        final rendered = transform.worldToScreen(const Offset(200, 150));
+        expect(rendered.dx, closeTo(200, 3));
+        expect(rendered.dy, closeTo(150, 3));
+        expect(container.read(canvasProvider).polygons, isEmpty);
+        expect(container.read(canvasProvider).draftVertexIds, isEmpty);
+      },
+    );
+
+    testWidgets(
+      'panning with two fingers moving in lockstep (no span change) shifts '
+      "the viewport's offset by exactly that movement, leaving scale at 1",
+      (tester) async {
+        final container = await pumpEditor(tester);
+        // Same reasoning as the pinch test above: eraser mode on an empty
+        // canvas has no 1-finger side effect, and shares draw mode's
+        // slop-free single-recognizer `GestureDetector`.
+        await tester.tap(find.byTooltip('消しゴムモード'));
+        await tester.pump();
+        final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
+        const delta = Offset(40, -25);
+
+        final finger1 = await tester.startGesture(
+          canvasTopLeft + const Offset(150, 150),
+        );
+        await tester.pump();
+        final finger2 = await tester.startGesture(
+          canvasTopLeft + const Offset(250, 150),
+        );
+        await tester.pump();
+
+        // Small, interleaved steps for both fingers — see the pinch test
+        // above for why a single full-distance jump on just one finger
+        // would itself distort the reported focal point.
+        const steps = 50;
+        final stepDelta = delta / steps.toDouble();
+        for (var i = 0; i < steps; i++) {
+          await finger1.moveBy(stepDelta);
+          await finger2.moveBy(stepDelta);
+        }
+        await tester.pump();
+        await finger1.up();
+        await finger2.up();
+        await tester.pump();
+
+        final transform = container.read(viewportProvider).value;
+        expect(transform.scale, closeTo(1.0, 0.05));
+        expect(transform.offset.dx, closeTo(delta.dx, 2));
+        expect(transform.offset.dy, closeTo(delta.dy, 2));
+        expect(container.read(canvasProvider).draftVertexIds, isEmpty);
+      },
+    );
+
+    testWidgets(
+      'touching a second finger down mid-draw commits the in-progress point '
+      "at the finger's current position instead of discarding it, and any "
+      'further movement pans/zooms the viewport instead of drawing more '
+      'points',
+      (tester) async {
+        final container = await pumpEditor(tester);
+        final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
+        const singleFingerStart = Offset(80, 80);
+
+        final finger1 = await tester.startGesture(
+          canvasTopLeft + singleFingerStart,
+        );
+        await tester.pump();
+        expect(container.read(dragPreviewProvider).value, isNotNull);
+
+        // A second finger joins while the first is still down and hasn't
+        // moved — per Flutter's own `ScaleGestureRecognizer`, this ends the
+        // 1-finger sub-cycle right where finger 1 currently sits, which
+        // `PolygonCanvas` reads as "commit the draw exactly like a normal
+        // release".
+        final finger2 = await tester.startGesture(
+          canvasTopLeft + const Offset(280, 80),
+        );
+        await tester.pump();
+
+        expect(container.read(canvasProvider).draftVertexIds, hasLength(1));
+        expect(
+          container.read(canvasProvider).vertices[
+            container.read(canvasProvider).draftVertexIds.single
+          ]!.position,
+          singleFingerStart,
+        );
+
+        // Both fingers now move together (a plain pan) — must NOT be
+        // reinterpreted as a second draw action once a pinch/pan has
+        // started, even though only one of them keeps moving here.
+        await finger1.moveTo(canvasTopLeft + const Offset(120, 80));
+        await finger2.moveTo(canvasTopLeft + const Offset(320, 80));
+        await tester.pump();
+        await finger1.up();
+        await finger2.up();
+        await tester.pump();
+
+        expect(container.read(canvasProvider).draftVertexIds, hasLength(1));
+      },
+    );
+
+    testWidgets(
+      '全体表示に戻す resets an arbitrary pan/zoom back to identity',
+      (tester) async {
+        final container = await pumpEditor(tester);
+        container.read(viewportProvider).value = const ViewportTransform(
+          scale: 2.5,
+          offset: Offset(120, -40),
+        );
+        await tester.pump();
+
+        await tester.tap(_iconButtonByTooltip('全体表示に戻す'));
+        await tester.pump();
+
+        expect(
+          container.read(viewportProvider).value,
+          ViewportTransform.identity,
+        );
+      },
+    );
+
+    testWidgets(
+      'at a zoomed-in scale, the self-close double-tap gesture keeps a '
+      'constant on-screen tolerance instead of silently shrinking in world '
+      'space (regression guard for the un-scaled-tolerance bug)',
+      (tester) async {
+        final container = await pumpEditor(tester);
+        container.read(viewportProvider).value = const ViewportTransform(
+          scale: 2.0,
+          offset: Offset.zero,
+        );
+        await tester.pump();
+
+        final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
+        // Screen positions; PolygonCanvas converts these to world
+        // coordinates via the scale-2 viewport before ever calling
+        // CanvasNotifier.
+        await tester.tapAt(canvasTopLeft + const Offset(50, 50));
+        await tester.pump();
+        await tester.tapAt(canvasTopLeft + const Offset(350, 50));
+        await tester.pump();
+        await tester.tapAt(canvasTopLeft + const Offset(200, 350));
+        await tester.pump();
+        // First tap of the pair: near the draft's own start on screen.
+        await tester.tapAt(canvasTopLeft + const Offset(60, 50));
+        await tester.pump();
+        // Second tap of the pair, 30 *screen* px from the first — at scale
+        // 2 that's 15 *world* px, which exceeds the correctly-scaled
+        // tolerance (kDoubleTapMaxDistance / 2 = 10) and so must NOT
+        // self-close; a caller that forgot to scale this down (still
+        // comparing against the raw, un-scaled kDoubleTapMaxDistance = 20)
+        // would incorrectly treat this as a double-tap and close here.
+        await tester.tapAt(canvasTopLeft + const Offset(60, 80));
+        await tester.pump();
+
+        expect(container.read(canvasProvider).polygons, isEmpty);
+        expect(container.read(canvasProvider).draftVertexIds, hasLength(5));
+      },
+    );
+  });
 }
