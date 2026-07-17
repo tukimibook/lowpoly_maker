@@ -538,6 +538,94 @@ void main() {
     },
   );
 
+  group(
+    'CanvasNotifier findVertexNear preferredVertexId tie-break (2026-07-16)',
+    () {
+      test(
+        'without preferredVertexId, a hit-test right after detaching a '
+        'shared vertex can resolve to the ORIGINAL rather than the copy — '
+        'reproducing the reported bug (whichever one is referenced by the '
+        'later polygon in Artwork.polygons wins the tie)',
+        () {
+          final notifier = CanvasNotifier();
+          notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.green);
+          notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.green);
+          notifier.handleDrawTap(const Offset(50, 100), fillColor: Colors.green);
+          notifier.closePolygon(Colors.green);
+          final greenPolygon = notifier.state.polygons[0];
+          final sharedId = greenPolygon.vertexIds[1]; // (100, 0)
+
+          notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.purple);
+          notifier.handleDrawTap(const Offset(200, 0), fillColor: Colors.purple);
+          notifier.handleDrawTap(const Offset(150, 100), fillColor: Colors.purple);
+          notifier.closePolygon(Colors.purple);
+          // Purple ends up *after* green in `state.polygons`, and detaching
+          // from green (below) leaves purple as the one still holding the
+          // original `sharedId` — i.e. purple is the "later" owner.
+          expect(notifier.state.polygons[1].vertexIds, contains(sharedId));
+
+          final copyId = notifier.detachVertexFromPolygon(sharedId, greenPolygon.id)!;
+
+          // Both vertices now sit at the exact same spot (100, 0). Without
+          // a preference, the hit-test's default "last one wins" resolves
+          // to whichever polygon comes later in the list — purple's
+          // original `sharedId` — not the copy the artist just created.
+          final hit = notifier.findVertexNear(const Offset(100, 0));
+          expect(hit, sharedId);
+          expect(hit, isNot(copyId));
+        },
+      );
+
+      test(
+        'passing the just-detached copy as preferredVertexId resolves the '
+        'coincidence tie toward it, regardless of Artwork.polygons order',
+        () {
+          final notifier = CanvasNotifier();
+          notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.green);
+          notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.green);
+          notifier.handleDrawTap(const Offset(50, 100), fillColor: Colors.green);
+          notifier.closePolygon(Colors.green);
+          final greenPolygon = notifier.state.polygons[0];
+          final sharedId = greenPolygon.vertexIds[1]; // (100, 0)
+
+          notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.purple);
+          notifier.handleDrawTap(const Offset(200, 0), fillColor: Colors.purple);
+          notifier.handleDrawTap(const Offset(150, 100), fillColor: Colors.purple);
+          notifier.closePolygon(Colors.purple);
+
+          final copyId = notifier.detachVertexFromPolygon(sharedId, greenPolygon.id)!;
+
+          final hit = notifier.findVertexNear(
+            const Offset(100, 0),
+            preferredVertexId: copyId,
+          );
+          expect(hit, copyId);
+          expect(hit, isNot(sharedId));
+        },
+      );
+
+      test(
+        'preferredVertexId that is not among the tied candidates does not '
+        'change which vertex a genuinely unambiguous hit-test returns',
+        () {
+          final notifier = CanvasNotifier();
+          notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.blue);
+          notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.blue);
+          notifier.handleDrawTap(const Offset(50, 100), fillColor: Colors.blue);
+          notifier.closePolygon(Colors.blue);
+          final onlyVertexId = notifier.state.polygons.single.vertexIds.first;
+
+          final hit = notifier.findVertexNear(
+            const Offset(0, 0),
+            preferredVertexId: 'does-not-exist',
+          );
+
+          expect(hit, onlyVertexId);
+        },
+      );
+    },
+  );
+
   group('CanvasNotifier translatePolygon (edit mode whole-shape drag, 2026-07-16)', () {
     test('shifts every one of the polygon\'s vertices by the same delta', () {
       final notifier = CanvasNotifier();

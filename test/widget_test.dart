@@ -5,7 +5,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:polygon_art_app/app.dart';
 import 'package:polygon_art_app/providers/canvas_background_provider.dart';
 import 'package:polygon_art_app/providers/canvas_provider.dart';
+import 'package:polygon_art_app/providers/detach_cycle_provider.dart';
 import 'package:polygon_art_app/providers/drag_preview_provider.dart';
+import 'package:polygon_art_app/providers/polygon_edit_target_provider.dart';
 import 'package:polygon_art_app/providers/selected_vertex_provider.dart';
 import 'package:polygon_art_app/widgets/canvas/polygon_painter.dart';
 
@@ -201,6 +203,109 @@ void main() {
     },
   );
 
+  group(
+    'Detach then long-press-drag grabs the right vertex (2026-07-16 bug fix)',
+    () {
+      testWidgets(
+        'long-press-dragging the just-vacated spot right after detaching '
+        'moves the DETACHED polygon\'s copy, not the original vertex still '
+        'held by the neighboring polygon',
+        (tester) async {
+          final container = ProviderContainer();
+          addTearDown(container.dispose);
+
+          await tester.pumpWidget(
+            UncontrolledProviderScope(
+              container: container,
+              child: const PolygonArtApp(),
+            ),
+          );
+          await tester.tap(find.text('新規作成'));
+          await tester.pumpAndSettle();
+
+          final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
+          const sharedSpot = Offset(150, 50);
+
+          // Green: drawn (and so listed in `Artwork.polygons`) first.
+          await tester.tapAt(canvasTopLeft + const Offset(50, 50));
+          await tester.pump();
+          await tester.tapAt(canvasTopLeft + sharedSpot);
+          await tester.pump();
+          await tester.tapAt(canvasTopLeft + const Offset(100, 150));
+          await tester.pump();
+          await tester.tap(_iconButtonByTooltip('多角形を閉じる'));
+          await tester.pump();
+
+          // Purple: its first tap snaps onto the same spot as green's
+          // second vertex, welding the two — and purple is listed
+          // *second* in `Artwork.polygons`, which is exactly the ordering
+          // that used to make the bug reproduce (the vertex still held by
+          // the "later" polygon — purple's original — used to win the
+          // coincidence tie over the freshly detached copy).
+          await tester.tap(find.byTooltip('描画モード'));
+          await tester.pump();
+          await tester.tapAt(canvasTopLeft + sharedSpot);
+          await tester.pump();
+          await tester.tapAt(canvasTopLeft + const Offset(250, 50));
+          await tester.pump();
+          await tester.tapAt(canvasTopLeft + const Offset(200, 150));
+          await tester.pump();
+          await tester.tap(_iconButtonByTooltip('多角形を閉じる'));
+          await tester.pump();
+
+          final greenId = container.read(canvasProvider).polygons[0].id;
+          final purpleId = container.read(canvasProvider).polygons[1].id;
+          final sharedId = container.read(canvasProvider).polygons[0].vertexIds[1];
+          expect(
+            container.read(canvasProvider).polygons[1].vertexIds,
+            contains(sharedId),
+          );
+
+          await tester.tap(find.byTooltip('編集モード'));
+          await tester.pump();
+          await tester.tapAt(canvasTopLeft + sharedSpot);
+          await tester.pump();
+          expect(container.read(selectedVertexProvider), sharedId);
+
+          // No cycling needed: the detach target defaults to the first
+          // referencing polygon, which is green (drawn first).
+          await tester.tap(_iconButtonByTooltip('選択中の多角形から切り離す'));
+          await tester.pump();
+
+          final copyId = container.read(selectedVertexProvider);
+          expect(copyId, isNotNull);
+          expect(copyId, isNot(sharedId));
+          expect(
+            container.read(canvasProvider).polygons.singleWhere((p) => p.id == greenId).vertexIds,
+            contains(copyId),
+          );
+          expect(
+            container.read(canvasProvider).polygons.singleWhere((p) => p.id == purpleId).vertexIds,
+            contains(sharedId),
+          );
+
+          // Long-press (holding still long enough for the timer to fire,
+          // without moving — a plain pan would instead target whichever
+          // whole polygon is currently cycled, an unrelated feature) right
+          // on the now-coincident spot, then drag away.
+          final gesture = await tester.startGesture(canvasTopLeft + sharedSpot);
+          await tester.pump(const Duration(milliseconds: 600));
+          await gesture.moveTo(canvasTopLeft + const Offset(150, 120));
+          await tester.pump();
+          await gesture.up();
+          await tester.pump();
+
+          final vertices = container.read(canvasProvider).vertices;
+          // The detached copy (green's) followed the drag...
+          expect(vertices[copyId]!.position, const Offset(150, 120));
+          // ...while purple's original vertex, still at the old spot, did
+          // not move at all.
+          expect(vertices[sharedId]!.position, sharedSpot);
+        },
+      );
+    },
+  );
+
   group('Edit mode whole-shape target UI (no vertex selected, 2026-07-16)', () {
     Future<ProviderContainer> pumpEditorWithTriangle(WidgetTester tester) async {
       final container = ProviderContainer();
@@ -351,4 +456,170 @@ void main() {
       },
     );
   });
+
+  group(
+    'Edit mode selected-vertex UX enhancements (2026-07-17: seamless '
+    'switch-and-drag + 選択解除)',
+    () {
+      Future<ProviderContainer> pumpEditorWithTriangle(WidgetTester tester) async {
+        final container = ProviderContainer();
+        addTearDown(container.dispose);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: const PolygonArtApp(),
+          ),
+        );
+        await tester.tap(find.text('新規作成'));
+        await tester.pumpAndSettle();
+
+        final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
+        await tester.tapAt(canvasTopLeft + const Offset(50, 50));
+        await tester.pump();
+        await tester.tapAt(canvasTopLeft + const Offset(150, 50));
+        await tester.pump();
+        await tester.tapAt(canvasTopLeft + const Offset(100, 150));
+        await tester.pump();
+        await tester.tap(_iconButtonByTooltip('多角形を閉じる'));
+        await tester.pump();
+
+        await tester.tap(find.byTooltip('編集モード'));
+        await tester.pump();
+
+        return container;
+      }
+
+      testWidgets(
+        'long-press-dragging directly onto a different, already-visible '
+        'vertex switches the selection to it and resets the detach/'
+        'whole-shape cycle counters',
+        (tester) async {
+          final container = await pumpEditorWithTriangle(tester);
+          final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
+          final polygon = container.read(canvasProvider).polygons.single;
+          final vertexAId = polygon.vertexIds[0];
+          final vertexBId = polygon.vertexIds[1];
+          final vertexAPos = container.read(canvasProvider).vertices[vertexAId]!.position;
+          final vertexBPos = container.read(canvasProvider).vertices[vertexBId]!.position;
+
+          await tester.tapAt(canvasTopLeft + vertexAPos);
+          await tester.pump();
+          expect(container.read(selectedVertexProvider), vertexAId);
+
+          // Leave behind cycle state as if the artist had been mid-cycle —
+          // switching to a genuinely different vertex must clear all of
+          // it, exactly like tapping a different vertex already does via
+          // `handleEditTap`.
+          container.read(detachCycleIndexProvider.notifier).state = 3;
+          container.read(polygonCycleIndexProvider.notifier).state = 2;
+          container.read(edgeCycleIndexProvider.notifier).state = 1;
+
+          final gesture = await tester.startGesture(canvasTopLeft + vertexBPos);
+          await tester.pump(const Duration(milliseconds: 600));
+          await gesture.moveBy(const Offset(5, 5));
+          await tester.pump();
+          await gesture.up();
+          await tester.pump();
+
+          expect(container.read(selectedVertexProvider), vertexBId);
+          expect(container.read(detachCycleIndexProvider), 0);
+          expect(container.read(polygonCycleIndexProvider), -1);
+          expect(container.read(edgeCycleIndexProvider), -1);
+        },
+      );
+
+      testWidgets(
+        're-long-pressing the SAME already-selected vertex (e.g. to '
+        'reposition it) leaves the detach cycle counter untouched — the '
+        'guard condition must only fire on an actual switch',
+        (tester) async {
+          final container = await pumpEditorWithTriangle(tester);
+          final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
+          final polygon = container.read(canvasProvider).polygons.single;
+          final vertexAId = polygon.vertexIds[0];
+          final vertexAPos = container.read(canvasProvider).vertices[vertexAId]!.position;
+
+          await tester.tapAt(canvasTopLeft + vertexAPos);
+          await tester.pump();
+          expect(container.read(selectedVertexProvider), vertexAId);
+
+          container.read(detachCycleIndexProvider.notifier).state = 3;
+
+          final gesture = await tester.startGesture(canvasTopLeft + vertexAPos);
+          await tester.pump(const Duration(milliseconds: 600));
+          await gesture.moveBy(const Offset(5, 5));
+          await tester.pump();
+          await gesture.up();
+          await tester.pump();
+
+          expect(container.read(selectedVertexProvider), vertexAId);
+          expect(container.read(detachCycleIndexProvider), 3);
+        },
+      );
+
+      testWidgets(
+        '選択を解除 clears the selection, resets the detach cycle, and '
+        'brings back the whole-shape target row',
+        (tester) async {
+          final container = await pumpEditorWithTriangle(tester);
+          final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
+          final polygon = container.read(canvasProvider).polygons.single;
+          final vertexAId = polygon.vertexIds[0];
+          final vertexAPos = container.read(canvasProvider).vertices[vertexAId]!.position;
+
+          await tester.tapAt(canvasTopLeft + vertexAPos);
+          await tester.pump();
+          expect(container.read(selectedVertexProvider), vertexAId);
+          expect(_iconButtonByTooltip('図形を切り替え'), findsNothing);
+          expect(_iconButtonByTooltip('選択を解除'), findsOneWidget);
+
+          container.read(detachCycleIndexProvider.notifier).state = 3;
+
+          await tester.tap(_iconButtonByTooltip('選択を解除'));
+          await tester.pump();
+
+          expect(container.read(selectedVertexProvider), isNull);
+          expect(container.read(detachCycleIndexProvider), 0);
+          expect(_iconButtonByTooltip('図形を切り替え'), findsOneWidget);
+        },
+      );
+
+      testWidgets(
+        '選択を解除 is also present alongside the ♻️/✂️ pair when the '
+        'selected vertex is shared between two polygons',
+        (tester) async {
+          final container = await pumpEditorWithTriangle(tester);
+          final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
+
+          // Draw a second triangle sharing a vertex with the first, then
+          // select that shared vertex.
+          final sharedSpot = container
+              .read(canvasProvider)
+              .vertices[container.read(canvasProvider).polygons.single.vertexIds[1]]!
+              .position;
+
+          await tester.tap(find.byTooltip('描画モード'));
+          await tester.pump();
+          await tester.tapAt(canvasTopLeft + sharedSpot);
+          await tester.pump();
+          await tester.tapAt(canvasTopLeft + const Offset(250, 50));
+          await tester.pump();
+          await tester.tapAt(canvasTopLeft + const Offset(200, 150));
+          await tester.pump();
+          await tester.tap(_iconButtonByTooltip('多角形を閉じる'));
+          await tester.pump();
+
+          await tester.tap(find.byTooltip('編集モード'));
+          await tester.pump();
+          await tester.tapAt(canvasTopLeft + sharedSpot);
+          await tester.pump();
+
+          expect(_iconButtonByTooltip('切り離す多角形を切り替え'), findsOneWidget);
+          expect(_iconButtonByTooltip('選択中の多角形から切り離す'), findsOneWidget);
+          expect(_iconButtonByTooltip('選択を解除'), findsOneWidget);
+        },
+      );
+    },
+  );
 }

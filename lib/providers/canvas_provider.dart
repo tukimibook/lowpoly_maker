@@ -431,9 +431,21 @@ class CanvasNotifier extends StateNotifier<Artwork> {
   /// every corner the artist can see and might want to move is a candidate.
   /// The nearest-neighbor search itself is still delegated to
   /// [findNearestPoint].
+  ///
+  /// [preferredVertexId] is forwarded to [findNearestPoint]'s own
+  /// `preferredId` — pass whichever vertex was already selected right
+  /// before this hit-test runs (`selectedVertexProvider`'s current value)
+  /// so an exact-coincidence tie (e.g. right after
+  /// [detachVertexFromPolygon]/[detachVertexFromDraft], where the new copy
+  /// sits at the exact same spot as the original it came from) resolves
+  /// toward the vertex the artist was already engaged with, rather than
+  /// toward whichever one happens to appear later in [Artwork.polygons]'
+  /// own list order (see `.cursor/plans/plan_phase_H_alpha.md`, 2026-07-16
+  /// 検討メモ, for the bug this fixes).
   String? findVertexNear(
     Offset position, {
     double hitRadius = kVertexHitRadius,
+    String? preferredVertexId,
   }) {
     final referencedIds = <String>{...state.draftVertexIds};
     for (final polygon in state.polygons) {
@@ -451,6 +463,7 @@ class CanvasNotifier extends StateNotifier<Artwork> {
       position,
       candidates,
       maxDistance: hitRadius,
+      preferredId: preferredVertexId,
     );
     return nearest?.$1;
   }

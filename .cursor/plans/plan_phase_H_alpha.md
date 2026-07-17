@@ -3,9 +3,9 @@
 > **正本の位置づけ**: 全体像・確定した設計判断・品質方針・リリース要件は [ポリゴンアプリ再設計_e54196e6.plan.md](ポリゴンアプリ再設計_e54196e6.plan.md)（マスター）を参照。完了済み/未着手の他フェーズ詳細・技術的負債表・過去（2026-07-10〜07-15）の検討メモは [plan_future_phases.md](plan_future_phases.md) を参照。着手時の進捗・次ステップは下記 **現在のステータス** を参照。
 > **運用**: 本ファイルは「現在着手中のフェーズ」専用ファイル。ファイル名にフェーズ名を含める（`plan_phase_<フェーズ>.md`）運用とし、Hα が完了し次のフェーズ（Hβ）に進んだら、本ファイルの中身を Hβ の詳細（[plan_future_phases.md](plan_future_phases.md) から該当セクションを移動）に差し替え、ファイル名も `plan_phase_H_beta.md` にリネームして使い続ける（G-spike → Hα でこの運用に切り替え済み）。Hα 完了時の実装完了メモ・検討メモは、差し替え時に [plan_future_phases.md](plan_future_phases.md) の検討メモアーカイブへ移す。Phase 完了コミット後は **現在のステータス** を次 Phase 用に更新する。
 
-## 📍 現在のステータス (2026-07-16)
+## 📍 現在のステータス (2026-07-17)
 - **完了フェーズ**: Phase G-spike が大成功で完了（無限ループのバグの種もジッター付与で事前解決済み、本番実装は Tier B に確定）。
-- **現在のフェーズ**: Phase Hα（下絵インポート・キャンバス準備）に着手中。実機での表示自体には成功したが、特定のJPEG（過去に画像処理を経た少し特殊なもの）で下1/3が黒く表示されるバグを検出・修正した（下記「2026-07-16: 特殊なJPEG...」検討メモ参照）。さらに、モード切替時に下絵の表示位置がズレる不具合を発端に、ボトムツールバーの構造とUI/UXを刷新した（下記「2026-07-16: 下絵位置ズレバグの根本解決...」検討メモ参照）。この刷新の副産物として生まれた「編集モードで頂点が未選択のときは何もできない」というUXの穴を埋めるため、図形/辺のトグル選択・平行移動・中点への頂点挿入・図形削除を追加した（下記「2026-07-16: 編集モードのUX強化...」検討メモ参照）。これは下絵の機能そのものではないが、同じ2026-07-16のボトムツールバー刷新作業の一部として連続して実施した。
+- **現在のフェーズ**: Phase Hα（下絵インポート・キャンバス準備）に着手中。実機での表示自体には成功したが、特定のJPEG（過去に画像処理を経た少し特殊なもの）で下1/3が黒く表示されるバグを検出・修正した（下記「2026-07-16: 特殊なJPEG...」検討メモ参照）。さらに、モード切替時に下絵の表示位置がズレる不具合を発端に、ボトムツールバーの構造とUI/UXを刷新した（下記「2026-07-16: 下絵位置ズレバグの根本解決...」検討メモ参照）。この刷新の副産物として生まれた「編集モードで頂点が未選択のときは何もできない」というUXの穴を埋めるため、図形/辺のトグル選択・平行移動・中点への頂点挿入・図形削除を追加した（下記「2026-07-16: 編集モードのUX強化...」検討メモ参照）。これは下絵の機能そのものではないが、同じ2026-07-16のボトムツールバー刷新作業の一部として連続して実施した。続けて、切り離し直後の長押しドラッグの誤爆バグを修正し（下記「2026-07-16: 切り離し直後の長押しドラッグ...」検討メモ参照）、さらに編集モード（頂点選択中）の操作の連続性を高める2機能――長押しドラッグでの自動選択切り替えと選択解除ボタン――を追加した（下記「2026-07-17: 頂点選択中のUX強化...」検討メモ参照）。
 
 ## Phase Hα: 下絵（背景画像）
 
@@ -48,6 +48,10 @@
 - `resolveDetachTarget`（共有頂点の切り離し対象を解決する純関数）の単体テスト（実施済み）
 - `edgeMidpoint`／`resolvePolygonTarget`／`resolveEdgeTarget`（図形・辺のトグル選択を解決する純関数群）の単体テスト（実施済み）
 - `CanvasNotifier.translatePolygon`／`insertVertexAtEdge`／`deletePolygon` の単体テスト（Undo復元込み、実施済み）
+- `findNearestPoint` の `preferredId` タイブレークの単体テスト（実施済み）
+- 切り離し直後の同座標タイブレークが正しく新頂点側を掴むことのテスト（`CanvasNotifier`単体・ウィジェット両方、実施済み）
+- 長押しドラッグで別の頂点へ直接切り替えた際に検出/切り離し/図形・辺サイクルの各カウンタが正しくリセットされる（同一頂点への再長押しではリセットされない）ことのウィジェットテスト（実施済み）
+- 「選択を解除」ボタンが選択解除・検出サイクルリセット・共有頂点/非共有頂点どちらのUIでも表示されることのウィジェットテスト（実施済み）
 
 ## 検討メモ（直近）
 
@@ -180,3 +184,45 @@
 - [test/widget_test.dart](test/widget_test.dart): 4ボタンの表示・無効化状態、図形ハイライト、辺選択→中点挿入で新頂点が即選択されること、図形削除、実際のpanジェスチャーによる平行移動（Flutterの `DragStartBehavior.start` 既定動作により、アリーナ勝利の契機となる最初の move は変位0として消費される点に注意 — 2回目以降のmoveで実際の変位が計測される）をウィジェットテストで確認。
 
 **確認**: `flutter analyze` 0件 / `flutter test`（138件、新規22件）パス。実機での操作感確認は本タスク完了後にユーザーが実施予定。
+
+### 2026-07-16: 切り離し直後の長押しドラッグが別の多角形を掴んでしまうバグの修正（同座標タイブレークの優先度付け）
+
+**症状（実機報告）**: 編集モードで共有頂点を切り離し（✂️）た直後、その場所を長押しして頂点を移動させようとすると、切り離した対象の多角形ではなく、隣接する（元々頂点を共有していた）別の多角形にハイライトが移り、そちらの頂点が移動してしまう。
+
+**原因（調査結果、Askモードで事前分析→承認済み）**: `detachVertexFromPolygon`/`detachVertexFromDraft` は、切り離し先の多角形にのみ新しい頂点（元の頂点と全く同じ座標）を割り当て、他の多角形は元の頂点IDをそのまま参照し続ける。この結果、同座標に2つの独立した頂点が一時的に重なって存在する状態になる。長押し開始時のヒットテスト `CanvasNotifier.findVertexNear` は内部で純関数 `findNearestPoint`（[lib/geometry/nearest_point.dart](lib/geometry/nearest_point.dart)）に委譲しているが、同距離の候補が複数あった場合「イテレーション順で最後に出会った候補が勝つ」という仕様だった。`findVertexNear` 内部で候補集合を作る際、`Set`（挿入順を保持）を `state.polygons` の順に走査して構築するため、「新旧どちらが勝つか」は実際には**多角形リスト内での並び順**という、ユーザーの意図と無関係な実装詳細に依存していた（切り離し先の多角形が `state.polygons` の中でより前（インデックスが小さい）だと、切り離し元に残った旧頂点側が「最後の候補」としてタイブレークに勝ってしまう）。意図しない**バグ**と判断（優先度ルールは元々存在しなかった）。
+
+**修正方針（Askモードで提案→承認済み）**: 既存の「最後の候補が勝つ」という挙動自体は変更せず、任意の優先IDが同距離タイの中に含まれる場合だけそれを優先する、というフォールバック付きの拡張とした。優先IDには `selectedVertexProvider` の値（＝ユーザーが直前まで操作していた頂点。切り離し実行直後は新しいコピー頂点のIDに更新されている）をそのまま使う。`highlightedPolygonId`（多角形単位の情報）は使わず、頂点IDである `selectedVertexId` を直接使うほうが、多角形からの逆引きが不要でシンプルなため採用しなかった。
+
+**実装**:
+- [lib/geometry/nearest_point.dart](lib/geometry/nearest_point.dart): `findNearestPoint` に任意引数 `T? preferredId` を追加。同距離タイ（`distance == closestDistance`）の分岐で、`preferredId` が絡む場合はそれを優先し、絡まない場合は既存の「最後の候補が勝つ」動作を維持するロジックに変更（既存呼び出し元・既存テストは無変更で全てパス — 後方互換）。
+- [lib/providers/canvas_provider.dart](lib/providers/canvas_provider.dart): `CanvasNotifier.findVertexNear` に任意引数 `String? preferredVertexId` を追加し、そのまま `findNearestPoint` の `preferredId` へ橋渡し。
+- [lib/widgets/canvas/polygon_canvas.dart](lib/widgets/canvas/polygon_canvas.dart): `startVertexDrag`（長押しドラッグ開始）と `handleEditTap`（タップでの選択/ウェルド判定）の両方で、ヒットテスト実行**前**に `ref.read(selectedVertexProvider)` を読み、`preferredVertexId` として渡すよう変更。`handleEditTap` 側も同時に修正した理由: 同じタイブレーク不具合により、切り離し直後の次のプレーンタップが「たった今切り離した頂点を自動的に再ウェルドしてしまう」という、報告されたバグとは別のより厄介な不具合につながる可能性があったため（`selected != tappedId` の分岐がウェルドを試みる）。
+
+**テスト**:
+- [test/geometry/nearest_point_test.dart](test/geometry/nearest_point_test.dart): `preferredId` タイブレークの単体テスト7件（優先IDなしなら従来通り「最後が勝つ」、タイの中の先頭/末尾どちらでも優先IDが勝つ、三者タイでも位置に関わらず優先IDが勝つ、タイに含まれない優先IDは無効、タイでない場合は優先IDより真に近い候補が勝つ、候補が1件のみのケース）。
+- [test/canvas_notifier_edit_test.dart](test/canvas_notifier_edit_test.dart): `findVertexNear` の `preferredVertexId` に関する単体テスト3件。特に1件目は、`preferredVertexId` を渡さない場合に実際にバグが再現すること（`state.polygons` の並び順により、切り離し元に残った旧頂点側が返ってしまうこと）自体を確認する回帰テストとして先に作成し、意図した通りに再現することを確認した上で、2件目で `preferredVertexId` を渡すと正しく新頂点側が返ることを確認。
+- [test/widget_test.dart](test/widget_test.dart): 実際に「描画→切り離し実行→長押しドラッグ」までのフルフローを再現するウィジェットテストを追加。修正を一時的に無効化して意図的にテストが失敗することを確認した上で（`Offset(150.0, 50.0)` のまま＝ドラッグが別の頂点に当たっていたことを実測）、修正を戻してパスすることを再確認済み。
+
+**確認**: `flutter analyze` 0件 / `flutter test`（149件、新規11件）パス。実機での再現確認（同じ手順でバグが解消していること）は本タスク完了後にユーザーが実施予定。
+
+### 2026-07-17: 頂点選択中のUX強化（長押しドラッグでの自動選択切り替え・選択解除ボタン）
+
+**背景**: 編集モードで頂点Aを選択中に別の頂点Bを操作したい場合、従来は一度空白をタップして選択解除してからでないとBを選び直せなかった。この制約をなくし、操作の連続性を高める。
+
+**採用した設計（Askモードで提案→承認済み）**:
+- **長押しドラッグでの自動切り替え**: `onTapUp`（`handleEditTap`、ウェルド判定）と `onLongPressStart`（`startVertexDrag`、ドラッグ判定）は、Flutterのジェスチャーアリーナ機構により同じタッチシーケンスに対して片方しか発火しないことが構造上保証されている（ポリゴン全体移動の `onPan*` と `onLongPress*` の排他性導入時と同じ仕組み）ため、「タップによるウェルドが暴発しないための」追加のフラグ管理は不要と判断。既存の `startVertexDrag` はもともとヒットテストで見つかった頂点をそのまま無条件で新しい選択対象にしていたため、「A選択中にBを長押し→Bへ切り替えてそのままドラッグ開始」という挙動自体はすでに成立していた。ただし `handleEditTap` が持つ「新たに選択された瞬間のカウンタリセット」（`detachCycleIndexProvider`／`polygonCycleIndexProvider`／`edgeCycleIndexProvider`）が `startVertexDrag` 側には欠けており、切り替え後に前の頂点の巡回状態が引き継がれてしまう抜け穴があったため、これを追加する。
+- **ガード条件（ユーザー指示により確定）**: 上記リセットは「新しく検出した頂点が直前の選択頂点と異なる場合」のみ実行する（`vertexId != previouslySelected`）。同一頂点への再長押し（＝選択を維持したまま位置調整のためにもう一度掴む）ではリセットしない。これにより、切り離し対象を巡回で選んだ直後にその頂点自体をドラッグで動かしても、選んでいた対象が0番目に戻ってしまうことを防ぐ。
+- **選択解除ボタン**: 頂点選択中（`selectedVertexId != null`）は下段（Row 2）の右端に常設の「✖️ 選択を解除」（`Icons.close`）ボタンを配置する。共有頂点選択時（♻️/✂️の2ボタン）・非共有頂点選択時（装飾ヒント）のどちらでも同じ位置に表示されるよう、`_EditModeRow` を「`Expanded(Center(内容))` ＋ 常設の✖️」という外枠に組み替え、上段の「↩️ 元に戻す」と縦に並ぶ配置にした（どちらも"やり直し系"の安全弁であるため、位置を覚えやすくする狙い）。押下時のリセットは `selectedVertexId = null` と `detachCycleIndexProvider = 0` のみで十分（`polygonCycleIndexProvider`/`edgeCycleIndexProvider` は頂点選択中は常に `-1` のまま変化しない不変条件がすでに成立しているため、解除の瞬間に改めてリセットする必要がない — `handleEditTap` の空タップ分岐が既にこの不変条件に依拠しているのと同じ理由）。
+
+**実装**:
+- [lib/widgets/canvas/polygon_canvas.dart](lib/widgets/canvas/polygon_canvas.dart): `startVertexDrag` で、ヒットテスト前に `previouslySelected = ref.read(selectedVertexProvider)` を読み、ヒット結果 `vertexId` と比較。`vertexId != previouslySelected` のときのみ `detachCycleIndexProvider`/`polygonCycleIndexProvider`/`edgeCycleIndexProvider` をリセット（`handleEditTap` と同じ値）。同一頂点への再長押しではこれらの状態を変更しない。
+- [lib/widgets/toolbar/editor_toolbar.dart](lib/widgets/toolbar/editor_toolbar.dart): `_EditModeRow` を再設計。頂点選択中は「共有頂点なら`_DetachControls`（♻️/✂️、新設のサブウィジェットとして分離）、非共有頂点なら装飾ヒント」を `Expanded(Center(...))` に包み、その右に `IconButton`（`Icons.close`、`iconSize: 28`、Tooltip「選択を解除」）を常設。押下時に `selectedVertexProvider` を `null`、`detachCycleIndexProvider` を `0` に設定。
+
+**テスト**:
+- [test/widget_test.dart](test/widget_test.dart) に新規グループ「Edit mode selected-vertex UX enhancements (2026-07-17)」を追加（4件）:
+  - 頂点Aを選択→巡回カウンタ3種に非ゼロ値をセット→別の頂点Bへ直接長押しドラッグ→選択がBに切り替わり3種すべてがリセットされること。
+  - 同じ頂点Aへの再長押しドラッグでは `detachCycleIndexProvider` の値が維持されること（ガード条件の確認）。
+  - 「選択を解除」ボタン押下で選択が`null`に戻り、`detachCycleIndexProvider`が0になり、頂点未選択時の図形/辺トグル行（`図形を切り替え`等）が再表示されること。
+  - 共有頂点選択時にも♻️/✂️と並んで「選択を解除」ボタンが表示されること。
+
+**確認**: `flutter analyze` 0件 / `flutter test`（153件、新規4件）パス。実機での操作感確認は本タスク完了後にユーザーが実施予定。

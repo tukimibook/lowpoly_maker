@@ -111,11 +111,20 @@ class PolygonCanvas extends ConsumerWidget {
     }
 
     void handleEditTap(Offset localPosition) {
+      // Read *before* the hit-test, and forward it as the tie-break
+      // preference: right after a detach, the just-created copy sits at
+      // the exact same spot as the vertex it was copied from, so without
+      // this, tapping that same spot again could resolve to the *other*
+      // one — coincidentally re-welding what the artist just detached,
+      // purely because of `Artwork.polygons`' list order (see
+      // `findNearestPoint`'s doc, and `.cursor/plans/
+      // plan_phase_H_alpha.md`, 2026-07-16 検討メモ).
+      final selected = ref.read(selectedVertexProvider);
       final tappedId = notifier.findVertexNear(
         worldPosition(localPosition),
         hitRadius: hitRadius(),
+        preferredVertexId: selected,
       );
-      final selected = ref.read(selectedVertexProvider);
 
       if (selected != null && tappedId != null && tappedId != selected) {
         if (notifier.weldVertices(selected, tappedId)) {
@@ -166,13 +175,32 @@ class PolygonCanvas extends ConsumerWidget {
 
     void startVertexDrag(Offset localPosition) {
       final position = worldPosition(localPosition);
+      final previouslySelected = ref.read(selectedVertexProvider);
+      // Same tie-break preference as `handleEditTap` — see its comment.
+      // This is the hit-test that motivated adding `preferredVertexId` in
+      // the first place: a detach immediately followed by a long-press
+      // drag at that same spot was landing on the wrong one of the two
+      // now-coincident vertices.
       final vertexId = notifier.findVertexNear(
         position,
         hitRadius: hitRadius(),
+        preferredVertexId: previouslySelected,
       );
       if (vertexId == null) return;
 
       ref.read(selectedVertexProvider.notifier).state = vertexId;
+      // A long-press that lands on a *different* vertex than the one
+      // already selected is, semantically, the same "a vertex just became
+      // the one being engaged with" moment `handleEditTap` resets these
+      // for — it was just missing that treatment on this path. Guarded so
+      // that re-long-pressing the *same* already-selected vertex (e.g. to
+      // reposition it without releasing selection first) doesn't discard
+      // an in-progress detach-cycle choice the artist already dialled in.
+      if (vertexId != previouslySelected) {
+        ref.read(detachCycleIndexProvider.notifier).state = 0;
+        ref.read(polygonCycleIndexProvider.notifier).state = -1;
+        ref.read(edgeCycleIndexProvider.notifier).state = -1;
+      }
       vertexDragPreview.value = VertexDragPreview(
         vertexId: vertexId,
         position: position,

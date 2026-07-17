@@ -258,6 +258,15 @@ class _EraserModeRow extends StatelessWidget {
 /// - a selected vertex that isn't shared → a decorative reminder (nothing
 ///   to detach).
 /// - a selected, *shared* vertex → the detach cycle/execute pair.
+///
+/// Whenever a vertex *is* selected, a "選択を解除" button also sits fixed
+/// at the row's trailing edge regardless of which of the latter two
+/// sub-views is showing — a safety valve so the artist never has to hunt
+/// for empty canvas to tap in order to back out of a selection (e.g. once
+/// they've long-press-dragged one, per [PolygonCanvas.startVertexDrag]'s
+/// doc). It lines up under Row 1's "元に戻す" for the same reason: both are
+/// reversal/exit actions, so keeping them in the same column makes the
+/// spot easy to find without looking.
 class _EditModeRow extends ConsumerWidget {
   const _EditModeRow();
 
@@ -273,19 +282,50 @@ class _EditModeRow extends ConsumerWidget {
       return const _NoSelectionRow();
     }
 
-    if (!notifier.isVertexShared(selectedVertexId)) {
-      final color = Theme.of(context).colorScheme.primary;
-      return SizedBox(
-        height: _kRowHeight,
-        child: Center(
-          child: Tooltip(
-            message: 'タップで選択、長押しドラッグで移動',
-            child: Icon(Icons.touch_app_outlined, size: 28, color: color),
-          ),
-        ),
-      );
-    }
+    final Widget content = notifier.isVertexShared(selectedVertexId)
+        ? _DetachControls(selectedVertexId: selectedVertexId)
+        : Builder(
+            builder: (context) {
+              final color = Theme.of(context).colorScheme.primary;
+              return Tooltip(
+                message: 'タップで選択、長押しドラッグで移動',
+                child: Icon(Icons.touch_app_outlined, size: 28, color: color),
+              );
+            },
+          );
 
+    return SizedBox(
+      height: _kRowHeight,
+      child: Row(
+        children: [
+          Expanded(child: Center(child: content)),
+          IconButton(
+            tooltip: '選択を解除',
+            iconSize: 28,
+            onPressed: () {
+              ref.read(selectedVertexProvider.notifier).state = null;
+              ref.read(detachCycleIndexProvider.notifier).state = 0;
+            },
+            icon: const Icon(Icons.close),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The ♻️/✂️ pair shown in [_EditModeRow] once the selected vertex is
+/// confirmed shared — split out purely so that widget stays focused on
+/// picking *which* sub-view to show alongside the always-present "選択を
+/// 解除" button, rather than also carrying this branch's own cycle state.
+class _DetachControls extends ConsumerWidget {
+  const _DetachControls({required this.selectedVertexId});
+
+  final String selectedVertexId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final notifier = ref.read(canvasProvider.notifier);
     final referencingPolygons = notifier.polygonsReferencing(selectedVertexId);
     final draftReferences = notifier.draftReferencesVertex(selectedVertexId);
     final cycleIndex = ref.watch(detachCycleIndexProvider);
@@ -311,26 +351,23 @@ class _EditModeRow extends ConsumerWidget {
       ref.read(detachCycleIndexProvider.notifier).state = 0;
     }
 
-    return SizedBox(
-      height: _kRowHeight,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          IconButton(
-            tooltip: '切り離す多角形を切り替え',
-            iconSize: 32,
-            onPressed: cycleTarget,
-            icon: const Icon(Icons.autorenew),
-          ),
-          const SizedBox(width: 32),
-          IconButton(
-            tooltip: '選択中の多角形から切り離す',
-            iconSize: 32,
-            onPressed: target == null ? null : executeDetach,
-            icon: const Icon(Icons.content_cut),
-          ),
-        ],
-      ),
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          tooltip: '切り離す多角形を切り替え',
+          iconSize: 32,
+          onPressed: cycleTarget,
+          icon: const Icon(Icons.autorenew),
+        ),
+        const SizedBox(width: 32),
+        IconButton(
+          tooltip: '選択中の多角形から切り離す',
+          iconSize: 32,
+          onPressed: target == null ? null : executeDetach,
+          icon: const Icon(Icons.content_cut),
+        ),
+      ],
     );
   }
 }
