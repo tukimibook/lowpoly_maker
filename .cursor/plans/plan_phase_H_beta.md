@@ -69,3 +69,16 @@
   5. scale 2相当にズームインした状態でも、ダブルタップによる自己クローズの許容距離が画面px基準で一定に保たれること(スケール未対応バグの再発防止用リグレッションガード)。
   - ピンチ/パンの2テスト(1・2)は、実機の2本指入力を模すため、両指を小刻みに(50ステップ)インターリーブして動かす形に実装。また、1本指操作特有の副作用(描画モードでの点追加など)を避けるため、消しゴムモード(`onScaleStart`一度だけ`handleEraseTap`を呼ぶが、空のキャンバス上では無害なno-op)かつ単一の`ScaleGestureRecognizer`のみを持つ(=スロップなしでアリーナが即時解決される)状態で実行している。
 - 全体: `flutter analyze`(0件)、`flutter test`(166件全パス)を確認。
+
+### 2026-07-17: 実機フィードバックを受け、2本指ジェスチャー開始時の「確定」を「破棄（キャンセル）」に修正
+
+**問題**: 実機でピンチ操作を試したところ、現実には2本の指が完全に同時には触れず必ずどちらかが数msec先行するため、上記の「2本目の指が触れた時点でその場の位置に確定する」という実装方針が、ドローモードで「意図しない点が打たれてしまう」というUX上の不具合として現れた。
+
+**原因**: `ScaleGestureRecognizer._reconfigure`(Flutter SDK, `packages/flutter/lib/src/gestures/scale.dart`)は、指の本数が変化するたびに、変化後の新しい`pointerCount`を持った`onEnd`を同期的に発火させる。1本指→2本指の場合、この`onEnd`の`pointerCount`は0ではなく2(増えた後の数)になるため、`endGestureSubCycle`の判定条件(`baseline!=null && !baseline.hadMultiFinger && baseline.pointerCount<2`)が「1本指のみのジェスチャーが今まさに正常終了した」と誤認し、`commitDrawDrag`/`commitPolygonDrag`を呼んでしまっていた。
+
+**修正**:
+- `endGestureSubCycle`に`details.pointerCount == 0`(=全指が本当にリフトした「最終リリース」)という条件を追加。2本目の指が加わったことによる`onEnd`(`pointerCount>=1`)ではコミットしない。
+- 各モードの`onScaleEnd`で、`endGestureSubCycle`が`false`を返した場合は「何もしない」ではなく、明示的に該当のプレビュー状態(`dragPreview`/`polygonDragPreview`)を`null`化して破棄するよう変更(Artworkは一切変更されず、Undoスタックも汚れない)。
+- 編集モードの`onScaleStart`で`isViewportGesture()`が真になった際にも、防御的に`vertexDragPreview`を`null`化(長押しドラッグ中に2本目の指が加わるケースへの保険。既存のジェスチャーアリーナの仕組み上、実際にはこの経路が発火する場面は限定的だが、一貫性のため追加)。
+- `test/widget_test.dart`の既存テスト「touching a second finger down mid-draw...」を「discards...」に反転させ、ドラフト頂点が一切追加されずUndo不可(`canUndo == false`)であることを検証するよう更新。編集モードの図形ドラッグにも同様のキャンセル検証テストを新規追加。
+- `flutter analyze`(0件)、`flutter test`(167件全パス)を確認。

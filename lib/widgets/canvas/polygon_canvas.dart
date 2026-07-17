@@ -102,6 +102,16 @@ class PolygonCanvas extends ConsumerWidget {
     // (`GestureDetector` cannot have both `onPan*` and `onScale*` at once —
     // pinch-zoom needs the latter, so every mode's previously-`onPan*`
     // 1-finger gesture had to move to `onScale*` too).
+    //
+    // Whenever `endGestureSubCycle` returns false, the mode must *discard*
+    // (never commit) whatever single-finger preview it had in flight —
+    // covering both a real second finger joining mid-gesture (a real pinch
+    // almost never starts with both fingers touching in exactly the same
+    // frame, so the first finger's own action must not silently apply just
+    // because it happened to move first) and a final release that was part
+    // of a multi-finger gesture the viewport already handled. See
+    // `endGestureSubCycle`'s own doc for exactly how it tells those apart
+    // from a genuine single-finger release.
 
     void beginGestureSubCycle(ScaleStartDetails details) {
       final previous = gestureBaseline.value;
@@ -152,13 +162,29 @@ class PolygonCanvas extends ConsumerWidget {
     /// [ViewportGestureBaseline.hadMultiFinger] sticky) — and returns
     /// whether the mode's own single-finger commit logic
     /// (`commitDrawDrag`/`commitPolygonDrag`/...) should run: true only
-    /// when this whole physical gesture never involved a second finger.
+    /// when *every* finger has now actually lifted (`details.pointerCount
+    /// == 0`) *and* this whole physical gesture never involved a second
+    /// finger.
+    ///
+    /// The `details.pointerCount == 0` half of that matters because
+    /// Flutter's `ScaleGestureRecognizer` also synthesizes an `onEnd` (with
+    /// `pointerCount` already reporting the *new*, larger count, e.g. 2 —
+    /// see that class's `_reconfigure`) the instant a second finger joins
+    /// an already-`started` 1-finger sub-cycle, before any `onStart` for
+    /// the new 2-finger sub-cycle has fired. Without also checking for that
+    /// case here, a real pinch/pan — which in practice almost never has
+    /// both fingers touch down in exactly the same frame — would read as
+    /// "the first finger just lifted, commit whatever it was doing" the
+    /// instant the second one landed, silently placing/moving/deleting
+    /// something right where finger 1 happened to be.
     bool endGestureSubCycle(ScaleEndDetails details) {
       final baseline = gestureBaseline.value;
-      if (details.pointerCount == 0) {
+      final isFinalRelease = details.pointerCount == 0;
+      if (isFinalRelease) {
         gestureBaseline.value = null;
       }
-      return baseline != null &&
+      return isFinalRelease &&
+          baseline != null &&
           !baseline.hadMultiFinger &&
           baseline.pointerCount < 2;
     }
@@ -367,7 +393,13 @@ class PolygonCanvas extends ConsumerWidget {
             // gesture-sub-cycle helpers above.
             onScaleStart: (details) {
               beginGestureSubCycle(details);
-              if (isViewportGesture()) return;
+              if (isViewportGesture()) {
+                // A second finger just joined (or this whole gesture
+                // already had one) — a long-press vertex drag from finger
+                // 1 has no business surviving into a pinch/pan either.
+                vertexDragPreview.value = null;
+                return;
+              }
               startPolygonDrag();
             },
             onScaleUpdate: (details) {
@@ -375,9 +407,13 @@ class PolygonCanvas extends ConsumerWidget {
               updatePolygonDrag(details.focalPointDelta);
             },
             onScaleEnd: (details) {
-              final shouldCommit = endGestureSubCycle(details);
-              if (!shouldCommit) return;
-              commitPolygonDrag();
+              if (endGestureSubCycle(details)) {
+                commitPolygonDrag();
+              } else {
+                // Not a genuine single-finger release — discard rather
+                // than commit; see `endGestureSubCycle`'s doc.
+                polygonDragPreview.value = null;
+              }
             },
             child: content,
           );
@@ -387,7 +423,13 @@ class PolygonCanvas extends ConsumerWidget {
           behavior: HitTestBehavior.opaque,
           onScaleStart: (details) {
             beginGestureSubCycle(details);
-            if (isViewportGesture()) return;
+            if (isViewportGesture()) {
+              // A second finger just joined (or this whole gesture already
+              // had one) — discard, don't leave dangling, whatever draft
+              // preview finger 1 alone had set.
+              dragPreview.value = null;
+              return;
+            }
             if (mode == CanvasMode.eraser) {
               notifier.handleEraseTap(
                 worldPosition(details.localFocalPoint),
@@ -404,9 +446,14 @@ class PolygonCanvas extends ConsumerWidget {
           },
           onScaleEnd: (details) {
             final shouldCommit = endGestureSubCycle(details);
-            if (!shouldCommit) return;
             if (mode == CanvasMode.eraser) return;
-            commitDrawDrag();
+            if (shouldCommit) {
+              commitDrawDrag();
+            } else {
+              // Not a genuine single-finger release — discard rather than
+              // commit; see `endGestureSubCycle`'s doc.
+              dragPreview.value = null;
+            }
           },
           child: content,
         );

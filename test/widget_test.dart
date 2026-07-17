@@ -457,6 +457,53 @@ void main() {
         }
       },
     );
+
+    testWidgets(
+      'a second finger joining mid-drag while a polygon is targeted '
+      'discards the in-progress whole-shape drag instead of committing it '
+      'where the first finger currently sits, and switches to viewport '
+      'pinch/pan instead',
+      (tester) async {
+        final container = await pumpEditorWithTriangle(tester);
+        final originalPositions = {
+          for (final id in container.read(canvasProvider).polygons.single.vertexIds)
+            id: container.read(canvasProvider).vertices[id]!.position,
+        };
+
+        await tester.tap(_iconButtonByTooltip('図形を切り替え'));
+        await tester.pump();
+
+        final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
+        final finger1 = await tester.startGesture(
+          canvasTopLeft + const Offset(20, 20),
+        );
+        await tester.pump();
+        await finger1.moveBy(const Offset(60, 40));
+        await tester.pump();
+
+        // A second finger joins mid-drag — must discard the in-progress
+        // whole-shape translation (not commit it at wherever finger 1
+        // currently sits), same as the draw-mode equivalent above.
+        final finger2 = await tester.startGesture(
+          canvasTopLeft + const Offset(220, 20),
+        );
+        await tester.pump();
+        await finger1.up();
+        await finger2.up();
+        await tester.pump();
+
+        // Positions are exactly what they were before the gesture — proof
+        // `commitPolygonDrag`/`translatePolygon` never ran; only the
+        // (separately tested) viewport pan/zoom math handled this gesture.
+        final polygon = container.read(canvasProvider).polygons.single;
+        for (final id in polygon.vertexIds) {
+          expect(
+            container.read(canvasProvider).vertices[id]!.position,
+            originalPositions[id],
+          );
+        }
+      },
+    );
   });
 
   group(
@@ -746,10 +793,11 @@ void main() {
     );
 
     testWidgets(
-      'touching a second finger down mid-draw commits the in-progress point '
-      "at the finger's current position instead of discarding it, and any "
-      'further movement pans/zooms the viewport instead of drawing more '
-      'points',
+      'touching a second finger down mid-draw discards the in-progress '
+      'point instead of committing it at the first finger\u2019s position '
+      '(a real pinch never has both fingers touch down in exactly the same '
+      'frame), and any further movement pans/zooms the viewport instead of '
+      'drawing more points',
       (tester) async {
         final container = await pumpEditor(tester);
         final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
@@ -764,24 +812,22 @@ void main() {
         // A second finger joins while the first is still down and hasn't
         // moved — per Flutter's own `ScaleGestureRecognizer`, this ends the
         // 1-finger sub-cycle right where finger 1 currently sits, which
-        // `PolygonCanvas` reads as "commit the draw exactly like a normal
-        // release".
+        // `PolygonCanvas` must read as "discard whatever finger 1 alone was
+        // doing", not "commit it as if finger 1 had just been released
+        // normally" — otherwise starting an ordinary pinch would reliably
+        // leave behind an unwanted point at the first finger's landing
+        // spot.
         final finger2 = await tester.startGesture(
           canvasTopLeft + const Offset(280, 80),
         );
         await tester.pump();
 
-        expect(container.read(canvasProvider).draftVertexIds, hasLength(1));
-        expect(
-          container.read(canvasProvider).vertices[
-            container.read(canvasProvider).draftVertexIds.single
-          ]!.position,
-          singleFingerStart,
-        );
+        expect(container.read(canvasProvider).draftVertexIds, isEmpty);
+        expect(container.read(dragPreviewProvider).value, isNull);
 
         // Both fingers now move together (a plain pan) — must NOT be
-        // reinterpreted as a second draw action once a pinch/pan has
-        // started, even though only one of them keeps moving here.
+        // reinterpreted as a draw action once a pinch/pan has started,
+        // even though only one of them keeps moving here.
         await finger1.moveTo(canvasTopLeft + const Offset(120, 80));
         await finger2.moveTo(canvasTopLeft + const Offset(320, 80));
         await tester.pump();
@@ -789,7 +835,10 @@ void main() {
         await finger2.up();
         await tester.pump();
 
-        expect(container.read(canvasProvider).draftVertexIds, hasLength(1));
+        // Nothing was ever committed to the artwork, so there's nothing an
+        // artist could even want to undo from this gesture.
+        expect(container.read(canvasProvider).draftVertexIds, isEmpty);
+        expect(container.read(canvasProvider.notifier).canUndo, isFalse);
       },
     );
 

@@ -24,8 +24,10 @@ import '../services/coordinate_transform.dart';
 /// - *(inside `onScaleEnd`)* "was the sub-cycle that just ended, and every
 ///   one before it in this same physical gesture, always a single finger —
 ///   so the mode's own draw/erase/drag action should commit — or did a
-///   second finger ever join, meaning only the viewport ever moved, not
-///   the artwork?" — [pointerCount]/[hadMultiFinger].
+///   second finger ever join (even one that has since lifted again),
+///   meaning only the viewport ever moved, not the artwork, and the
+///   mode's own in-flight preview must be discarded rather than
+///   committed?" — [pointerCount]/[hadMultiFinger].
 ///
 /// [hadMultiFinger] is deliberately sticky across an entire physical
 /// gesture (reset only once every finger has actually lifted, not at
