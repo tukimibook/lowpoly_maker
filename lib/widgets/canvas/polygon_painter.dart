@@ -8,6 +8,7 @@ import '../../providers/canvas_provider.dart' show kMinPolygonVertices;
 import '../../providers/drag_preview_provider.dart';
 import '../../providers/polygon_drag_preview_provider.dart';
 import '../../providers/polygon_edit_target_provider.dart' show PolygonEdge;
+import '../../providers/trace_stroke_preview_provider.dart';
 import '../../providers/vertex_drag_preview_provider.dart';
 import '../../services/coordinate_transform.dart';
 
@@ -28,12 +29,14 @@ class PolygonPainter extends CustomPainter {
     required this.highlightedPolygonId,
     required this.targetEdge,
     required this.canvasBrightness,
+    required this.tracePreview,
   }) : super(
          repaint: Listenable.merge([
            viewport,
            dragPreview,
            vertexDragPreview,
            polygonDragPreview,
+           tracePreview,
          ]),
        );
 
@@ -71,6 +74,11 @@ class PolygonPainter extends CustomPainter {
   /// drawing logic trivial.
   final PolygonEdge? targetEdge;
   final Brightness canvasBrightness;
+
+  /// Live なぞりモード ("trace mode") stroke in progress, or a controller
+  /// whose [TraceStrokePreviewController.path] is `null` between strokes
+  /// (Phase F, `.cursor/plans/plan_phase_F.md`).
+  final TraceStrokePreviewController tracePreview;
 
   static const double _vertexRadius = 5;
   static const double _continuationHandleRadius = 4;
@@ -110,6 +118,7 @@ class PolygonPainter extends CustomPainter {
 
     if (mode == CanvasMode.draw) {
       _paintDragPreview(canvas, artwork.draftVertexIds);
+      _paintTracePreview(canvas);
     }
 
     if (mode == CanvasMode.edit && selectedVertexId != null) {
@@ -318,6 +327,23 @@ class PolygonPainter extends CustomPainter {
     canvas.drawCircle(snapPosition, _vertexRadius + 7, magnetGlowPaint);
   }
 
+  /// Draws the live なぞりモード stroke, if any, as a plain accent-colored
+  /// line — deliberately the simplest possible rendering (no per-point
+  /// dots, no snap highlighting) so every `onPointerMove`/`onScaleUpdate`
+  /// only ever costs an `O(1)` `Path.lineTo` plus this one `drawPath`, not
+  /// an `O(n)` walk of every point traced so far.
+  void _paintTracePreview(Canvas canvas) {
+    final path = tracePreview.path;
+    if (path == null) return;
+    final strokePaint = Paint()
+      ..color = Colors.teal
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    canvas.drawPath(path, strokePaint);
+  }
+
   @override
   bool shouldRepaint(covariant PolygonPainter oldDelegate) {
     return oldDelegate.artwork != artwork ||
@@ -329,6 +355,7 @@ class PolygonPainter extends CustomPainter {
         oldDelegate.selectedVertexId != selectedVertexId ||
         oldDelegate.highlightedPolygonId != highlightedPolygonId ||
         oldDelegate.targetEdge != targetEdge ||
-        oldDelegate.canvasBrightness != canvasBrightness;
+        oldDelegate.canvasBrightness != canvasBrightness ||
+        oldDelegate.tracePreview != tracePreview;
   }
 }

@@ -1,6 +1,6 @@
 # 完了済みフェーズ仕様・検討メモ アーカイブ
 
-> **正本の位置づけ**: 全体像・確定した設計判断・品質方針・リリース要件は [ポリゴンアプリ再設計_e54196e6.plan.md](ポリゴンアプリ再設計_e54196e6.plan.md)（マスター）を参照。未着手フェーズ（F/G/Hγ/Hδ/R）の詳細仕様・技術的負債表・テスト方針・リスクと対策は [plan_future_phases.md](plan_future_phases.md) を参照。現在着手中のフェーズの詳細・直近の検討メモは [plan_phase_H_beta.md](plan_phase_H_beta.md) を参照。
+> **正本の位置づけ**: 全体像・確定した設計判断・品質方針・リリース要件は [ポリゴンアプリ再設計_e54196e6.plan.md](ポリゴンアプリ再設計_e54196e6.plan.md)（マスター）を参照。未着手フェーズ（G/Hγ/Hδ/R）の詳細仕様・技術的負債表・テスト方針・リスクと対策は [plan_future_phases.md](plan_future_phases.md) を参照。現在着手中のフェーズの詳細・直近の検討メモは [plan_phase_F.md](plan_phase_F.md) を参照。
 >
 > **運用**: 本ファイルは「完了済みフェーズの実装済み仕様」と「過去の検討メモ」専用のアーカイブ（2026-07-17 新設。[plan_future_phases.md](plan_future_phases.md) が肥大化し、開発チャットでのコンテキスト消費を圧迫していたため分離した）。現在着手中フェーズ（`plan_phase_<フェーズ>.md`）が完了し次フェーズへ差し替わる際、その完了フェーズの「📍 現在のステータス」の完了記録と「検討メモ（直近）」の全内容を、本ファイル末尾へそのまま追記していく運用とする。
 
@@ -158,9 +158,37 @@
 
 詳細な設計経緯・実装内容は本ファイル末尾の「検討メモ（Hα、2026-07-15〜2026-07-17）」を参照。
 
+### Phase Hβ: ズーム / パン UI（完了、2026-07-17）
+
+> Phase B の座標変換の継ぎ目にズーム/パン UI を載せ、ジェスチャー衝突（`GestureDetector` は `onPan*` と `onScale*` を共存できない）を解消。→ 検討メモ（2026-07-13、上記「検討メモ（過去アーカイブ）」）参照。
+
+- `viewport_provider.dart`: `ViewportController` に `reset()`（`value` を `ViewportTransform.identity` へ）を追加。
+- **ジェスチャー方針**: `GestureDetector` は `onPan*` と `onScale*` を同時に持てない（Flutter assert）ため、描画・消しゴム・編集の3モードすべてで `onPan*` を `onScale*` + `pointerCount` に置き換え、1本指（各モードの既存の確定ロジック）と2本指（ビューポートのピンチズーム＋パン）を分岐。編集モードの `onLongPress*`/`onTapUp`（頂点の移動・選択・結合）は `onScale*` と共存させたまま維持。
+- `viewport_gesture_provider.dart`（新設）: `ViewportGestureBaseline`（`pointerCount`/`transform`/`focalPoint`/`hadMultiFinger` を保持する不変クラス）と `ViewportGestureController`（`ValueNotifier`）。Flutter の `ScaleGestureRecognizer` は指の本数が変わるたびに内部的に `onEnd`+`onStart` を再発火させる（1回の物理ジェスチャー中に複数回の「サブサイクル」が起こる）ため、サブサイクルごとに基準点（viewport・フォーカルポイント）を取り直す設計とした。
+- `geometry/viewport_pinch.dart`（新設）: 基準の `ViewportTransform`/フォーカルポイントと現在の scale/フォーカルポイントから新しい `ViewportTransform` を計算する純関数 `applyPinchPan`。`kMinViewportScale`（0.2）/`kMaxViewportScale`（8.0）でクランプ。
+- 「全体表示に戻す」ボタン（`Icons.fit_screen`、Tooltip付き）をツールバー上段（Row 1）に追加。押下時に `ViewportController.reset()` を呼ぶ。
+- **許容距離の画面px統一**: `kDoubleTapMaxDistance` / `kLineAbsorptionTolerance` を画面 px 基準に統一。`canvas_provider.dart` の `handleDrawTap`/`closePolygon`と内部ヘルパーに省略可能パラメータ `doubleTapMaxDistance`/`lineAbsorptionTolerance`（デフォルトは既存定数）を追加し定数の直接参照を置き換え。`polygon_canvas.dart`/`editor_toolbar.dart` は `hitRadius()` と同型のヘルパーで `viewport.value.scale` 換算した値を渡す。
+- **実機フィードバックを受けた修正（同日）**: 2本目の指が加わった瞬間に、進行中の1本指アクション（描画中のドラフト点・頂点/図形ドラッグプレビュー等）を「その場で確定」する当初方針は、実機では2本の指が完全に同時には触れず必ずどちらかが数msec先行するため、「意図しない点が打たれてしまう」というUX上の不具合として現れた。原因は Flutter SDK の `ScaleGestureRecognizer._reconfigure` が、指の本数が変化するたびに変化後の新しい `pointerCount`（1→2 の場合は 0 ではなく 2）を持つ `onEnd` を同期的に発火させ、既存の「1本指のみのジェスチャーが正常終了した」判定条件を誤って満たしてしまうことだった。`endGestureSubCycle` に `details.pointerCount == 0`（全指が本当にリフトした「最終リリース」）という条件を追加し、各モードの `onScaleEnd` で、コミットしない場合は該当のプレビュー状態を明示的に `null` 化して**破棄**（Artwork・Undoスタックは無変更）するよう修正した。
+
+**完了条件**: 2本指でズーム/パン、1本指の描画・編集が正常。拡大後もスナップ・ダブルタップ・線上吸着が画面距離一定。`scale≠1` の統合テストあり。実機確認済み（ズーム/パンの滑らかさ、および実機フィードバック対応後は意図しない点の追加がないことを含む）。
+
+**着手前チェックリスト（Hβ、完了）**:
+- [x] `kDoubleTapMaxDistance` / `kLineAbsorptionTolerance` の screen px 統一を実装（#1）
+- [x] ジェスチャー方針決定（`onScale*` + `pointerCount`）（#2）
+- [x] `scale≠1` / `offset≠0` の `CoordinateTransform` テスト + hitRadius 統合テスト
+
+**追加したテスト（Hβ関連、すべて実施済み）**:
+- `scale≠1` で `hitRadius / scale` が画面距離一定になること
+- `kDoubleTapMaxDistance`/`kLineAbsorptionTolerance` の scale 対応（パラメータ化後の単体テスト）
+- `applyPinchPan`（ピンチ/パンの変換計算）の純関数単体テスト
+- Widget test: 2本指ピンチズーム／2本指パン／描画中に2本目の指が触れた際のキャンセル／「全体表示に戻す」ボタン／ズーム時のダブルタップ許容距離
+- Widget test: 図形ドラッグ中に2本目の指が加わった際のキャンセル（実機フィードバック対応の回帰テスト）
+
+詳細な設計経緯・実装内容は本ファイル末尾の「検討メモ（Hβ、2026-07-17）」を参照。
+
 ## 検討メモ（過去アーカイブ: 2026-07-10〜07-15）
 
-> Hα 着手（2026-07-15〜）〜Hβ 着手（2026-07-17〜）の間の検討メモは本ファイル末尾「検討メモ（Hα、2026-07-15〜2026-07-17）」を参照。Hβ 以降の検討メモは [plan_phase_H_beta.md](plan_phase_H_beta.md) を参照。2026-07-13〜07-15（G-spike 完了まで）分は本節に格納。
+> Hα 着手（2026-07-15〜）〜Hβ 着手（2026-07-17〜）の間の検討メモは本ファイル末尾「検討メモ（Hα、2026-07-15〜2026-07-17）」を、Hβ 着手中の検討メモは本ファイル末尾「検討メモ（Hβ、2026-07-17）」を参照。F 以降の検討メモは [plan_phase_F.md](plan_phase_F.md) を参照。2026-07-13〜07-15（G-spike 完了まで）分は本節に格納。
 
 ### 2026-07-10: クローズ処理の統一と今後の整合性
 
@@ -446,7 +474,7 @@ Phase A〜E 完了時点の外部レビューを「コード品質・修正前�
 
 ## 検討メモ（Hα、2026-07-15〜2026-07-17）
 
-> Phase Hα 着手時点（旧 `plan_phase_H_alpha.md`）の検討メモ。Hβ 以降の検討メモは [plan_phase_H_beta.md](plan_phase_H_beta.md) を参照。
+> Phase Hα 着手時点（旧 `plan_phase_H_alpha.md`）の検討メモ。Hβ 着手中の検討メモは本ファイル末尾「検討メモ（Hβ、2026-07-17）」を、F 以降の検討メモは [plan_phase_F.md](plan_phase_F.md) を参照。
 
 ### 2026-07-15: 画像読み込み機能（OOM対策込み）の実装
 
@@ -628,3 +656,59 @@ Phase Hα の実装・テストがすべて完了。次フェーズ（Hβ: ズ�
 - `plan_phase_H_alpha.md` を `plan_phase_H_beta.md` にリネームし、内容を Phase Hβ（ズーム/パン UI）専用に再構築（詳細仕様・着手前チェックリスト・追加すべきテストを `plan_future_phases.md` から移行）。
 - `plan_future_phases.md` は未着手フェーズ（F/G/Hγ/Hδ/R）の詳細・技術的負債表・テスト方針・リスクと対策の正本として残置し、移動元の跡地にはリンク案内のみを残した。
 - [ポリゴンアプリ再設計_e54196e6.plan.md](ポリゴンアプリ再設計_e54196e6.plan.md)（マスター）のファイル分割案内・frontmatter todos（`phase-h-underlay` を completed に更新）も追随。
+
+## 検討メモ（Hβ、2026-07-17）
+
+> Phase Hβ 着手時点（旧 `plan_phase_H_beta.md`）の検討メモ。Phase F 以降の検討メモは [plan_phase_F.md](plan_phase_F.md) を参照。
+
+### 2026-07-17: 着手前提2件(許容距離のpx統一・ジェスチャー方針)を実装
+
+**実装要件1: 許容距離の画面px統一**
+- `canvas_provider.dart`: `handleDrawTap`/`closePolygon`と内部ヘルパー(`_tryCloseAtVertex`/`_handleSingleDrawTap`/`_isPseudoDoubleTap`/`_insertAbsorbedVertices`/`_closingEdgeVertices`/`_wouldCloseWithUnweldedGap`)に、省略可能パラメータ`doubleTapMaxDistance`/`lineAbsorptionTolerance`(デフォルトは既存定数)を追加し、定数の直接参照を置き換えた。
+- `polygon_canvas.dart`: `hitRadius()`と同型の`doubleTapMaxDistance()`/`lineAbsorptionTolerance()`ヘルパー(定数を`viewport.value.scale`で割った値)を追加し、Notifier呼び出し時に渡すようにした。
+- `editor_toolbar.dart`: 「閉じる」ボタンの`closePolygon`呼び出しにも、viewportのscaleから換算した`lineAbsorptionTolerance`を渡すよう修正。
+- これにより、拡大表示中もダブルタップ許容距離・線上吸着許容距離が「画面上一定のpx」になる(ズームインするほどワールド座標上での許容範囲は狭くなる)。
+
+**実装要件2: ジェスチャー方針(`onScale*` + `pointerCount`)**
+- `viewport_gesture_provider.dart`(新設): `ViewportGestureBaseline`(不変クラス。`pointerCount`/`transform`/`focalPoint`/`hadMultiFinger`を保持)と、それを管理する`ValueNotifier`ベースの`ViewportGestureController`を追加。ジェスチャーの「サブサイクル」(`onScaleStart`が発火するたび。Flutterの`ScaleGestureRecognizer`は指の本数が変わるたびに内部的に`onEnd`+`onStart`を再発火させるため、1回の物理ジェスチャー中に複数回のサブサイクルが起こる)ごとに基準点を取り直す設計。
+- `viewport_pinch.dart`(新設): 基準の`ViewportTransform`/フォーカルポイントと、現在のscale/フォーカルポイントから新しい`ViewportTransform`を計算する純粋関数`applyPinchPan`を追加。`kMinViewportScale`(0.2)/`kMaxViewportScale`(8.0)でクランプ。
+- `polygon_canvas.dart`: 描画・消しゴム・編集の3モードすべてで`onPan*`を`onScale*`に置き換え(編集モードの`onLongPress*`/`onTapUp`はそのまま維持し、`onScale*`と共存させることでピンチ/パンとタップ/長押しドラッグを両立)。
+  - 1本指のみのジェスチャーでは、`GestureDetector`が単一の`ScaleGestureRecognizer`しか持たない描画/消しゴムモードではアリーナが即時解決される(スロップなし)一方、タップ/長押しと競合する編集モードではスロップが掛かる、という既存の挙動差はそのまま維持される。
+  - 2本目の指が追加された時点(`hadMultiFinger`が立った時点)で、進行中の1本指アクション(描画中のドラフト点・頂点ドラッグプレビューなど)を「その時点の位置で確定」してからズーム/パンに切り替える(破棄ではなく確定する方針で実装)。**→ 後日、実機フィードバックにより「破棄」方針へ修正（下記2件目のメモ参照）。**
+
+**実装要件3: UIの追加**
+- `editor_toolbar.dart`の上段(Row 1)に「全体表示に戻す」ボタン(`Icons.fit_screen`、Tooltip付き)を追加。押下時に`viewportProvider`経由で`ViewportController.reset()`(新設。`value`を`ViewportTransform.identity`にリセット)を呼ぶ。
+
+**テスト**
+- `test/geometry/viewport_pinch_test.dart`(新設): `applyPinchPan`の純粋関数テスト(scale/offsetの計算、min/maxクランプ)。
+- `test/canvas_notifier_draw_test.dart`: `doubleTapMaxDistance`/`lineAbsorptionTolerance`のscale対応を検証する新規テストグループを追加(デフォルト許容距離では吸着/クローズするが、scale 2相当の狭い許容距離では吸着/クローズしないことを確認)。
+- `test/widget_test.dart`: 「Phase Hβ: viewport pinch/pan gesture」テストグループを新設し、以下5件を追加(すべてパス):
+  1. 2本指ピンチでフォーカルポイントを固定したままscaleが増加すること。
+  2. 2本指を同方向に等速で動かす(スパン不変)パンでoffsetのみ移動し、scaleは1のままであること。
+  3. 描画中に2本目の指が触れると、その時点の位置でドラフト点が確定し、以降の移動はビューポートのズーム/パンとして扱われること。
+  4. 「全体表示に戻す」ボタンで任意のpan/zoom状態がidentityに戻ること。
+  5. scale 2相当にズームインした状態でも、ダブルタップによる自己クローズの許容距離が画面px基準で一定に保たれること(スケール未対応バグの再発防止用リグレッションガード)。
+  - ピンチ/パンの2テスト(1・2)は、実機の2本指入力を模すため、両指を小刻みに(50ステップ)インターリーブして動かす形に実装。また、1本指操作特有の副作用(描画モードでの点追加など)を避けるため、消しゴムモード(`onScaleStart`一度だけ`handleEraseTap`を呼ぶが、空のキャンバス上では無害なno-op)かつ単一の`ScaleGestureRecognizer`のみを持つ(=スロップなしでアリーナが即時解決される)状態で実行している。
+- 全体: `flutter analyze`(0件)、`flutter test`(166件全パス)を確認。
+
+### 2026-07-17: 実機フィードバックを受け、2本指ジェスチャー開始時の「確定」を「破棄（キャンセル）」に修正
+
+**問題**: 実機でピンチ操作を試したところ、現実には2本の指が完全に同時には触れず必ずどちらかが数msec先行するため、上記の「2本目の指が触れた時点でその場の位置に確定する」という実装方針が、ドローモードで「意図しない点が打たれてしまう」というUX上の不具合として現れた。
+
+**原因**: `ScaleGestureRecognizer._reconfigure`(Flutter SDK, `packages/flutter/lib/src/gestures/scale.dart`)は、指の本数が変化するたびに、変化後の新しい`pointerCount`を持った`onEnd`を同期的に発火させる。1本指→2本指の場合、この`onEnd`の`pointerCount`は0ではなく2(増えた後の数)になるため、`endGestureSubCycle`の判定条件(`baseline!=null && !baseline.hadMultiFinger && baseline.pointerCount<2`)が「1本指のみのジェスチャーが今まさに正常終了した」と誤認し、`commitDrawDrag`/`commitPolygonDrag`を呼んでしまっていた。
+
+**修正**:
+- `endGestureSubCycle`に`details.pointerCount == 0`(=全指が本当にリフトした「最終リリース」)という条件を追加。2本目の指が加わったことによる`onEnd`(`pointerCount>=1`)ではコミットしない。
+- 各モードの`onScaleEnd`で、`endGestureSubCycle`が`false`を返した場合は「何もしない」ではなく、明示的に該当のプレビュー状態(`dragPreview`/`polygonDragPreview`)を`null`化して破棄するよう変更(Artworkは一切変更されず、Undoスタックも汚れない)。
+- 編集モードの`onScaleStart`で`isViewportGesture()`が真になった際にも、防御的に`vertexDragPreview`を`null`化(長押しドラッグ中に2本目の指が加わるケースへの保険。既存のジェスチャーアリーナの仕組み上、実際にはこの経路が発火する場面は限定的だが、一貫性のため追加)。
+- `test/widget_test.dart`の既存テスト「touching a second finger down mid-draw...」を「discards...」に反転させ、ドラフト頂点が一切追加されずUndo不可(`canUndo == false`)であることを検証するよう更新。編集モードの図形ドラッグにも同様のキャンセル検証テストを新規追加。
+- `flutter analyze`(0件)、`flutter test`(167件全パス)を確認。
+
+### 2026-07-17: Phase Hβ 完了、Phase F へ移行（ドキュメント整理）
+
+Phase Hβ の実装・実機テスト（バグ修正含む）がすべて完了。次フェーズ（F: なぞりモード）着手にあたり、ドキュメント構成を整理した。
+
+- 本ファイル（`plan_archive_history.md`）に、完了した Phase Hβ 自身の仕様（本ファイル「完了済みフェーズ仕様」内）と検討メモ（本節群）を、旧 `plan_phase_H_beta.md` から移動。
+- `plan_phase_H_beta.md` を `plan_phase_F.md` にリネームし、内容を Phase F（なぞりモード）専用に再構築（詳細仕様・着手前チェックリスト（F-core / F-UI の前）・追加すべきテストを `plan_future_phases.md` から移行）。
+- `plan_future_phases.md` は未着手フェーズ（G/Hγ/Hδ/R）の詳細・技術的負債表・テスト方針・リスクと対策の正本として残置し、移動元の跡地にはリンク案内のみを残した。
+- [ポリゴンアプリ再設計_e54196e6.plan.md](ポリゴンアプリ再設計_e54196e6.plan.md)（マスター）のファイル分割案内・frontmatter todos（`phase-h-viewport` を completed に更新）も追随。

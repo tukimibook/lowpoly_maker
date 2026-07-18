@@ -10,6 +10,7 @@ import '../geometry/polygon_graph.dart';
 import '../geometry/ring_collapse.dart';
 import '../models/artwork.dart';
 import '../models/canvas_mode.dart';
+import '../models/draw_mode.dart';
 import '../models/polygon_shape.dart';
 import '../models/vertex.dart';
 
@@ -41,6 +42,16 @@ const double kVertexHitRadius = 48.0;
 /// them) absorbed into the new draft automatically, instead of requiring
 /// a separate, precise tap on each one. See [CanvasNotifier.handleDrawTap].
 const double kLineAbsorptionTolerance = 15.0;
+
+/// Default screen-pixel distance between two consecutive vertices
+/// [generateTracePoints] generates along a なぞりモード ("trace mode")
+/// stroke (Phase F, `.cursor/plans/plan_phase_F.md`). Follows the same
+/// screen-tolerance convention as [kVertexHitRadius] et al. — callers with
+/// a viewport transform should pass `kTraceVertexSpacing /
+/// transform.scale` so a stroke always produces roughly the same density
+/// of vertices on screen regardless of zoom, rather than an ever-denser
+/// (zoomed in) or ever-sparser (zoomed out) one in world space.
+const double kTraceVertexSpacing = 40.0;
 
 /// Maximum time between two taps for the second one to be reinterpreted
 /// as a "close the shape now" gesture (a pseudo double-tap) instead of an
@@ -84,6 +95,15 @@ final selectedFillColorProvider = StateProvider<Color>((ref) {
 /// interpreted.
 final canvasModeProvider = StateProvider<CanvasMode>((ref) {
   return CanvasMode.draw;
+});
+
+/// Sub-mode of [CanvasMode.draw] — tap-to-place vs. なぞり (trace). Only
+/// meaningful while [canvasModeProvider] is [CanvasMode.draw]; switching
+/// away from draw mode (see `editor_toolbar.dart`'s `selectMode`) leaves
+/// this untouched so the artist's choice survives a round trip through
+/// eraser/edit mode and back.
+final drawModeProvider = StateProvider<DrawMode>((ref) {
+  return DrawMode.tap;
 });
 
 /// Identifies a specific vertex of a confirmed polygon, as returned by a
@@ -341,6 +361,96 @@ class CanvasNotifier extends StateNotifier<Artwork> {
     return null;
   }
 
+  /// Batch-commits an entire なぞりモード ("trace mode") stroke — a whole
+  /// list of already-resampled world-coordinate points (see
+  /// `generateTracePoints`) — as a *single* [_recordUndo] entry and a
+  /// *single* [state] update, appending them to the in-progress draft in
+  /// order (Phase F, `.cursor/plans/plan_phase_F.md`).
+  ///
+  /// Each point follows the exact same per-point rule
+  /// [_handleSingleDrawTap] applies to a lone tap — snap onto a nearby
+  /// existing polygon vertex (welding the draft onto it, absorbing
+  /// whatever sits on the segment leading to it, same as
+  /// [_insertAbsorbedVertices]), or otherwise place a brand new freehand
+  /// vertex — just applied [points.length] times over local mutable
+  /// copies of [Artwork.vertices]/[Artwork.draftVertexIds] rather than
+  /// committing to [state] after every single one. This is what keeps a
+  /// stroke of, say, 50 resampled points to exactly one [Artwork]
+  /// rebuild/deep-equality pass and one undo entry instead of 50 of each.
+  ///
+  /// Deliberately bypasses [_isPseudoDoubleTap]/[_tryCloseAtVertex]
+  /// entirely (via [_resetPendingTap]) — a trace stroke never implicitly
+  /// closes a shape no matter where it ends or how quickly a later one
+  /// follows; closing stays the explicit, separate action it already is
+  /// for a drawn-by-tap draft ([closePolygon], normally wired to the
+  /// toolbar's "閉じる" button). It also never creates a confirmed
+  /// [PolygonShape] by itself — v1 only ever grows the draft, so an
+  /// already-established shape stays reachable via the same "閉じる"
+  /// button regardless of whether tap or trace grew it.
+  ///
+  /// No-op when [points] is empty (so no undo entry is recorded for an
+  /// aborted/degenerate stroke). [hitRadius]/[lineAbsorptionTolerance]
+  /// follow the same screen-tolerance convention as [handleDrawTap]'s
+  /// parameters of the same name.
+  void commitTraceStroke(
+    List<Offset> points, {
+    double hitRadius = kVertexHitRadius,
+    double lineAbsorptionTolerance = kLineAbsorptionTolerance,
+  }) {
+    if (points.isEmpty) return;
+    _resetPendingTap();
+    _recordUndo();
+
+    var vertices = state.vertices;
+    var draftIds = state.draftVertexIds;
+
+    void absorbAlong(Offset start, Offset end, {String? excludeVertexId}) {
+      final absorbed = findVerticesAlongSegment(
+        start,
+        end,
+        vertices: vertices,
+        polygons: state.polygons,
+        draftVertexIds: draftIds.toSet(),
+        tolerance: lineAbsorptionTolerance,
+        excludeVertexId: excludeVertexId,
+      );
+      if (absorbed.isNotEmpty) {
+        draftIds = [...draftIds, ...absorbed];
+      }
+    }
+
+    for (final point in points) {
+      final hit = _findPolygonVertexNearIn(
+        vertices,
+        draftIds.toSet(),
+        point,
+        hitRadius: hitRadius,
+      );
+      if (hit != null) {
+        if (draftIds.isEmpty) {
+          draftIds = [hit.vertexId];
+        } else {
+          absorbAlong(
+            vertices[draftIds.last]!.position,
+            vertices[hit.vertexId]!.position,
+            excludeVertexId: hit.vertexId,
+          );
+          draftIds = [...draftIds, hit.vertexId];
+        }
+        continue;
+      }
+
+      if (draftIds.isNotEmpty) {
+        absorbAlong(vertices[draftIds.last]!.position, point);
+      }
+      final vertex = Vertex(id: _uuid.v4(), position: point);
+      vertices = {...vertices, vertex.id: vertex};
+      draftIds = [...draftIds, vertex.id];
+    }
+
+    state = state.copyWith(vertices: vertices, draftVertexIds: draftIds);
+  }
+
   /// True when [position]/[now] land close enough — in both time and
   /// space — to the previous tap handled by [handleDrawTap] to be
   /// reinterpreted as the second half of a double-tap (the "close the
@@ -429,13 +539,34 @@ class CanvasNotifier extends StateNotifier<Artwork> {
     Offset position, {
     double hitRadius = kVertexHitRadius,
   }) {
-    final draftIds = state.draftVertexIds.toSet();
+    return _findPolygonVertexNearIn(
+      state.vertices,
+      state.draftVertexIds.toSet(),
+      position,
+      hitRadius: hitRadius,
+    );
+  }
+
+  /// The actual search behind [findPolygonVertexNear], parameterized over
+  /// an explicit [vertices] pool and [excludedIds] set rather than always
+  /// reading them from [state] — so [commitTraceStroke] can run this same
+  /// search repeatedly, once per resampled trace point, against a *local*
+  /// snapshot that grows as the batch progresses, without ever touching
+  /// [state] itself until the whole stroke is done. [state.polygons]
+  /// itself is passed through unchanged either way, since a trace stroke
+  /// never creates a confirmed polygon mid-batch (see that method's doc).
+  PolygonVertexHit? _findPolygonVertexNearIn(
+    Map<String, Vertex> vertices,
+    Set<String> excludedIds,
+    Offset position, {
+    required double hitRadius,
+  }) {
     final owningPolygon = <String, PolygonShape>{};
     final candidates = <PointCandidate<String>>[];
     for (final polygon in state.polygons) {
       for (final vertexId in polygon.vertexIds) {
-        if (draftIds.contains(vertexId)) continue;
-        final vertex = state.vertices[vertexId];
+        if (excludedIds.contains(vertexId)) continue;
+        final vertex = vertices[vertexId];
         if (vertex == null) continue;
         owningPolygon[vertexId] = polygon;
         candidates.add((vertexId, vertex.position));

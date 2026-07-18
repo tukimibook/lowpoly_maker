@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../geometry/trace_point_generator.dart';
 import '../../geometry/viewport_pinch.dart';
 import '../../models/canvas_mode.dart';
+import '../../models/draw_mode.dart';
 import '../../providers/canvas_background_provider.dart';
 import '../../providers/canvas_provider.dart';
 import '../../providers/detach_cycle_provider.dart';
@@ -11,6 +13,8 @@ import '../../providers/drag_preview_provider.dart';
 import '../../providers/polygon_drag_preview_provider.dart';
 import '../../providers/polygon_edit_target_provider.dart';
 import '../../providers/selected_vertex_provider.dart';
+import '../../providers/trace_gesture_provider.dart';
+import '../../providers/trace_stroke_preview_provider.dart';
 import '../../providers/vertex_drag_preview_provider.dart';
 import '../../providers/viewport_gesture_provider.dart';
 import '../../providers/viewport_provider.dart';
@@ -19,7 +23,8 @@ import 'underlay_layer.dart';
 
 /// The drawable surface: renders confirmed polygons and the in-progress
 /// draft, and interprets touches according to the current [CanvasMode]:
-/// - [CanvasMode.draw]: place/extend/close polygons.
+/// - [CanvasMode.draw]: place/extend/close polygons — either tap-by-tap, or
+///   (see [DrawMode.trace]) by tracing a continuous stroke.
 /// - [CanvasMode.eraser]: delete a single touched vertex.
 /// - [CanvasMode.edit]: tap to select a vertex; long-press drag to move it.
 ///
@@ -28,6 +33,17 @@ import 'underlay_layer.dart';
 /// that mode's own 1-finger gesture means — see the gesture-sub-cycle
 /// helpers inside [build] and `providers/viewport_gesture_provider.dart`
 /// for how the two are told apart on every single `onScale*` callback.
+///
+/// [DrawMode.trace] (Phase F, `.cursor/plans/plan_phase_F.md`) is the one
+/// exception to that shared `onScale*`-only mechanism: it layers a raw
+/// [Listener] *around* its own `onScale*` `GestureDetector` so it can keep
+/// sourcing a locked single finger's true position straight from the
+/// pointer stream — bypassing `ScaleGestureRecognizer`'s multi-finger
+/// focal-point fusion — once `TraceGestureController` confirms the stroke
+/// and starts ignoring every other finger ("Lock & Ignore"). See that
+/// controller's doc (`providers/trace_gesture_provider.dart`) for why a
+/// brief disambiguation window comes first, so a genuine 2-finger
+/// pinch/pan still reliably wins when that's what the artist meant.
 class PolygonCanvas extends ConsumerWidget {
   const PolygonCanvas({super.key});
 
@@ -35,6 +51,7 @@ class PolygonCanvas extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final artwork = ref.watch(canvasProvider);
     final mode = ref.watch(canvasModeProvider);
+    final drawMode = ref.watch(drawModeProvider);
     final selectedVertexId = ref.watch(selectedVertexProvider);
     final notifier = ref.read(canvasProvider.notifier);
     final viewport = ref.watch(viewportProvider);
@@ -42,6 +59,8 @@ class PolygonCanvas extends ConsumerWidget {
     final dragPreview = ref.watch(dragPreviewProvider);
     final vertexDragPreview = ref.watch(vertexDragPreviewProvider);
     final polygonDragPreview = ref.watch(polygonDragPreviewProvider);
+    final tracePreview = ref.watch(traceStrokePreviewProvider);
+    final traceGesture = ref.watch(traceGestureProvider);
     final canvasBrightness = ref.watch(canvasBackgroundProvider);
     final detachCycleIndex = ref.watch(detachCycleIndexProvider);
     final polygonCycleIndex = ref.watch(polygonCycleIndexProvider);
@@ -84,6 +103,7 @@ class PolygonCanvas extends ConsumerWidget {
     double hitRadius() => kVertexHitRadius / viewport.value.scale;
     double doubleTapMaxDistance() => kDoubleTapMaxDistance / viewport.value.scale;
     double lineAbsorptionTolerance() => kLineAbsorptionTolerance / viewport.value.scale;
+    double traceVertexSpacing() => kTraceVertexSpacing / viewport.value.scale;
 
     Offset worldPosition(Offset localPosition) {
       return viewport.value.screenToWorld(localPosition);
@@ -221,6 +241,24 @@ class PolygonCanvas extends ConsumerWidget {
       if (matchedColor != null) {
         ref.read(selectedFillColorProvider.notifier).state = matchedColor;
       }
+    }
+
+    /// Resamples whatever [tracePreview] accumulated (see
+    /// `generateTracePoints`) and hands the whole stroke to
+    /// [CanvasNotifier.commitTraceStroke] as one batch, then clears the
+    /// preview either way. No-op (nothing to commit, nothing to undo) for
+    /// a degenerate stroke — the finger never actually moved, so there's
+    /// only the single touch-down point and no length to resample.
+    void commitTraceStrokeFromPreview() {
+      final rawPoints = tracePreview.rawPoints;
+      tracePreview.clear();
+      if (rawPoints == null || rawPoints.length < 2) return;
+      final points = generateTracePoints(rawPoints, spacing: traceVertexSpacing());
+      notifier.commitTraceStroke(
+        points,
+        hitRadius: hitRadius(),
+        lineAbsorptionTolerance: lineAbsorptionTolerance(),
+      );
     }
 
     void handleEditTap(Offset localPosition) {
@@ -366,11 +404,115 @@ class PolygonCanvas extends ConsumerWidget {
                   highlightedPolygonId: highlightedPolygonId,
                   targetEdge: targetEdge,
                   canvasBrightness: canvasBrightness,
+                  tracePreview: tracePreview,
                 ),
               ),
             ),
           ],
         );
+
+        if (mode == CanvasMode.draw && drawMode == DrawMode.trace) {
+          // See the class doc and `TraceGestureController`'s own doc
+          // (`providers/trace_gesture_provider.dart`) for why this mode
+          // alone wraps its `onScale*` `GestureDetector` in a raw
+          // [Listener]: only a raw pointer stream can single out one
+          // specific finger's true position once a second one joins,
+          // which `ScaleGestureRecognizer`'s fused `focalPoint` cannot.
+          void ignoreUntrackedFinger(int pointerId, VoidCallback action) {
+            if (!traceGesture.isTrackedPointer(pointerId)) return;
+            action();
+          }
+
+          return Listener(
+            onPointerDown: (event) => traceGesture.onPointerDown(event.pointer),
+            onPointerMove: (event) {
+              // Pre-lock, `onScaleUpdate` below already sources the
+              // preview from `ScaleUpdateDetails.localFocalPoint` (which,
+              // with exactly one finger down, *is* that finger's raw
+              // position) — only once `locked` does the arena's own fused
+              // focal point stop being trustworthy, so only then does
+              // this raw stream take over driving the preview.
+              if (!traceGesture.isLocked) return;
+              ignoreUntrackedFinger(event.pointer, () {
+                tracePreview.lineTo(worldPosition(event.localPosition));
+              });
+            },
+            onPointerUp: (event) {
+              ignoreUntrackedFinger(event.pointer, () {
+                final wasLocked = traceGesture.isLocked;
+                traceGesture.reset();
+                if (wasLocked) {
+                  // Product decision (2026-07-18 検討メモ): commit the
+                  // instant the locked finger itself lifts, regardless of
+                  // whether some other, already-ignored finger is still
+                  // down.
+                  commitTraceStrokeFromPreview();
+                } else {
+                  // Released before ever confirming the lock — product
+                  // decision (2026-07-18 検討メモ): discard, don't treat a
+                  // quick tap as a one-point stroke.
+                  tracePreview.clear();
+                }
+              });
+            },
+            onPointerCancel: (event) {
+              ignoreUntrackedFinger(event.pointer, () {
+                traceGesture.reset();
+                tracePreview.clear();
+              });
+            },
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onScaleStart: (details) {
+                if (traceGesture.isLocked) return;
+                beginGestureSubCycle(details);
+                if (isViewportGesture()) {
+                  // A second finger arrived within the disambiguation
+                  // window (or this whole gesture already had one) — a
+                  // real pinch/pan wins; nothing was ever locked yet, so
+                  // there's only ever a handful of provisional points to
+                  // throw away.
+                  traceGesture.reset();
+                  tracePreview.clear();
+                  return;
+                }
+                tracePreview.start(worldPosition(details.localFocalPoint));
+                traceGesture.beginDisambiguation(
+                  details.localFocalPoint,
+                  traceGesture.confirmLock,
+                );
+              },
+              onScaleUpdate: (details) {
+                if (traceGesture.isLocked) {
+                  // Locked: the raw `Listener` above is the sole position
+                  // source from here on, so `onScale*`'s own (possibly
+                  // multi-finger-fused) focal point is ignored entirely.
+                  return;
+                }
+                if (isViewportGesture()) {
+                  traceGesture.reset();
+                  tracePreview.clear();
+                  applyViewportUpdate(details);
+                  return;
+                }
+                tracePreview.lineTo(worldPosition(details.localFocalPoint));
+                traceGesture.maybeConfirmBySlop(details.localFocalPoint);
+              },
+              onScaleEnd: (details) {
+                if (traceGesture.isLocked) return; // handled by `Listener` above.
+                endGestureSubCycle(details);
+                if (details.pointerCount == 0) {
+                  // Every finger is now up without the lock ever having
+                  // been confirmed — same "discard, don't commit a quick
+                  // tap" rule as `Listener.onPointerUp` above.
+                  traceGesture.reset();
+                  tracePreview.clear();
+                }
+              },
+              child: content,
+            ),
+          );
+        }
 
         if (mode == CanvasMode.edit) {
           return GestureDetector(

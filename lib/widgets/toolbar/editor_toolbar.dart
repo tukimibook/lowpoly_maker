@@ -2,12 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../models/canvas_mode.dart';
+import '../../models/draw_mode.dart';
 import '../../models/underlay_layout.dart';
 import '../../providers/canvas_provider.dart';
 import '../../providers/detach_cycle_provider.dart';
 import '../../providers/drag_preview_provider.dart';
 import '../../providers/polygon_edit_target_provider.dart';
 import '../../providers/selected_vertex_provider.dart';
+import '../../providers/trace_gesture_provider.dart';
+import '../../providers/trace_stroke_preview_provider.dart';
 import '../../providers/underlay_layout_provider.dart';
 import '../../providers/underlay_provider.dart';
 import '../../providers/vertex_drag_preview_provider.dart';
@@ -90,6 +93,8 @@ class _CommonRow extends ConsumerWidget {
       }
       if (newMode != CanvasMode.draw) {
         ref.read(dragPreviewProvider).value = null;
+        ref.read(traceGestureProvider).reset();
+        ref.read(traceStrokePreviewProvider).clear();
       }
     }
 
@@ -175,8 +180,11 @@ class _CommonRow extends ConsumerWidget {
   }
 }
 
-/// Row 2, draw mode: the fill-color palette (unchanged — swatches were
-/// already language-independent) plus a single "閉じる" icon button.
+/// Row 2, draw mode: a タップ/なぞり sub-mode toggle (Phase F,
+/// `.cursor/plans/plan_phase_F.md`), the fill-color palette (unchanged —
+/// swatches were already language-independent), and a single "閉じる"
+/// icon button — the latter two apply the same regardless of which
+/// sub-mode grew the draft.
 class _DrawModeRow extends ConsumerWidget {
   const _DrawModeRow();
 
@@ -185,6 +193,7 @@ class _DrawModeRow extends ConsumerWidget {
     final artwork = ref.watch(canvasProvider);
     final notifier = ref.read(canvasProvider.notifier);
     final selectedColor = ref.watch(selectedFillColorProvider);
+    final drawMode = ref.watch(drawModeProvider);
     final canClose = artwork.draftVertexIds.length >= kMinPolygonVertices;
     // The toolbar's own tap has no gesture-side viewport scale to read from
     // directly (unlike `PolygonCanvas`'s `hitRadius()`/`lineAbsorptionTolerance()`
@@ -194,12 +203,40 @@ class _DrawModeRow extends ConsumerWidget {
     // double-tap close it mirrors.
     final viewportScale = ref.read(viewportProvider).value.scale;
 
+    void selectDrawMode(DrawMode newDrawMode) {
+      ref.read(drawModeProvider.notifier).state = newDrawMode;
+      // No gesture can possibly be in flight while a toolbar button press
+      // is being handled, but reset defensively anyway — mirrors
+      // `_CommonRow.selectMode`'s own cleanup on every other mode switch.
+      ref.read(dragPreviewProvider).value = null;
+      ref.read(traceGestureProvider).reset();
+      ref.read(traceStrokePreviewProvider).clear();
+    }
+
     return SizedBox(
       height: _kRowHeight,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 8),
         child: Row(
           children: [
+            SegmentedButton<DrawMode>(
+              segments: const [
+                ButtonSegment(
+                  value: DrawMode.tap,
+                  icon: Icon(Icons.touch_app_outlined),
+                  tooltip: 'タップモード',
+                ),
+                ButtonSegment(
+                  value: DrawMode.trace,
+                  icon: Icon(Icons.gesture),
+                  tooltip: 'なぞりモード',
+                ),
+              ],
+              selected: {drawMode},
+              showSelectedIcon: false,
+              onSelectionChanged: (selection) => selectDrawMode(selection.first),
+            ),
+            const SizedBox(width: 8),
             Expanded(
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,

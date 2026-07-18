@@ -3,12 +3,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:polygon_art_app/app.dart';
+import 'package:polygon_art_app/models/draw_mode.dart';
 import 'package:polygon_art_app/providers/canvas_background_provider.dart';
 import 'package:polygon_art_app/providers/canvas_provider.dart';
 import 'package:polygon_art_app/providers/detach_cycle_provider.dart';
 import 'package:polygon_art_app/providers/drag_preview_provider.dart';
 import 'package:polygon_art_app/providers/polygon_edit_target_provider.dart';
 import 'package:polygon_art_app/providers/selected_vertex_provider.dart';
+import 'package:polygon_art_app/providers/trace_gesture_provider.dart';
+import 'package:polygon_art_app/providers/trace_stroke_preview_provider.dart';
 import 'package:polygon_art_app/providers/viewport_provider.dart';
 import 'package:polygon_art_app/services/coordinate_transform.dart';
 import 'package:polygon_art_app/widgets/canvas/polygon_painter.dart';
@@ -898,6 +901,208 @@ void main() {
 
         expect(container.read(canvasProvider).polygons, isEmpty);
         expect(container.read(canvasProvider).draftVertexIds, hasLength(5));
+      },
+    );
+  });
+
+  group('Phase F: なぞりモード gesture (Lock & Ignore, 2026-07-18)', () {
+    Future<ProviderContainer> pumpEditorInTraceMode(WidgetTester tester) async {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const PolygonArtApp(),
+        ),
+      );
+      await tester.tap(find.text('新規作成'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('なぞりモード'));
+      await tester.pump();
+      expect(container.read(drawModeProvider), DrawMode.trace);
+
+      return container;
+    }
+
+    testWidgets(
+      'a single-finger stroke well past the grace-window slop is resampled '
+      'and committed as one batch — one undo entry — the instant the '
+      'finger lifts',
+      (tester) async {
+        final container = await pumpEditorInTraceMode(tester);
+        final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
+
+        final gesture = await tester.startGesture(
+          canvasTopLeft + const Offset(50, 50),
+        );
+        await tester.pump();
+        // Straight 120px stroke: well past kTraceGraceSlop (10px), so the
+        // lock confirms immediately via slop, without needing to wait out
+        // kTraceGraceWindow.
+        await gesture.moveBy(const Offset(120, 0));
+        await tester.pump();
+        await gesture.up();
+        await tester.pump();
+
+        final artwork = container.read(canvasProvider);
+        // kTraceVertexSpacing (40px) over a 120px stroke: 0/40/80/120.
+        expect(artwork.draftVertexIds, hasLength(4));
+        final positions = artwork.draftVertexIds
+            .map((id) => artwork.vertices[id]!.position)
+            .toList();
+        expect(positions.first, const Offset(50, 50));
+        expect(positions.last, const Offset(170, 50));
+        expect(container.read(canvasProvider.notifier).canUndo, isTrue);
+
+        // Exactly one undo entry for the whole stroke.
+        container.read(canvasProvider.notifier).undo();
+        expect(container.read(canvasProvider).draftVertexIds, isEmpty);
+        expect(container.read(canvasProvider.notifier).canUndo, isFalse);
+      },
+    );
+
+    testWidgets(
+      'releasing before the grace window elapses and without ever moving '
+      'discards the touch — not even a single-point stroke is committed',
+      (tester) async {
+        final container = await pumpEditorInTraceMode(tester);
+        final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
+
+        final gesture = await tester.startGesture(
+          canvasTopLeft + const Offset(80, 80),
+        );
+        await tester.pump();
+        await gesture.up();
+        await tester.pump();
+
+        expect(container.read(canvasProvider).draftVertexIds, isEmpty);
+        expect(container.read(canvasProvider.notifier).canUndo, isFalse);
+      },
+    );
+
+    testWidgets(
+      'a second finger landing within the grace window (before the first '
+      'has moved) hands the whole gesture off to viewport pinch/pan, '
+      'discarding the not-yet-locked trace attempt entirely',
+      (tester) async {
+        final container = await pumpEditorInTraceMode(tester);
+        final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
+
+        final finger1 = await tester.startGesture(
+          canvasTopLeft + const Offset(100, 100),
+        );
+        await tester.pump();
+        // No movement yet — still awaiting disambiguation — when the
+        // second finger joins.
+        final finger2 = await tester.startGesture(
+          canvasTopLeft + const Offset(300, 100),
+        );
+        await tester.pump();
+
+        expect(container.read(canvasProvider).draftVertexIds, isEmpty);
+
+        // The handoff is real: both fingers panning together now moves
+        // the viewport, exactly like every other mode's 2-finger gesture.
+        // Small, interleaved steps for both fingers (as opposed to one big
+        // jump per finger) — see `.cursor/plans/plan_phase_H_beta.md`,
+        // 2026-07-17 検討メモ, for why a single full-distance jump on just
+        // one finger before the other moves at all would itself distort
+        // the focal point `ScaleGestureRecognizer` reports.
+        const delta = Offset(30, 10);
+        const steps = 50;
+        final stepDelta = delta / steps.toDouble();
+        for (var i = 0; i < steps; i++) {
+          await finger1.moveBy(stepDelta);
+          await finger2.moveBy(stepDelta);
+        }
+        await tester.pump();
+        await finger1.up();
+        await finger2.up();
+        await tester.pump();
+
+        final transform = container.read(viewportProvider).value;
+        expect(transform.offset.dx, closeTo(delta.dx, 2));
+        expect(transform.offset.dy, closeTo(delta.dy, 2));
+        expect(container.read(canvasProvider).draftVertexIds, isEmpty);
+        expect(container.read(canvasProvider.notifier).canUndo, isFalse);
+      },
+    );
+
+    testWidgets(
+      'once a stroke is locked (moved past the slop), a second finger '
+      'joining is ignored outright — no pinch/pan, no interruption — and '
+      'the stroke keeps extending from the locked finger alone until IT '
+      'lifts, regardless of the ignored finger',
+      (tester) async {
+        final container = await pumpEditorInTraceMode(tester);
+        final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
+
+        final finger1 = await tester.startGesture(
+          canvasTopLeft + const Offset(50, 50),
+        );
+        await tester.pump();
+        // Past the slop — confirms the lock.
+        await finger1.moveBy(const Offset(120, 0));
+        await tester.pump();
+
+        // A second finger joins post-lock — must be ignored entirely: no
+        // viewport change, no effect on the in-progress stroke.
+        final finger2 = await tester.startGesture(
+          canvasTopLeft + const Offset(300, 50),
+        );
+        await tester.pump();
+        await finger2.moveBy(const Offset(-50, 40));
+        await tester.pump();
+
+        expect(container.read(viewportProvider).value, ViewportTransform.identity);
+
+        // The locked finger keeps drawing while the ignored one is down.
+        await finger1.moveBy(const Offset(50, 0));
+        await tester.pump();
+
+        // The ignored finger lifting first must have no effect either.
+        await finger2.up();
+        await tester.pump();
+        expect(container.read(canvasProvider).draftVertexIds, isEmpty);
+
+        // Only once the LOCKED finger lifts does the stroke commit.
+        await finger1.up();
+        await tester.pump();
+
+        final artwork = container.read(canvasProvider);
+        expect(artwork.draftVertexIds, isNotEmpty);
+        final positions = artwork.draftVertexIds
+            .map((id) => artwork.vertices[id]!.position)
+            .toList();
+        expect(positions.first, const Offset(50, 50));
+        expect(positions.last, const Offset(220, 50));
+        expect(container.read(viewportProvider).value, ViewportTransform.identity);
+        expect(container.read(canvasProvider.notifier).canUndo, isTrue);
+      },
+    );
+
+    testWidgets(
+      'switching away from draw mode clears any leftover trace-gesture '
+      'and stroke-preview state defensively, even though no real gesture '
+      'can be mid-flight while a toolbar button press is handled',
+      (tester) async {
+        final container = await pumpEditorInTraceMode(tester);
+
+        // Simulate a stroke having left something behind.
+        container.read(traceStrokePreviewProvider).start(const Offset(1, 1));
+        container.read(traceGestureProvider).beginDisambiguation(
+          const Offset(1, 1),
+          () {},
+        );
+        expect(container.read(traceStrokePreviewProvider).path, isNotNull);
+        expect(container.read(traceGestureProvider).isAwaitingDisambiguation, isTrue);
+
+        await tester.tap(find.byTooltip('消しゴムモード'));
+        await tester.pump();
+
+        expect(container.read(traceStrokePreviewProvider).path, isNull);
+        expect(container.read(traceGestureProvider).phase, TraceLockPhase.idle);
       },
     );
   });

@@ -1,51 +1,26 @@
 # 未来フェーズ仕様・技術的負債・検討メモアーカイブ
 
-> **正本の位置づけ**: 全体像・確定した設計判断・品質方針・リリース要件は [ポリゴンアプリ再設計_e54196e6.plan.md](ポリゴンアプリ再設計_e54196e6.plan.md)（マスター）を参照。現在着手中のフェーズ（Hβ）の詳細・着手前チェックリストは [plan_phase_H_beta.md](plan_phase_H_beta.md) を参照。着手時の進捗・次ステップは同ファイル冒頭の **現在のステータス** を参照。完了済みフェーズ（A〜E+、G-spike、Hα）の実装済み仕様と、過去（2026-07-10〜07-17）の検討メモは [plan_archive_history.md](plan_archive_history.md) を参照（2026-07-17、コンテキスト肥大化防止のため本ファイルから分離）。
+> **正本の位置づけ**: 全体像・確定した設計判断・品質方針・リリース要件は [ポリゴンアプリ再設計_e54196e6.plan.md](ポリゴンアプリ再設計_e54196e6.plan.md)（マスター）を参照。現在着手中のフェーズ（F）の詳細・着手前チェックリストは [plan_phase_F.md](plan_phase_F.md) を参照。着手時の進捗・次ステップは同ファイル冒頭の **現在のステータス** を参照。完了済みフェーズ（A〜E+、G-spike、Hα、Hβ）の実装済み仕様と、過去（2026-07-10〜07-17）の検討メモは [plan_archive_history.md](plan_archive_history.md) を参照（2026-07-17、コンテキスト肥大化防止のため本ファイルから分離）。
 >
-> 本ファイルには **未着手フェーズ（F/G/Hγ/Hδ/R）の詳細仕様**、**コード品質・技術的負債表**、**テスト方針**、**リスクと対策**を格納する。完了済みフェーズの仕様・過去の検討メモは本ファイルには置かない（[plan_archive_history.md](plan_archive_history.md) が正本）。Hβ の詳細も本ファイルには置かない（[plan_phase_H_beta.md](plan_phase_H_beta.md) が正本）。
+> 本ファイルには **未着手フェーズ（G/Hγ/Hδ/R）の詳細仕様**、**コード品質・技術的負債表**、**テスト方針**、**リスクと対策**を格納する。完了済みフェーズの仕様・過去の検討メモは本ファイルには置かない（[plan_archive_history.md](plan_archive_history.md) が正本）。F の詳細も本ファイルには置かない（[plan_phase_F.md](plan_phase_F.md) が正本）。
 
 ## 完了済みフェーズ仕様
 
-> 完了済みフェーズ（A〜E+、G-spike、Hα）の実装済み仕様は [plan_archive_history.md](plan_archive_history.md) の「完了済みフェーズ仕様（アーカイブ）」に隔離しました。現在着手中の詳細は [plan_phase_H_beta.md](plan_phase_H_beta.md) を参照してください。
+> 完了済みフェーズ（A〜E+、G-spike、Hα、Hβ）の実装済み仕様は [plan_archive_history.md](plan_archive_history.md) の「完了済みフェーズ仕様（アーカイブ）」に隔離しました。現在着手中の詳細は [plan_phase_F.md](plan_phase_F.md) を参照してください。
 
 ## 未着手フェーズ仕様
 
 ### Phase F: なぞりモード
 
-> **着手前提（必須）**: 下記「コード品質・修正前提」の F-core / F-UI チェック。`handleDrawTap` の単純再利用はしない。→ 検討メモ（2026-07-13、下記アーカイブ）参照。
-
-#### ~~旧仕様（2026-07-13 前）~~
-
-- ~~`TracePointGenerator` でパス上を等間隔サンプリング。`DrawMode.tap` / `trace` 切替。~~
-- ~~生成点も同じスナップ規則で近接頂点を共有。~~
-- ~~完了条件: なぞりで等間隔頂点列が生成され、既存頂点と溶接される。~~
-
-#### 現行仕様（2026-07-13〜）— F-core / F-UI 分割
-
-**F-core（Hβ 前でも可 — 純関数 + テスト）**
-
-- `lib/geometry/trace_point_generator.dart`（または `services/`）に **`TracePointGenerator`** を純関数として新設。パス上を等間隔サンプリング。
-- **`commitTraceStroke(List<Offset>)`（または `appendTracePoints`）** を `CanvasNotifier` に新設:
-  - 疑似ダブルタップ検出（`_isPseudoDoubleTap`）を**通さない**
-  - **1ストローク = `_recordUndo` 1回**（点ごとに積まない）
-  - 吸着・線上吸着はバッチ内でまとめて実行
-- `TracePointGenerator` / `commitTraceStroke` の単体・ロジックテストを先に書く。
-
-**F-UI（Hβ 完了後 — 最終ジェスチャー土台の上に載せる）**
-
-- `DrawMode.tap` / `trace` 切替（ツールバー + `polygon_canvas` のジェスチャー分岐）。
-- なぞり中は Hβ で確立した `onScale*` + `pointerCount` 土台上で点列生成、離した瞬間に `commitTraceStroke`。
-- なぞりモードでは暗黙クローズ（疑似ダブルタップ）を無効化。閉じるはツールバー「閉じる」ボタンに寄せる。
-
-**完了条件**: 下絵＋ズームありの状態で、なぞり等間隔頂点列が生成され既存頂点と溶接される。1ストロークの Undo が1回。疑似ダブルタップ誤爆なし。実機確認済み。
+> **現在着手中のため本ファイルには詳細を置かない。現在着手中の詳細は [plan_phase_F.md](plan_phase_F.md) を参照してください。**
 
 ### Phase Hα: 下絵（背景画像）（完了）
 
 > **完了済み（2026-07-17）。詳細仕様は [plan_archive_history.md](plan_archive_history.md) の「完了済みフェーズ仕様（アーカイブ）」に隔離しました。**
 
-### Phase Hβ: ズーム / パン UI
+### Phase Hβ: ズーム / パン UI（完了）
 
-> **現在着手中のため本ファイルには詳細を置かない。現在着手中の詳細は [plan_phase_H_beta.md](plan_phase_H_beta.md) を参照してください。**
+> **完了済み（2026-07-17）。詳細仕様は [plan_archive_history.md](plan_archive_history.md) の「完了済みフェーズ仕様（アーカイブ）」に隔離しました。**
 
 ### Phase G: 自動テッセレーション（三角・幾何学ローポリ）
 
@@ -168,9 +143,9 @@ Phase A〜E 完了時点のコードレビュー（2件）を統合した、**�
 | 19 | **保存・取込の失敗系** | 破損 JSON、権限拒否、ディスク満杯、不正画像 → クラッシュせずユーザーに通知 | **Hγ / Phase R QA** |
 | 20 | **G 三角サイズ（maxEdge/minEdge）** | ~~spacing 単一~~ → **maxEdge + minEdge（= max × 0.4 固定比率）** で品質定義。v1 UI なし。**world 値は計画時点未確定 → G 着手前に実機相談で確定** | **G-spike（仮値検証）／G 着手前（確定）** |
 
-### 着手前チェックリスト（統合、Hβ を除く）
+### 着手前チェックリスト（統合、F を除く）
 
-> **Hβ の着手前チェックリストは [plan_phase_H_beta.md](plan_phase_H_beta.md) を参照**（現在着手中フェーズのため分離）。Hα・G-spike の着手前チェックリストは完了済み（[plan_archive_history.md](plan_archive_history.md) 参照）。
+> **F の着手前チェックリストは [plan_phase_F.md](plan_phase_F.md) を参照**（現在着手中フェーズのため分離）。Hα・Hβ・G-spike の着手前チェックリストは完了済み（[plan_archive_history.md](plan_archive_history.md) 参照）。
 
 **E+（完了済み）**
 
@@ -178,17 +153,6 @@ Phase A〜E 完了時点のコードレビュー（2件）を統合した、**�
 - [x] `weldVertices` figure-8 対策 + テスト（#7）
 - [x] `clearDraft` / `clearAll` の Undo テスト（#15）
 - [x] `detachVertexFromDraft` テスト（#16）
-
-**F-core の前（E+ と並行可）**
-
-- [ ] `TracePointGenerator` を純関数として外に出す設計を固定
-- [ ] `commitTraceStroke`（1ストローク1Undo・ダブルタップ非経由）の API を固定
-- [ ] `TracePointGenerator` 単体テストを先に書く
-
-**F-UI の前（Hβ 完了後）**
-
-- [ ] なぞりジェスチャーを `onScale*` 土台に載せる
-- [ ] 下絵＋ズームありで実機確認
 
 **G 本番直前**
 
@@ -227,8 +191,8 @@ Phase A〜E 完了時点のコードレビュー（2件）を統合した、**�
 
 **高（E+ / Hβ / G 前）**
 
-- `scale≠1` で `hitRadius / scale` が画面距離一定になること
-- `kDoubleTapMaxDistance` の scale 対応（実装後）
+- `scale≠1` で `hitRadius / scale` が画面距離一定になること（Hβ で実装済み）
+- `kDoubleTapMaxDistance`/`kLineAbsorptionTolerance` の scale 対応（Hβ で実装済み）
 - `weldVertices` の非連続重複（figure-8）を弾く/正規化（E+ で実装済み）
 - `moveVertex` で同座標・別 ID（自動溶接されない）の明示テスト
 - `clearDraft` / `clearAll` の Undo 復元（E+ で実装済み）
@@ -239,11 +203,7 @@ Phase A〜E 完了時点のコードレビュー（2件）を統合した、**�
 
 **中（F-core / G と同時）**
 
-- `TracePointGenerator`（等間隔・短い stroke・折返し）
-- `commitTraceStroke` 1回 = Undo 1回
-- なぞり終了時の close ポリシー（tap 版ダブルタップと衝突しない）
-- 1線分上の複数頂点吸着順序（`t` ソート）
-- 抽出した `absorbVerticesOnSegment` の単体テスト
+> **F 該当項目は [plan_phase_F.md](plan_phase_F.md) の「追加すべきテスト（F関連）」に移行済み**（`TracePointGenerator`、`commitTraceStroke`、なぞり終了時の close ポリシー、1線分上の複数頂点吸着順序、`absorbVerticesOnSegment` の単体テスト）。G 本番直前チェックリスト（#6 純関数抽出）着手時に、`absorbVerticesOnSegment` 等の共有テストが F 側で既にカバーされているかを確認すること。
 
 **低（v1.1 / QA）**
 
@@ -298,5 +258,5 @@ Phase A〜E 完了時点のコードレビュー（2件）を統合した、**�
 
 ## 検討メモ（過去アーカイブ）
 
-> 過去の実装履歴と検討メモは [plan_archive_history.md](plan_archive_history.md) に隔離しました。現在着手中の詳細は [plan_phase_H_beta.md](plan_phase_H_beta.md) を参照してください。
+> 過去の実装履歴と検討メモは [plan_archive_history.md](plan_archive_history.md) に隔離しました。現在着手中の詳細は [plan_phase_F.md](plan_phase_F.md) を参照してください。
 
