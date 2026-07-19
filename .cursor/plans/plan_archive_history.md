@@ -1,8 +1,8 @@
 # 完了済みフェーズ仕様・検討メモ アーカイブ
 
-> **正本の位置づけ**: 全体像・確定した設計判断・品質方針・リリース要件は [ポリゴンアプリ再設計_e54196e6.plan.md](ポリゴンアプリ再設計_e54196e6.plan.md)（マスター）を参照。未着手フェーズ（G/Hγ/Hδ/R）の詳細仕様・技術的負債表・テスト方針・リスクと対策は [plan_future_phases.md](plan_future_phases.md) を参照。現在着手中のフェーズの詳細・直近の検討メモは [plan_phase_F.md](plan_phase_F.md) を参照。
+> **正本の位置づけ**: 全体像・確定した設計判断・品質方針・リリース要件は [ポリゴンアプリ再設計_e54196e6.plan.md](ポリゴンアプリ再設計_e54196e6.plan.md)（マスター）を参照。未着手フェーズ（Hγ/Hδ/R）の詳細仕様・技術的負債表・テスト方針・リスクと対策は [plan_future_phases.md](plan_future_phases.md) を参照。現在着手中のフェーズの詳細・直近の検討メモは [plan_phase_G.md](plan_phase_G.md) を参照。
 >
-> **運用**: 本ファイルは「完了済みフェーズの実装済み仕様」と「過去の検討メモ」専用のアーカイブ（2026-07-17 新設。[plan_future_phases.md](plan_future_phases.md) が肥大化し、開発チャットでのコンテキスト消費を圧迫していたため分離した）。現在着手中フェーズ（`plan_phase_<フェーズ>.md`）が完了し次フェーズへ差し替わる際、その完了フェーズの「📍 現在のステータス」の完了記録と「検討メモ（直近）」の全内容を、本ファイル末尾へそのまま追記していく運用とする。
+> **運用**: 本ファイルは「完了済みフェーズの実装済み仕様」と「過去の検討メモ」専用のアーカイブ（2026-07-17 新設。[plan_future_phases.md](plan_future_phases.md) が肥大化し、開発チャットでのコンテキスト消費を圧迫していたため分離した）。現在着手中フェーズ（`plan_phase_<フェーズ>.md`）が完了し次フェーズへ差し替わる際、その完了フェーズの「📍 現在のステータス」の完了記録と「検討メモ（直近）」の全内容を、本ファイル末尾へそのまま追記していく運用とする。（2026-07-19 追記: 現在着手中フェーズの正本は [plan_phase_G.md](plan_phase_G.md)。）
 
 ## 完了済みフェーズ仕様（アーカイブ）
 
@@ -186,9 +186,42 @@
 
 詳細な設計経緯・実装内容は本ファイル末尾の「検討メモ（Hβ、2026-07-17）」を参照。
 
+### Phase F: なぞりモード（完了、2026-07-19）
+
+> Phase B〜E の「タップで1点ずつ置く」に加え、フリーハンドでなぞった軌跡を等間隔サンプリングしてドラフトへ追記する「なぞりモード」を追加。F-core（純関数＋バッチAPI）とF-UI（ジェスチャー統合）に分割して実装。→ 検討メモ（2026-07-18〜2026-07-19、下記「検討メモ（F、2026-07-18〜2026-07-19）」）参照。
+
+- `lib/geometry/trace_point_generator.dart`（新設）: 純関数 `generateTracePoints(rawPath, {spacing})`。累積距離配列を作り、`spacing` の倍数ごとに該当セグメントを線形補間してサンプリングする O(rawPath.length) 実装。始点・終点は必ず保持（末尾が `spacing` の倍数ちょうどでなくても、最後にもう一度生の終点を追加）。
+- `CanvasNotifier.commitTraceStroke(points, {hitRadius, lineAbsorptionTolerance})`（新設）: 疑似ダブルタップ検出・自動クローズを一切通さず、1ストローク=`_recordUndo` 1回のバッチ処理でドラフトへ追記。既存の吸着/スナップ規則（`_findPolygonVertexNearIn` 内部ヘルパーへ切り出し）を点ごとに適用しつつ、`state` への書き込みは合計1回。
+- `TraceStrokePreviewController`（[lib/providers/trace_stroke_preview_provider.dart](lib/providers/trace_stroke_preview_provider.dart)、新設）: `ValueNotifier` ではなく素の `ChangeNotifier`。`Path.lineTo` でO(1)のインクリメンタル追記によるライブプレビュー（生の `List<Offset>` も同時に保持）。
+- `TraceGestureController`（[lib/providers/trace_gesture_provider.dart](lib/providers/trace_gesture_provider.dart)、新設）: `idle`→`awaitingDisambiguation`→`locked` の3状態機械による「Lock & Ignore」。猶予期間 `kTraceGraceWindow`（120ms）の `Timer` とスロップ `kTraceGraceSlop`（10px）の両方でロックを確定し、既存のHβ `onScale*`/`isViewportGesture()` 基盤は無改変のまま再利用。ロック確定後は対象ポインタ以外を完全に無視し、2本指ズーム/パンとの競合を回避。
+  - 製品判断1: 猶予期間中（未ロック）に指が離れた場合はストロークを破棄（コミットしない）。
+  - 製品判断2: ロック対象の指が離れた瞬間に即座に `commitTraceStroke` を確定（他の指の状態は無関係）。
+- `DrawMode`（[lib/models/draw_mode.dart](lib/models/draw_mode.dart)、新設）: `tap`/`trace` の2値。`drawModeProvider` を `canvas_provider.dart` に新設。
+- [lib/widgets/canvas/polygon_canvas.dart](lib/widgets/canvas/polygon_canvas.dart): `CanvasMode.draw && DrawMode.trace` のときのみ、既存の `onScale*` `GestureDetector` の外側に生ポインタ用の `Listener` を追加する分岐を新設。Hβ の `beginGestureSubCycle`/`isViewportGesture`/`applyViewportUpdate`/`endGestureSubCycle` は無改変のまま再利用。
+- [lib/widgets/toolbar/editor_toolbar.dart](lib/widgets/toolbar/editor_toolbar.dart): 描画モードのRow2先頭に タップ/なぞり の `SegmentedButton` を追加。モード切替（`_CommonRow.selectMode`）で描画モードから離れる際に `traceGestureProvider`/`traceStrokePreviewProvider` も防御的にリセット。
+- [lib/widgets/canvas/polygon_painter.dart](lib/widgets/canvas/polygon_painter.dart): `tracePreview`（`TraceStrokePreviewController`）を受け取り、ストローク中はティール色の実線で描画（`Listenable.merge` に追加）。
+- **サンプリング間隔の仕様修正（2026-07-19）**: 当初はスクリーンpx基準（`kTraceVertexSpacing / viewport.value.scale`）で画面上の点密度を一定に保つ設計だったが、「ズームインしたまま描いて等倍に戻すと点が密集する」というUX上の問題と、将来のユーザー指定間隔スライダー機能を見据え、**ズーム率に関わらずワールド座標上で常に固定の絶対距離（`kTraceVertexSpacing = 50.0`）でサンプリングする**方式に変更。`polygon_canvas.dart` の `traceVertexSpacing()` ヘルパー（`/ viewport.value.scale` 除算）を削除し、`generateTracePoints` へ `kTraceVertexSpacing` を直接渡す形にした。`kVertexHitRadius` 等の当たり判定はスクリーン基準のまま変更なし（矛盾なし、ズームインするほど相対的にヒットテストが「厳しく」感じられるUX上のトレードオフのみ許容）。
+
+**完了条件**: 下絵＋ズームありの状態で、なぞりにより等間隔（ワールド座標固定間隔）の頂点列が生成され既存頂点と溶接される。1ストロークのUndoが1回。疑似ダブルタップ誤爆なし。2本指ズーム/パンとの競合なし（Lock & Ignore）。`flutter analyze`/`flutter test` 全パス。
+
+**着手前チェックリスト（F-core / F-UI、完了）**:
+- [x] `TracePointGenerator` を純関数として外に出す設計を固定（`lib/geometry/trace_point_generator.dart`、`generateTracePoints`）
+- [x] `commitTraceStroke`（1ストローク1Undo・ダブルタップ非経由）のAPIを固定（`CanvasNotifier.commitTraceStroke`）
+- [x] `TracePointGenerator` 単体テストを先に書く（`test/geometry/trace_point_generator_test.dart`）
+- [x] なぞりジェスチャーを `onScale*` 土台に載せる（`TraceGestureController` によるLock & Ignore）
+- [x] 下絵＋ズームありで実機確認
+
+**追加したテスト（F関連、すべて実施済み）**:
+- `generateTracePoints`（等間隔・末尾保持・複数セグメント跨ぎ・短いストローク・折返し・ゼロ長セグメント・空/1点入力・spacingアサート）
+- `CanvasNotifier.commitTraceStroke`（空リストno-op・通常追記・1バッチ=1Undo・既存頂点へのスナップ・線上吸着・疑似ダブルタップ非発火・既存ドラフトへの継続・直後タップの誤ダブルタップ防止・hitRadiusスケーリング）
+- Widget test: なぞりモードgesture（Lock & Ignore） — スロップ超えでの一括コミット・猶予期間中の早期リリース破棄・猶予期間中の2本目の指によるピンチ/パンへのハンドオフ・ロック後の2本目の指の無視・モード切替時の防御的リセット
+- Widget test: scale=2.0でもワールド座標上の頂点間隔が `kTraceVertexSpacing`（50.0）で一定であること（サンプリング間隔仕様修正のリグレッションガード）
+
+詳細な設計経緯・実装内容は本ファイル末尾の「検討メモ（F、2026-07-18〜2026-07-19）」を参照。
+
 ## 検討メモ（過去アーカイブ: 2026-07-10〜07-15）
 
-> Hα 着手（2026-07-15〜）〜Hβ 着手（2026-07-17〜）の間の検討メモは本ファイル末尾「検討メモ（Hα、2026-07-15〜2026-07-17）」を、Hβ 着手中の検討メモは本ファイル末尾「検討メモ（Hβ、2026-07-17）」を参照。F 以降の検討メモは [plan_phase_F.md](plan_phase_F.md) を参照。2026-07-13〜07-15（G-spike 完了まで）分は本節に格納。
+> Hα 着手（2026-07-15〜）〜Hβ 着手（2026-07-17〜）の間の検討メモは本ファイル末尾「検討メモ（Hα、2026-07-15〜2026-07-17）」を、Hβ 着手中の検討メモは本ファイル末尾「検討メモ（Hβ、2026-07-17）」を、F 着手中の検討メモは本ファイル末尾「検討メモ（F、2026-07-18〜2026-07-19）」を参照。G 以降の検討メモは [plan_phase_G.md](plan_phase_G.md) を参照。2026-07-13〜07-15（G-spike 完了まで）分は本節に格納。
 
 ### 2026-07-10: クローズ処理の統一と今後の整合性
 
@@ -474,7 +507,7 @@ Phase A〜E 完了時点の外部レビューを「コード品質・修正前�
 
 ## 検討メモ（Hα、2026-07-15〜2026-07-17）
 
-> Phase Hα 着手時点（旧 `plan_phase_H_alpha.md`）の検討メモ。Hβ 着手中の検討メモは本ファイル末尾「検討メモ（Hβ、2026-07-17）」を、F 以降の検討メモは [plan_phase_F.md](plan_phase_F.md) を参照。
+> Phase Hα 着手時点（旧 `plan_phase_H_alpha.md`）の検討メモ。Hβ 着手中の検討メモは本ファイル末尾「検討メモ（Hβ、2026-07-17）」を、F 着手中の検討メモは本ファイル末尾「検討メモ（F、2026-07-18〜2026-07-19）」を参照。G 以降の検討メモは [plan_phase_G.md](plan_phase_G.md) を参照。
 
 ### 2026-07-15: 画像読み込み機能（OOM対策込み）の実装
 
@@ -659,7 +692,7 @@ Phase Hα の実装・テストがすべて完了。次フェーズ（Hβ: ズ�
 
 ## 検討メモ（Hβ、2026-07-17）
 
-> Phase Hβ 着手時点（旧 `plan_phase_H_beta.md`）の検討メモ。Phase F 以降の検討メモは [plan_phase_F.md](plan_phase_F.md) を参照。
+> Phase Hβ 着手時点（旧 `plan_phase_H_beta.md`）の検討メモ。Phase F 着手中の検討メモは本ファイル末尾「検討メモ（F、2026-07-18〜2026-07-19）」を参照。Phase G 以降の検討メモは [plan_phase_G.md](plan_phase_G.md) を参照。
 
 ### 2026-07-17: 着手前提2件(許容距離のpx統一・ジェスチャー方針)を実装
 
@@ -712,3 +745,59 @@ Phase Hβ の実装・実機テスト（バグ修正含む）がすべて完了�
 - `plan_phase_H_beta.md` を `plan_phase_F.md` にリネームし、内容を Phase F（なぞりモード）専用に再構築（詳細仕様・着手前チェックリスト（F-core / F-UI の前）・追加すべきテストを `plan_future_phases.md` から移行）。
 - `plan_future_phases.md` は未着手フェーズ（G/Hγ/Hδ/R）の詳細・技術的負債表・テスト方針・リスクと対策の正本として残置し、移動元の跡地にはリンク案内のみを残した。
 - [ポリゴンアプリ再設計_e54196e6.plan.md](ポリゴンアプリ再設計_e54196e6.plan.md)（マスター）のファイル分割案内・frontmatter todos（`phase-h-viewport` を completed に更新）も追随。
+
+## 検討メモ（F、2026-07-18〜2026-07-19）
+
+> Phase F 着手時点（旧 `plan_phase_F.md`）の検討メモ。Phase G 以降の検討メモは [plan_phase_G.md](plan_phase_G.md) を参照。
+
+### 2026-07-18: F-core / F-UI 実装完了
+
+**実装したもの**
+
+- `lib/geometry/trace_point_generator.dart` — 純関数 `generateTracePoints(rawPath, {spacing})`。累積距離配列を作り、`spacing` の倍数ごとに該当セグメントを線形補間してサンプリングする O(rawPath.length) 実装。始点・終点は必ず保持（末尾が `spacing` の倍数ちょうどでなくても、最後にもう一度生の終点を追加）。ゼロ長セグメント（指の停止）は自然にスキップされる。
+- `CanvasNotifier.commitTraceStroke(points, {hitRadius, lineAbsorptionTolerance})` — `_resetPendingTap()` → `_recordUndo()` を1回だけ呼び、以降はローカル変数（`vertices`/`draftIds` のコピー）だけを更新し、ループの最後に `state.copyWith(...)` を1回だけ実行するバッチ処理。既存の `_handleSingleDrawTap` と同じスナップ/吸着ルールを点ごとに適用するが、`state` への書き込みは合計1回。`findPolygonVertexNear` は `_findPolygonVertexNearIn(vertices, excludedIds, position, ...)` という内部ヘルパーに切り出し、公開 API はそれに委譲する形にリファクタ（外部の振る舞いは変更なし）。疑似ダブルタップ・自動クローズは一切通さない（v1 方針どおり、ドラフトに追記するだけ）。
+- `TraceStrokePreviewController`（`lib/providers/trace_stroke_preview_provider.dart`）— `ValueNotifier` ではなく素の `ChangeNotifier` を採用。`Path.lineTo` で O(1) にインクリメンタル追記しつつ、`commitTraceStroke` に渡す生の `List<Offset>` も同時に保持。
+- `TraceGestureController`（`lib/providers/trace_gesture_provider.dart`）— 提案どおり `idle` → `awaitingDisambiguation` → `locked` の3状態。`kTraceGraceWindow`(120ms) の `Timer` と `kTraceGraceSlop`(10px) の両方でロック確定。`isTrackedPointer(pointerId)` で「今どの指を見ているか」を一元管理し、ロック後は指定ポインタ以外を完全に無視する。
+- `DrawMode`（`lib/models/draw_mode.dart`）— `tap`/`trace` の2値。`drawModeProvider` は `canvasModeProvider` と同じ流儀で `canvas_provider.dart` に配置。
+- `polygon_canvas.dart` — `CanvasMode.draw && DrawMode.trace` のときだけ、既存の `onScale*` `GestureDetector` の**外側**に生ポインタ用の `Listener` を追加する分岐を新設。Hβ の `beginGestureSubCycle`/`isViewportGesture`/`applyViewportUpdate`/`endGestureSubCycle` は無改変のまま再利用（`traceGesture.isLocked` のときだけ早期 `return` して既存ロジックへの影響をゼロに保つ設計）。
+- `editor_toolbar.dart` — 描画モードの Row 2 先頭に タップ/なぞり の `SegmentedButton` を追加。モード切替（`_CommonRow.selectMode`）で描画モードから離れる際に `traceGestureProvider`/`traceStrokePreviewProvider` もリセットするよう防御的に追加。
+- `PolygonPainter` — `tracePreview`（`TraceStrokePreviewController`）を受け取り、ストローク中はティール色の実線で描画（`Listenable.merge` に追加）。
+
+**製品判断の実装箇所**
+
+- 判断1（猶予期間中に指が離れたら破棄）: `Listener.onPointerUp`/`onScaleEnd` の両方で `!wasLocked` 分岐が `tracePreview.clear()` のみ呼び、`commitTraceStroke` を呼ばない。
+- 判断2（ロック対象の指が離れた瞬間に即確定）: `Listener.onPointerUp` の `wasLocked` 分岐でのみ `commitTraceStrokeFromPreview()` を呼ぶ。他の指がまだ触れていても関係なく確定する。
+
+**テスト**
+
+- `test/geometry/trace_point_generator_test.dart` — 9件（直線等間隔、末尾保持、複数セグメント跨ぎ、短いストローク、折返し、ゼロ長セグメント、空/1点入力、spacing<=0 のアサート）。
+- `test/canvas_notifier_trace_test.dart` — 10件（空リストの no-op、通常追記、1バッチ=1Undo、既存頂点へのスナップ、線上吸着、疑似ダブルタップが発火しないこと、既存ドラフトへの継続、直後の tap が誤ダブルタップにならないこと、hitRadius のスケーリング）。
+- `test/widget_test.dart` に新規グループ「Phase F: なぞりモード gesture (Lock & Ignore, 2026-07-18)」を追加（5件）: スロップ超えでの一括コミット、猶予期間中の早期リリースの破棄、猶予期間中に2本目の指が来た場合のピンチ/パンへのハンドオフ、ロック後に2本目の指が来ても無視されロック対象の指のみでストロークが継続すること、モード切替時の防御的リセット。
+- 全191件パス（`flutter analyze` も問題なし）。
+
+**残課題 / 次のステップ（当時）**
+
+- 下絵＋ズームありでの実機確認。
+- なぞりで生成した点列からポリゴンを自動生成するかどうかは v1 では見送り（ドラフトに追加するのみ、閉じるのはツールバーの「閉じる」ボタン）— 元設計どおり。
+
+### 2026-07-19: なぞりモードのサンプリング間隔仕様変更（ワールド座標の絶対距離固定化）
+
+**背景**: 実機確認前の見直しで、サンプリング間隔をスクリーンpx基準（ズーム率で除算）にしていると、ズームインしたまま描画し等倍表示に戻した際にキャンバス上の点が密集してしまう問題が判明。将来のユーザー指定間隔スライダー機能を見据え、ワールド座標での絶対距離固定化に方針変更。
+
+**分析**: `generateTracePoints` 自体は座標空間に無関心な純関数（`Offset` 間のユークリッド距離のみ）のため無修正。実質的な修正は呼び出し元の `polygon_canvas.dart` の `traceVertexSpacing()`（`kTraceVertexSpacing / viewport.value.scale`）ヘルパーのみ。`kVertexHitRadius`/`kLineAbsorptionTolerance` 等の当たり判定はスクリーン基準のまま独立しているため矛盾なし（ズームインするほどヒットテストが相対的に「厳しく」感じられるUXトレードオフのみ許容、将来のスライダー導入時に再検討）。
+
+**実装**:
+- [lib/widgets/canvas/polygon_canvas.dart](lib/widgets/canvas/polygon_canvas.dart): `traceVertexSpacing()` ヘルパーを削除し、`generateTracePoints` の呼び出しで `kTraceVertexSpacing` を直接渡すよう変更。
+- [lib/providers/canvas_provider.dart](lib/providers/canvas_provider.dart): `kTraceVertexSpacing` を `40.0`→`50.0` に変更。ドキュメントコメントを「呼び出し側で `/scale` すべき」から「ズーム率に関わらずワールド座標上で固定の絶対距離」である旨に修正。
+- [test/widget_test.dart](test/widget_test.dart): 既存のなぞりテストのコメントを新仕様に合わせて修正。scale=2.0でもワールド座標上の頂点間隔が `kTraceVertexSpacing`（50.0）で一定であることを検証する新規テストを追加。
+
+**確認**: `flutter analyze` 0件 / `flutter test`（全件）パス。
+
+### 2026-07-19: Phase F 完了、Phase G へ移行（ドキュメント整理）
+
+Phase F の実装・テストがすべて完了。次フェーズ（G: 自動テッセレーション）着手にあたり、ドキュメント構成を整理した。
+
+- 本ファイル（`plan_archive_history.md`）に、完了した Phase F 自身の仕様（本ファイル「完了済みフェーズ仕様」内）と検討メモ（本節群）を、旧 `plan_phase_F.md` から移動。
+- `plan_phase_F.md` を `plan_phase_G.md` にリネームし、内容を Phase G（自動テッセレーション）専用に再構築（詳細仕様・着手前チェックリスト（G本番直前）・追加すべきテストを `plan_future_phases.md` から移行）。
+- `plan_future_phases.md` は未着手フェーズ（Hγ/Hδ/R）の詳細・技術的負債表・テスト方針・リスクと対策の正本として残置し、移動元の跡地にはリンク案内のみを残した。
+- [ポリゴンアプリ再設計_e54196e6.plan.md](ポリゴンアプリ再設計_e54196e6.plan.md)（マスター）のファイル分割案内・frontmatter todos（`phase-f-trace` を completed に更新）も追随。
