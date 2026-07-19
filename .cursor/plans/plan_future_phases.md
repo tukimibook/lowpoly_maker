@@ -100,9 +100,9 @@ Phase A〜E 完了時点のコードレビュー（2件）を統合した、**�
 | 5 | **Undo スタック上限** | 無制限 `Artwork` スナップショット。G で数千ポリゴン時にメモリ肥大 → 上限（例 50〜100）+ 切り捨て | **E+（完了済み）** |
 | 6 | **純幾何の抽出** | ~~`_polygonEdgeGraph` / `_shortestBoundaryPath` / `_absorbVerticesAlongNewSegment` / `_collapseConsecutive*` を `geometry/` 等へ。G の境界溶接再利用~~ → **完了済み（2026-07-14 commit `13836db`）**。`lib/geometry/polygon_graph.dart`／`line_absorption.dart`／`ring_collapse.dart` へ抽出済み、単体テスト追加済み（2026-07-20） | **完了** |
 | 7 | **`weldVertices` figure-8** | 非連続重複（例 `[A,keep,B,keep,C]`）を `_collapseConsecutiveRingIds` が通す。自己接触ポリゴンが G 入力で破綻 → 弾くか正規化 | **E+（完了済み）** |
-| 8 | **G 入力サニタイズ** | 自己交差ポリゴン、`moveVertex` による coincident-but-unwelded（同座標・別 ID）を許容している → G 前に方針決定 | **G 本番直前** |
+| 8 | **G 入力サニタイズ** | ~~自己交差ポリゴン、`moveVertex` による coincident-but-unwelded（同座標・別 ID）を許容している → G 前に方針決定~~ → **完了済み（2026-07-20）**。`lib/geometry/tessellation_input.dart`／`self_intersection.dart` を新設。coincident-but-unwelded は正規化（自動溶接）、自己交差ポリゴンは弾く方針で実装 | **完了** |
 | 9 | **`Artwork.canvasSize` と保存の分離** | 端末レイアウト依存値を JSON に直列化しない。`ArtworkDocument`（幾何）と表示レイアウトを分ける | **G-spike 完了時（設計確定）／Hγ 着手前（実装）** |
-| 10 | **当たり判定 O(n)** | 全頂点走査。G 後にボトルネック → `VertexHitTest` インターフェースを切り、将来空間インデックス差し替え可能に（中身は O(n) のままで可） | **G 本番直前** |
+| 10 | **当たり判定 O(n)** | ~~全頂点走査。G 後にボトルネック → `VertexHitTest` インターフェースを切り、将来空間インデックス差し替え可能に（中身は O(n) のままで可）~~ → **完了済み（2026-07-20）**。`lib/geometry/vertex_hit_test.dart` に `VertexHitTest`／`LinearVertexHitTest` を新設し `CanvasNotifier` に組み込み済み。内部実装は引き続き O(n) | **完了** |
 | 11 | **`_isPseudoDoubleTap` の `DateTime.now()`** | テスト制御不能。クロック注入 or ジェスチャー層へ移動を検討 | **F または Hβ**（優先度中） |
 | 12 | **消しゴムの共有頂点 UX** | `findPolygonVertexNear` は「最後に走査したポリゴン」が対象。仕様はテストで固定済みだがユーザー向け説明 or 仕様変更を決める | **v1 仕上げ前** |
 | 13 | **`closePolygon` 二重 `_recordUndo` リスク** | 現状は問題なし。将来 `closePolygon({bool recordUndo})` 等のガードを検討 | **必要時** |

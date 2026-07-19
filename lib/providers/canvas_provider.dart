@@ -8,6 +8,7 @@ import '../geometry/line_absorption.dart';
 import '../geometry/nearest_point.dart';
 import '../geometry/polygon_graph.dart';
 import '../geometry/ring_collapse.dart';
+import '../geometry/vertex_hit_test.dart';
 import '../models/artwork.dart';
 import '../models/canvas_mode.dart';
 import '../models/draw_mode.dart';
@@ -116,10 +117,18 @@ final drawModeProvider = StateProvider<DrawMode>((ref) {
 typedef PolygonVertexHit = ({PolygonShape polygon, String vertexId});
 
 class CanvasNotifier extends StateNotifier<Artwork> {
-  CanvasNotifier() : super(Artwork.empty(id: _uuid.v4()));
+  CanvasNotifier({VertexHitTest<String>? vertexHitTest})
+    : _vertexHitTest = vertexHitTest ?? LinearVertexHitTest<String>(),
+      super(Artwork.empty(id: _uuid.v4()));
 
   static const Color defaultStrokeColor = Color(0xFF212121);
   static const double defaultStrokeWidth = 2.5;
+
+  /// Backing search structure for [findPolygonVertexNear]/[findVertexNear].
+  /// Defaults to the plain O(n) linear scan ([LinearVertexHitTest]);
+  /// injectable so a future spatial index can replace it — and so tests can
+  /// substitute a fake — without touching either call site. See plan #10.
+  final VertexHitTest<String> _vertexHitTest;
 
   /// Time and position of the most recent tap handled by [handleDrawTap],
   /// used to detect a "pseudo double-tap" (see [_isPseudoDoubleTap]).
@@ -578,11 +587,8 @@ class CanvasNotifier extends StateNotifier<Artwork> {
       }
     }
 
-    final nearest = findNearestPoint(
-      position,
-      candidates,
-      maxDistance: hitRadius,
-    );
+    _vertexHitTest.rebuild(candidates);
+    final nearest = _vertexHitTest.nearest(position, maxDistance: hitRadius);
     if (nearest == null) return null;
     return (polygon: owningPolygon[nearest.$1]!, vertexId: nearest.$1);
   }
@@ -624,9 +630,9 @@ class CanvasNotifier extends StateNotifier<Artwork> {
       candidates.add((vertexId, vertex.position));
     }
 
-    final nearest = findNearestPoint(
+    _vertexHitTest.rebuild(candidates);
+    final nearest = _vertexHitTest.nearest(
       position,
-      candidates,
       maxDistance: hitRadius,
       preferredId: preferredVertexId,
     );

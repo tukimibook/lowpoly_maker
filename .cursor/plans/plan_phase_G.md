@@ -43,8 +43,8 @@
 ## 着手前チェックリスト（G 本番直前）
 
 - [x] 境界グラフ・吸着・リング畳みの純関数抽出（#6）（2026-07-14 commit `13836db` にて完了。`lib/geometry/polygon_graph.dart`／`line_absorption.dart`／`ring_collapse.dart` へ抽出済み。単体テストは 2026-07-20 `test/geometry/polygon_graph_test.dart`／`line_absorption_test.dart`／`ring_collapse_test.dart` で追加済み）
-- [ ] G 入力サニタイズ方針（#8）
-- [ ] 当たり判定のインターフェース切り出し（#10）
+- [x] G 入力サニタイズ方針（#8）（2026-07-20 実装完了。`lib/geometry/tessellation_input.dart`（`sanitizeTessellationBoundary`/`weldCoincidentRingVertices`）＋ `lib/geometry/self_intersection.dart`（`segmentsIntersect`/`isSelfIntersectingRing`）。coincident-but-unwelded は正規化（自動溶接）、自己交差ポリゴンは弾く方針。単体テストは `test/geometry/tessellation_input_test.dart`／`self_intersection_test.dart`）
+- [x] 当たり判定のインターフェース切り出し（#10）（2026-07-20 実装完了。`lib/geometry/vertex_hit_test.dart` に `VertexHitTest`／`LinearVertexHitTest` を新設し、`CanvasNotifier` の `_findPolygonVertexNearIn`／`findVertexNear` を差し替え。内部実装は既存の O(n) 線形探索のまま。単体テストは `test/geometry/vertex_hit_test_test.dart`）
 - [ ] バッチ polygon insert + Undo 1回の API
 - [ ] `compute()` 経由のテッセレーション呼び出し + ローディングUI実装（#17）
 - [ ] **`maxEdge` / `minEdge` の world 値を実機相談で確定してから実装**（#20）
