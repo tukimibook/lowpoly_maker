@@ -16,6 +16,12 @@ enum TessellationRejectReason {
   /// is safely auto-repairable (e.g. by splitting into two simple
   /// polygons), so this rejects rather than normalizes; see plan #7/#8.
   selfIntersecting,
+
+  /// [sanitizeTessellationBoundary] passed, but the `compute()`-dispatched
+  /// triangulation itself (`TessellationController.tessellate`, plan #17)
+  /// threw. `Artwork` is left unchanged — nothing was committed — so the
+  /// caller only needs to surface this to the user, not roll anything back.
+  computeFailed,
 }
 
 /// Result of [sanitizeTessellationBoundary]: either a cleaned-up, safe-to-

@@ -109,7 +109,7 @@ Phase A〜E 完了時点のコードレビュー（2件）を統合した、**�
 | 14 | **自己クローズ後の冗長 Undo** | throwaway 点除去により undo 1回が見た目同一状態。バグではないが UX の小さな引っかかり | **低（仕様固定 or 除去）** |
 | 15 | **`clearDraft` / `clearAll` の Undo テスト不足** | 実装はあるがテストなし | **E+（完了済み）** |
 | 16 | **`detachVertexFromDraft` テスト不足** | polygon 版のみテスト済み | **E+（完了済み）** |
-| 17 | **G のANR対策未検討** | 数千三角形規模のドロネー分割をメインスレッド（UIスレッド）で実行すると画面が完全にフリーズし、OSに「応答なし」と判断され強制終了（ANR）される恐れがある → `compute()`（Isolate）への分離実行 + 計算中のローディング表示が必須 | **G-spike／G 本番直前** |
+| 17 | **G のANR対策未検討** | ~~数千三角形規模のドロネー分割をメインスレッド（UIスレッド）で実行すると画面が完全にフリーズし、OSに「応答なし」と判断され強制終了（ANR）される恐れがある → `compute()`（Isolate）への分離実行 + 計算中のローディング表示が必須~~ → **完了済み（2026-07-20）**。`lib/services/tessellation_service.dart`（`compute()` に渡すトップレベル関数、`triangulate` 本体はアルゴリズム未実装のため `UnimplementedError`）＋ `lib/providers/tessellation_provider.dart`（`isTessellatingProvider`／`TessellationController`）＋ `CanvasNotifier.commitTessellationResult` ＋ `editor_screen.dart` の `_TessellationBlockingOverlay`（`AbsorbPointer`）を実装 | **完了（配線のみ。アルゴリズム本体は次回）** |
 | 18 | **Hα のOOM対策未検討** | 端末カメラの高解像度写真（4K以上）をそのままデコード・展開するとネイティブメモリを圧迫し OOM（メモリ不足）でクラッシュする → 取込時に上限解像度へダウンサンプリング必須 | **Hα** |
 | 19 | **保存・取込の失敗系** | 破損 JSON、権限拒否、ディスク満杯、不正画像 → クラッシュせずユーザーに通知 | **Hγ / Phase R QA** |
 | 20 | **G 三角サイズ（maxEdge/minEdge）** | ~~spacing 単一~~ → **maxEdge + minEdge（= max × 0.4 固定比率）** で品質定義。v1 UI なし。**world 値は計画時点未確定 → G 着手前に実機相談で確定** | **G-spike（仮値検証）／G 着手前（確定）** |

@@ -46,7 +46,7 @@
 - [x] G 入力サニタイズ方針（#8）（2026-07-20 実装完了。`lib/geometry/tessellation_input.dart`（`sanitizeTessellationBoundary`/`weldCoincidentRingVertices`）＋ `lib/geometry/self_intersection.dart`（`segmentsIntersect`/`isSelfIntersectingRing`）。coincident-but-unwelded は正規化（自動溶接）、自己交差ポリゴンは弾く方針。単体テストは `test/geometry/tessellation_input_test.dart`／`self_intersection_test.dart`）
 - [x] 当たり判定のインターフェース切り出し（#10）（2026-07-20 実装完了。`lib/geometry/vertex_hit_test.dart` に `VertexHitTest`／`LinearVertexHitTest` を新設し、`CanvasNotifier` の `_findPolygonVertexNearIn`／`findVertexNear` を差し替え。内部実装は既存の O(n) 線形探索のまま。単体テストは `test/geometry/vertex_hit_test_test.dart`）
 - [ ] バッチ polygon insert + Undo 1回の API
-- [ ] `compute()` 経由のテッセレーション呼び出し + ローディングUI実装（#17）
+- [x] `compute()` 経由のテッセレーション呼び出し + ローディングUI実装（#17）（2026-07-20 実装完了。`lib/services/tessellation_service.dart`（`TessellationRequest`/`TessellationResult`/`triangulate`、Isolate に渡すトップレベル関数。`triangulate` 本体は次回のアルゴリズム実装まで `UnimplementedError`）＋ `lib/providers/tessellation_provider.dart`（`isTessellatingProvider`／`TessellationController.tessellate`、`compute()` 起動と成否ハンドリング）。`CanvasNotifier.commitTessellationResult` で境界頂点ID再利用＋Undo1回コミット。`lib/screens/editor_screen.dart` に `_TessellationBlockingOverlay`（`AbsorbPointer`＋ローディング表示）を追加。単体テストは `test/services/tessellation_service_test.dart`／`test/canvas_notifier_tessellation_test.dart`／`test/providers/tessellation_provider_test.dart`）
 - [ ] **`maxEdge` / `minEdge` の world 値を実機相談で確定してから実装**（#20）
 
 → その他フェーズの着手前チェックリストは [plan_future_phases.md](plan_future_phases.md) の「着手前チェックリスト（統合、G を除く）」を参照。

@@ -14,6 +14,7 @@ import '../models/canvas_mode.dart';
 import '../models/draw_mode.dart';
 import '../models/polygon_shape.dart';
 import '../models/vertex.dart';
+import '../services/tessellation_service.dart';
 
 const _uuid = Uuid();
 
@@ -729,6 +730,59 @@ class CanvasNotifier extends StateNotifier<Artwork> {
       vertices: {...state.vertices, newVertex.id: newVertex},
     );
     return newVertex.id;
+  }
+
+  /// Replaces [polygonId] with the triangles [result] describes (Phase G
+  /// auto-tessellation, plan #17), called by `TessellationController`
+  /// once `compute()`'s background triangulation succeeds.
+  ///
+  /// [boundaryRing] must be the exact (sanitized) ring [result] was
+  /// computed from — its IDs are reused for [result]'s leading points (so
+  /// any edge already welded to a neighboring polygon stays welded);
+  /// every later point in [result.points] is a genuinely new interior/
+  /// subdivision point and gets a fresh [Vertex] ID. Every output triangle
+  /// inherits [polygonId]'s own fill/stroke styling. No-op when [polygonId]
+  /// doesn't exist (e.g. deleted while the `Isolate` call was in flight).
+  ///
+  /// A single [_recordUndo] + a single [state] update — "一括生成 = Undo
+  /// 1回" (`.cursor/plans/plan_phase_G.md`).
+  void commitTessellationResult({
+    required String polygonId,
+    required List<String> boundaryRing,
+    required TessellationResult result,
+  }) {
+    final polygon = state.polygons.where((p) => p.id == polygonId).firstOrNull;
+    if (polygon == null) return;
+
+    _recordUndo();
+    final indexToVertexId = <int, String>{
+      for (var i = 0; i < boundaryRing.length; i++) i: boundaryRing[i],
+    };
+    final newVertices = <String, Vertex>{};
+    for (var i = boundaryRing.length; i < result.points.length; i++) {
+      final vertex = Vertex(id: _uuid.v4(), position: result.points[i]);
+      indexToVertexId[i] = vertex.id;
+      newVertices[vertex.id] = vertex;
+    }
+
+    final triangles = [
+      for (final (a, b, c) in result.triangleIndices)
+        PolygonShape(
+          id: _uuid.v4(),
+          vertexIds: [indexToVertexId[a]!, indexToVertexId[b]!, indexToVertexId[c]!],
+          fillColor: polygon.fillColor,
+          strokeColor: polygon.strokeColor,
+          strokeWidth: polygon.strokeWidth,
+        ),
+    ];
+
+    state = state.copyWith(
+      polygons: [
+        ...state.polygons.where((p) => p.id != polygonId),
+        ...triangles,
+      ],
+      vertices: {...state.vertices, ...newVertices},
+    );
   }
 
   /// Deletes [polygonId] entirely (the edit mode's "🗑️ 図形の削除" button).

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/canvas_background_provider.dart';
 import '../providers/canvas_provider.dart';
+import '../providers/tessellation_provider.dart';
 import '../providers/underlay_provider.dart';
 import '../widgets/canvas/polygon_canvas.dart';
 import '../widgets/toolbar/editor_toolbar.dart';
@@ -24,6 +25,7 @@ class EditorScreen extends ConsumerWidget {
     final canvasBrightness = ref.watch(canvasBackgroundProvider);
     final isCanvasDark = canvasBrightness == Brightness.dark;
     final underlayImagePath = ref.watch(underlayProvider.select((state) => state.imagePath));
+    final isTessellating = ref.watch(isTessellatingProvider);
 
     // Picking success is now visible directly on the canvas (the underlay
     // is drawn immediately, fit to the canvas — see `UnderlayLayer`), so
@@ -83,7 +85,37 @@ class EditorScreen extends ConsumerWidget {
             bottom: 0,
             child: _ToolbarBarrier(child: EditorToolbar()),
           ),
+          if (isTessellating) const Positioned.fill(child: _TessellationBlockingOverlay()),
         ],
+      ),
+    );
+  }
+}
+
+/// Shown while `TessellationController.tessellate` (plan #17) has a
+/// `compute()` call in flight. Placed as the topmost `Stack` child (above
+/// both [PolygonCanvas] and `_ToolbarBarrier`) so its [AbsorbPointer]
+/// claims every touch before either can see it — same "topmost layer wins
+/// hit-testing" principle as `_ToolbarBarrier` itself — preventing any
+/// artwork mutation while the background triangulation is still running.
+class _TessellationBlockingOverlay extends StatelessWidget {
+  const _TessellationBlockingOverlay();
+
+  @override
+  Widget build(BuildContext context) {
+    return AbsorbPointer(
+      child: ColoredBox(
+        color: Colors.black.withValues(alpha: 0.3),
+        child: const Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 12),
+              Text('分割しています…', style: TextStyle(color: Colors.white)),
+            ],
+          ),
+        ),
       ),
     );
   }
