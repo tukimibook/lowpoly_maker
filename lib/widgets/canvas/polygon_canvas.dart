@@ -103,7 +103,6 @@ class PolygonCanvas extends ConsumerWidget {
     double hitRadius() => kVertexHitRadius / viewport.value.scale;
     double doubleTapMaxDistance() => kDoubleTapMaxDistance / viewport.value.scale;
     double lineAbsorptionTolerance() => kLineAbsorptionTolerance / viewport.value.scale;
-    double traceVertexSpacing() => kTraceVertexSpacing / viewport.value.scale;
 
     Offset worldPosition(Offset localPosition) {
       return viewport.value.screenToWorld(localPosition);
@@ -253,7 +252,7 @@ class PolygonCanvas extends ConsumerWidget {
       final rawPoints = tracePreview.rawPoints;
       tracePreview.clear();
       if (rawPoints == null || rawPoints.length < 2) return;
-      final points = generateTracePoints(rawPoints, spacing: traceVertexSpacing());
+      final points = generateTracePoints(rawPoints, spacing: kTraceVertexSpacing);
       notifier.commitTraceStroke(
         points,
         hitRadius: hitRadius(),

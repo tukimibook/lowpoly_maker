@@ -946,7 +946,10 @@ void main() {
         await tester.pump();
 
         final artwork = container.read(canvasProvider);
-        // kTraceVertexSpacing (40px) over a 120px stroke: 0/40/80/120.
+        // kTraceVertexSpacing (50, a fixed world-coordinate distance,
+        // unaffected by zoom) over a 120px stroke at scale 1 (world ==
+        // screen here): samples at 0/50/100, plus the preserved true end
+        // at 120 — 4 vertices.
         expect(artwork.draftVertexIds, hasLength(4));
         final positions = artwork.draftVertexIds
             .map((id) => artwork.vertices[id]!.position)
@@ -1103,6 +1106,44 @@ void main() {
 
         expect(container.read(traceStrokePreviewProvider).path, isNull);
         expect(container.read(traceGestureProvider).phase, TraceLockPhase.idle);
+      },
+    );
+
+    testWidgets(
+      'at viewport scale 2.0, the resampled vertex spacing is still '
+      'exactly kTraceVertexSpacing (50) in WORLD coordinates — not halved '
+      'by the zoom (regression guard for the world-space-fixed spacing fix)',
+      (tester) async {
+        final container = await pumpEditorInTraceMode(tester);
+        container.read(viewportProvider).value = const ViewportTransform(
+          scale: 2.0,
+          offset: Offset.zero,
+        );
+        await tester.pump();
+
+        final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
+        // Screen-space stroke of 300px at scale 2.0 == 150 world px —
+        // exactly 3 * kTraceVertexSpacing, landing samples exactly on
+        // world offsets 0/50/100/150 from the start with no tail point.
+        final gesture = await tester.startGesture(
+          canvasTopLeft + const Offset(100, 100),
+        );
+        await tester.pump();
+        await gesture.moveBy(const Offset(300, 0));
+        await tester.pump();
+        await gesture.up();
+        await tester.pump();
+
+        final artwork = container.read(canvasProvider);
+        expect(artwork.draftVertexIds, hasLength(4));
+        final positions = artwork.draftVertexIds
+            .map((id) => artwork.vertices[id]!.position)
+            .toList();
+        expect(positions.first, const Offset(50, 50));
+        for (var i = 1; i < positions.length; i++) {
+          expect((positions[i] - positions[i - 1]).distance, closeTo(50, 1e-9));
+        }
+        expect(positions.last, const Offset(200, 50));
       },
     );
   });

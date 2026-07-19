@@ -43,15 +43,20 @@ const double kVertexHitRadius = 48.0;
 /// a separate, precise tap on each one. See [CanvasNotifier.handleDrawTap].
 const double kLineAbsorptionTolerance = 15.0;
 
-/// Default screen-pixel distance between two consecutive vertices
+/// Fixed world-coordinate distance between two consecutive vertices
 /// [generateTracePoints] generates along a なぞりモード ("trace mode")
-/// stroke (Phase F, `.cursor/plans/plan_phase_F.md`). Follows the same
-/// screen-tolerance convention as [kVertexHitRadius] et al. — callers with
-/// a viewport transform should pass `kTraceVertexSpacing /
-/// transform.scale` so a stroke always produces roughly the same density
-/// of vertices on screen regardless of zoom, rather than an ever-denser
-/// (zoomed in) or ever-sparser (zoomed out) one in world space.
-const double kTraceVertexSpacing = 40.0;
+/// stroke (Phase F, `.cursor/plans/plan_phase_F.md`). Unlike
+/// [kVertexHitRadius] et al., this is deliberately *not* a screen
+/// tolerance — callers must pass it straight through, unscaled by the
+/// viewport transform, so a stroke always produces the same vertex
+/// density in world space regardless of zoom. Scaling this by
+/// `1 / transform.scale` (as an earlier revision did) made a stroke drawn
+/// zoomed-in resample far more densely in world space than one drawn at
+/// 1:1, so resetting the viewport back to 1:1 afterward left visibly
+/// over-dense clusters of vertices. This also keeps the constant a
+/// straightforward default for a future user-facing spacing slider, whose
+/// value is itself a plain world-space distance.
+const double kTraceVertexSpacing = 50.0;
 
 /// Maximum time between two taps for the second one to be reinterpreted
 /// as a "close the shape now" gesture (a pseudo double-tap) instead of an
