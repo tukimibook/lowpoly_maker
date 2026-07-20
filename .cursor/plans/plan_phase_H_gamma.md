@@ -1,0 +1,39 @@
+# Phase Hγ: 保存・作品一覧
+
+> **正本の位置づけ**: 全体像・確定した設計判断・品質方針・リリース要件は [ポリゴンアプリ再設計_e54196e6.plan.md](ポリゴンアプリ再設計_e54196e6.plan.md)（マスター）を参照。未着手フェーズ（Hδ/R）の詳細・技術的負債表・テスト方針・リスクと対策は [plan_future_phases.md](plan_future_phases.md) を参照。完了済みフェーズ（A〜E+、G-spike、Hα、Hβ、F、G）の実装済み仕様・過去（2026-07-10〜2026-07-20）の検討メモは [plan_archive_history.md](plan_archive_history.md) を参照。着手時の進捗・次ステップは下記 **現在のステータス** を参照。
+> **運用**: 本ファイルは「現在着手中のフェーズ」専用ファイル。ファイル名にフェーズ名を含める（`plan_phase_<フェーズ>.md`）運用とし、Hγ が完了し次のフェーズ（Hδ）に進んだら、本ファイルの中身を Hδ の詳細（[plan_future_phases.md](plan_future_phases.md) から該当セクションを移動）に差し替え、ファイル名も `plan_phase_H_delta.md` にリネームして使い続ける（Hα → Hβ → F → G → Hγ でこの運用を継続、2026-07-20）。Hγ 完了時の実装完了メモ・検討メモは、差し替え時に [plan_archive_history.md](plan_archive_history.md) へ移す。Phase 完了コミット後は **現在のステータス** を次 Phase 用に更新する。
+
+## 📍 現在のステータス (2026-07-20)
+- **完了フェーズ**: Phase A〜E+・G-spike・Hα・Hβ・F・G がすべて完了。G では `triangulate`（Delaunay + maxEdge 細分化）を実装し、`maxEdge`/`minEdge` の world 値（150.0/25.0）を実機チューニングで確定（#20）。詳細は [plan_archive_history.md](plan_archive_history.md) 参照。
+- **現在のフェーズ**: Phase G が完了し、Phase Hγ に着手。
+
+## Phase Hγ: 保存・作品一覧（v1 必須）
+
+- 形式: **1作品＝1 JSON** + サムネPNG + 索引ファイル。`schemaVersion` は最初から。アトミック書き込み（temp→rename）。
+- **★文書データと表示レイアウトの分離**: `Artwork.canvasSize` は端末依存のため、永続 JSON には**幾何データ（`ArtworkDocument`）**として保存し、表示サイズ・下絵 fit は別フィールドまたは復元時に再計算。`schemaVersion` 切る前に設計を固定する。**Undo スナップショットも幾何データのみ**を保持し、`canvasSize` はセッション表示用に外す（分離後も undo が壊れないこと）。
+- 下絵: 取り込み時にアプリ内へ画像コピー。作品 JSON はコピーパスを参照。
+- 自動保存＋復帰。エンタイトルメント継ぎ目（無料10枚・エクスポート tier）を空実装で用意。
+- Undo/Redo: Redo と履歴の永続化は v1.1。v1 は D0 の Undo のみ。
+
+**完了条件**: 作品の保存・一覧・再開・削除。kill 後も復帰。下絵付き作品が壊れない。
+
+## 着手前チェックリスト（Hγ 本番直前）
+
+- [ ] `ArtworkDocument` と表示レイアウトの分離**実装**（#9 — 設計は G-spike で確定済みであること）
+- [ ] Undo スナップショットが幾何のみであることの確認
+- [ ] `schemaVersion` v1 スキーマ確定
+- [ ] 統合 smoke チェックリスト草案（U2）
+
+→ その他フェーズの着手前チェックリストは [plan_future_phases.md](plan_future_phases.md) の「着手前チェックリスト（統合、Hγ を除く）」を参照。
+
+## 追加すべきテスト（Hγ関連）
+
+[plan_future_phases.md](plan_future_phases.md) の「追加すべきテスト（優先度付き）」全体のうち、Hγ に直接関連する項目のみ抜粋（全項目は同ファイルを参照）:
+
+- `ArtworkDocument` と表示レイアウトの分離後も Undo が壊れないこと
+- 保存・読み込みの往復（round-trip）で `Artwork` が一致すること
+- 破損 JSON・権限拒否時にクラッシュしないこと（#19）
+
+## 検討メモ（直近）
+
+（まだなし。Phase Hγ 着手後の検討・実装内容をここに追記していく。）

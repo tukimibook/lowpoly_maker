@@ -1,8 +1,8 @@
 # 完了済みフェーズ仕様・検討メモ アーカイブ
 
-> **正本の位置づけ**: 全体像・確定した設計判断・品質方針・リリース要件は [ポリゴンアプリ再設計_e54196e6.plan.md](ポリゴンアプリ再設計_e54196e6.plan.md)（マスター）を参照。未着手フェーズ（Hγ/Hδ/R）の詳細仕様・技術的負債表・テスト方針・リスクと対策は [plan_future_phases.md](plan_future_phases.md) を参照。現在着手中のフェーズの詳細・直近の検討メモは [plan_phase_G.md](plan_phase_G.md) を参照。
+> **正本の位置づけ**: 全体像・確定した設計判断・品質方針・リリース要件は [ポリゴンアプリ再設計_e54196e6.plan.md](ポリゴンアプリ再設計_e54196e6.plan.md)（マスター）を参照。未着手フェーズ（Hδ/R）の詳細仕様・技術的負債表・テスト方針・リスクと対策は [plan_future_phases.md](plan_future_phases.md) を参照。現在着手中のフェーズの詳細・直近の検討メモは [plan_phase_H_gamma.md](plan_phase_H_gamma.md) を参照。
 >
-> **運用**: 本ファイルは「完了済みフェーズの実装済み仕様」と「過去の検討メモ」専用のアーカイブ（2026-07-17 新設。[plan_future_phases.md](plan_future_phases.md) が肥大化し、開発チャットでのコンテキスト消費を圧迫していたため分離した）。現在着手中フェーズ（`plan_phase_<フェーズ>.md`）が完了し次フェーズへ差し替わる際、その完了フェーズの「📍 現在のステータス」の完了記録と「検討メモ（直近）」の全内容を、本ファイル末尾へそのまま追記していく運用とする。（2026-07-19 追記: 現在着手中フェーズの正本は [plan_phase_G.md](plan_phase_G.md)。）
+> **運用**: 本ファイルは「完了済みフェーズの実装済み仕様」と「過去の検討メモ」専用のアーカイブ（2026-07-17 新設。[plan_future_phases.md](plan_future_phases.md) が肥大化し、開発チャットでのコンテキスト消費を圧迫していたため分離した）。現在着手中フェーズ（`plan_phase_<フェーズ>.md`）が完了し次フェーズへ差し替わる際、その完了フェーズの「📍 現在のステータス」の完了記録と「検討メモ（直近）」の全内容を、本ファイル末尾へそのまま追記していく運用とする。（2026-07-20 追記: 現在着手中フェーズの正本は [plan_phase_H_gamma.md](plan_phase_H_gamma.md)。）
 
 ## 完了済みフェーズ仕様（アーカイブ）
 
@@ -218,6 +218,51 @@
 - Widget test: scale=2.0でもワールド座標上の頂点間隔が `kTraceVertexSpacing`（50.0）で一定であること（サンプリング間隔仕様修正のリグレッションガード）
 
 詳細な設計経緯・実装内容は本ファイル末尾の「検討メモ（F、2026-07-18〜2026-07-19）」を参照。
+
+### Phase G: 自動テッセレーション（三角・幾何学ローポリ）（完了、2026-07-20）
+
+> **着手前提（達成済み）**: G-spike 完了（Go、Tier B 確定済み） + 着手前チェックリストの G 本番直前チェック + **maxEdge/minEdge の world 値を実装前に相談で確定**（#20）。
+
+#### ~~旧仕様（2026-07-13 前）~~
+
+- ~~パイプライン: (1) 輪郭取得 → (2) 内部点生成 → (3) ドロネー分割。~~
+- ~~点分布: `PointDistribution.generate(boundary, spacing)`。v1 は幾何学ローポリ用1種。~~
+- ~~出力は共有頂点プールに三角ポリゴン群として投入。~~
+- ~~完了条件: 指で描いた〇の内部が三角メッシュで埋まり、**間隔スライダーで粗さを変えられ**、生成後に頂点編集できる。~~
+
+#### ~~現行仕様（2026-07-13〜）~~
+
+~~- パイプライン: (1) 輪郭取得（指の閉曲線を簡素化） → (2) 内部点生成 → (3) 三角形分割（ドロネー、境界は制約付き）。~~
+~~- 点分布を差し替え式に: `PointDistribution.generate(boundary, spacing)`。v1 は幾何学ローポリ用1種・既定間隔のみ（間隔スライダーは v1.1 に先送り）。~~
+
+#### 現行仕様（2026-07-14〜）
+
+- パイプライン: (1) 輪郭取得（指の閉曲線を簡素化） → (2) 内部点生成 → (3) 三角形分割（G-spike の Tier B）。
+- **三角サイズ品質（#20）**: v1 は UI 調整なし（ボタン1つのみ）。品質 Pass の優先は「辺長が maxEdge を超える三角形が残らないこと」。実機チューニング（iPhone14相当 390x844、スパイクスクリプトで検証後に削除）の結果、`maxEdge: 150.0` で確認されたスリバー三角形対策として角度フィルター案を検討したが、元の境界頂点自体の鋭角には無力かつ無限ループの懸念があるため不採用。妥協案として `minEdge: 25.0` を採用し、`lib/services/tessellation_service.dart` の `kTessellationDefaultMaxEdge`/`kTessellationDefaultMinEdge` として確定。
+- 出力は共有頂点プールに三角ポリゴン群として投入 → Phase D/E の編集がそのまま効く。**一括生成 = Undo 1回**（`CanvasNotifier.commitTessellationResult`）。
+- G 本番直前に `_polygonEdgeGraph` / `_shortestBoundaryPath` / `_absorbVerticesAlongNewSegment` / `_collapseConsecutive*` を `geometry/` へ純関数抽出（2026-07-14 commit `13836db`）。`buildPolygonEdgeGraph`/`findShortestBoundaryPath`（`lib/geometry/polygon_graph.dart`）、`findVerticesAlongSegment`（`lib/geometry/line_absorption.dart`）、`collapseConsecutiveRingIds`/`collapseConsecutiveOpenIds`/`hasNonConsecutiveDuplicate`（`lib/geometry/ring_collapse.dart`）として存在。
+- G 入力サニタイズ（#8）: `lib/geometry/tessellation_input.dart`（`sanitizeTessellationBoundary`/`weldCoincidentRingVertices`）＋ `lib/geometry/self_intersection.dart`（`segmentsIntersect`/`isSelfIntersectingRing`）。coincident-but-unwelded は正規化（自動溶接）、自己交差ポリゴンは弾く方針。
+- 当たり判定のインターフェース切り出し（#10）: `lib/geometry/vertex_hit_test.dart` に `VertexHitTest`／`LinearVertexHitTest` を新設し `CanvasNotifier` の `_findPolygonVertexNearIn`／`findVertexNear` を差し替え。内部実装は既存の O(n) 線形探索のまま。
+- `triangulate`（`lib/services/tessellation_service.dart`）本体: `delaunay` パッケージで初期分割 → 生成された三角形の辺を走査し `maxEdge` を超える辺の中点（ジッター付き、`kTessellationJitter = 1.0`）を追加 → 再分割、を繰り返す。`minEdge` 未達（分割後の半辺が `minEdge` を下回る）ならその辺の分割はスキップ。`kTessellationMaxIterations = 10` で強制停止。
+- **重い三角分割は `compute()`（Isolate）で実行し、計算中は画面にローディングインジケータを表示する**（#17）。失敗時は Artwork 不変 + ユーザー通知（`TessellationRejectReason.computeFailed`）。`isTessellatingProvider` と `TessellationController.tessellate`（`lib/providers/tessellation_provider.dart`）、`_TessellationBlockingOverlay`（`AbsorbPointer`、`lib/screens/editor_screen.dart`）で実装。
+
+**完了条件**: 相談で確定した `maxEdge`/`minEdge` で、閉曲線内部が三角メッシュで埋まり、**max 超え三角が実用上残らない**。生成後に頂点編集可。計算中 UI フリーズなし（#17）。顔・シンプルなイラスト等で実機確認。`flutter analyze` / `flutter test` パス。
+→ **達成済み（2026-07-20）**。`maxEdge`/`minEdge` の world 値（150.0/25.0）は実機チューニングで確定済み（#20）。`compute()` 経由の非同期実行・ローディングUI（#17）と合わせて配線完了。
+
+**着手前チェックリスト（G 本番直前、すべて完了）**:
+- [x] 境界グラフ・吸着・リング畳みの純関数抽出（#6）（2026-07-14 commit `13836db`。単体テストは 2026-07-20 `test/geometry/polygon_graph_test.dart`／`line_absorption_test.dart`／`ring_collapse_test.dart`）
+- [x] G 入力サニタイズ方針（#8）（2026-07-20。単体テストは `test/geometry/tessellation_input_test.dart`／`self_intersection_test.dart`）
+- [x] 当たり判定のインターフェース切り出し（#10）（2026-07-20。単体テストは `test/geometry/vertex_hit_test_test.dart`）
+- [x] `compute()` 経由のテッセレーション呼び出し + ローディングUI実装（#17）（2026-07-20。単体テストは `test/services/tessellation_service_test.dart`／`test/canvas_notifier_tessellation_test.dart`／`test/providers/tessellation_provider_test.dart`）
+- [x] `maxEdge` / `minEdge` の world 値を実機相談で確定してから実装（#20）（2026-07-20。`maxEdge: 150.0`／`minEdge: 25.0` で確定。角度フィルター案は不採用）
+
+（「バッチ polygon insert + Undo 1回の API」は `commitTessellationResult` に統合実装されたため、独立項目としては解消済み。）
+
+**追加したテスト（G関連）**:
+- `compute()` ラッパーが Isolate 経由でも正しい結果を返すこと（#17）
+- テッセレーション出力で maxEdge 超え辺が実用上残らないこと・`minEdge`/最大イテレーションによるループ停止（#20）
+
+詳細な設計経緯・実装内容は本ファイル末尾の「検討メモ（G、2026-07-20）」を参照（Phase G 自体の検討メモは着手中の日常的なやり取りに分散しており、個別の日付エントリとしては記録が薄いため、上記完了済み仕様の記述をもって正本とする）。
 
 ## 検討メモ（過去アーカイブ: 2026-07-10〜07-15）
 
@@ -801,3 +846,24 @@ Phase F の実装・テストがすべて完了。次フェーズ（G: 自動テ
 - `plan_phase_F.md` を `plan_phase_G.md` にリネームし、内容を Phase G（自動テッセレーション）専用に再構築（詳細仕様・着手前チェックリスト（G本番直前）・追加すべきテストを `plan_future_phases.md` から移行）。
 - `plan_future_phases.md` は未着手フェーズ（Hγ/Hδ/R）の詳細・技術的負債表・テスト方針・リスクと対策の正本として残置し、移動元の跡地にはリンク案内のみを残した。
 - [ポリゴンアプリ再設計_e54196e6.plan.md](ポリゴンアプリ再設計_e54196e6.plan.md)（マスター）のファイル分割案内・frontmatter todos（`phase-f-trace` を completed に更新）も追随。
+
+## 検討メモ（G、2026-07-20）
+
+> Phase G 着手時点（旧 `plan_phase_G.md`）の検討メモ。着手中は個別の日付エントリとしてではなく、実装項目（#6/#8/#10/#17/#20）ごとに `plan_phase_G.md` 本文へ直接反映する運用だったため、本節は実装完了の要点のみを記録する。
+
+### 2026-07-20: `triangulate` 本体実装・実機チューニング・#20 確定
+
+- `lib/services/tessellation_service.dart` の `triangulate`（`delaunay` パッケージでの初期分割 → `maxEdge` 超え辺へのジッター付き中点挿入 → 再分割ループ、`minEdge`/`kTessellationMaxIterations` による停止）を実装。
+- `test/geometry/tessellation_tuning_spike.dart`（iPhone14相当 390x844、星型・ひょうたん型ダミーポリゴン）で `maxEdge` 30/60/100/150 を視覚比較。`maxEdge: 150.0` で極端な鋭角のスリバー三角形を確認。
+- スリバー対策として「新規中点の角度チェックによる棄却」案を検討したが、Askモードでの分析の結果、元の境界頂点自体の鋭角（例: 星型の先端）には無力な上、幾何的に解決不能な箇所で無限に再試行しうるため不採用と判断。妥協案として `minEdge` を従来の spike 値（10.0）より高めの `25.0` に設定することを採用。
+- `kTessellationDefaultMaxEdge = 150.0`／`kTessellationDefaultMinEdge = 25.0` を確定し、`TessellationController.tessellate`（`lib/providers/tessellation_provider.dart`）の既定値に設定。スパイクスクリプトと出力SVGは検証後に削除。
+- `flutter analyze` 0件 / `flutter test` 全パス。Phase G 完了。
+
+### 2026-07-20: Phase G 完了、Phase Hγ へ移行（ドキュメント整理）
+
+Phase G の実装・テストがすべて完了。次フェーズ（Hγ: 保存・作品一覧）着手にあたり、ドキュメント構成を整理した。
+
+- 本ファイル（`plan_archive_history.md`）に、完了した Phase G 自身の仕様（本ファイル「完了済みフェーズ仕様」内）と検討メモ（本節群）を、旧 `plan_phase_G.md` から移動。
+- `plan_phase_G.md` を `plan_phase_H_gamma.md` にリネームし、内容を Phase Hγ（保存・作品一覧）専用に再構築（詳細仕様・着手前チェックリストを `plan_future_phases.md` から移行）。
+- `plan_future_phases.md` は未着手フェーズ（Hδ/R）の詳細・技術的負債表・テスト方針・リスクと対策の正本として残置し、移動元の跡地にはリンク案内のみを残した。
+- [ポリゴンアプリ再設計_e54196e6.plan.md](ポリゴンアプリ再設計_e54196e6.plan.md)（マスター）のファイル分割案内・frontmatter todos（`phase-g-tessellation` を completed に更新）も追随。

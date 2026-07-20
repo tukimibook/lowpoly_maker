@@ -1,12 +1,12 @@
 # 未来フェーズ仕様・技術的負債・検討メモアーカイブ
 
-> **正本の位置づけ**: 全体像・確定した設計判断・品質方針・リリース要件は [ポリゴンアプリ再設計_e54196e6.plan.md](ポリゴンアプリ再設計_e54196e6.plan.md)（マスター）を参照。現在着手中のフェーズ（G）の詳細・着手前チェックリストは [plan_phase_G.md](plan_phase_G.md) を参照。着手時の進捗・次ステップは同ファイル冒頭の **現在のステータス** を参照。完了済みフェーズ（A〜E+、G-spike、Hα、Hβ、F）の実装済み仕様と、過去（2026-07-10〜07-19）の検討メモは [plan_archive_history.md](plan_archive_history.md) を参照（2026-07-17、コンテキスト肥大化防止のため本ファイルから分離）。
+> **正本の位置づけ**: 全体像・確定した設計判断・品質方針・リリース要件は [ポリゴンアプリ再設計_e54196e6.plan.md](ポリゴンアプリ再設計_e54196e6.plan.md)（マスター）を参照。現在着手中のフェーズ（Hγ）の詳細・着手前チェックリストは [plan_phase_H_gamma.md](plan_phase_H_gamma.md) を参照。着手時の進捗・次ステップは同ファイル冒頭の **現在のステータス** を参照。完了済みフェーズ（A〜E+、G-spike、Hα、Hβ、F、G）の実装済み仕様と、過去（2026-07-10〜07-20）の検討メモは [plan_archive_history.md](plan_archive_history.md) を参照（2026-07-17、コンテキスト肥大化防止のため本ファイルから分離）。
 >
-> 本ファイルには **未着手フェーズ（Hγ/Hδ/R）の詳細仕様**、**コード品質・技術的負債表**、**テスト方針**、**リスクと対策**を格納する。完了済みフェーズの仕様・過去の検討メモは本ファイルには置かない（[plan_archive_history.md](plan_archive_history.md) が正本）。G の詳細も本ファイルには置かない（[plan_phase_G.md](plan_phase_G.md) が正本）。
+> 本ファイルには **未着手フェーズ（Hδ/R）の詳細仕様**、**コード品質・技術的負債表**、**テスト方針**、**リスクと対策**を格納する。完了済みフェーズの仕様・過去の検討メモは本ファイルには置かない（[plan_archive_history.md](plan_archive_history.md) が正本）。Hγ の詳細も本ファイルには置かない（[plan_phase_H_gamma.md](plan_phase_H_gamma.md) が正本）。
 
 ## 完了済みフェーズ仕様
 
-> 完了済みフェーズ（A〜E+、G-spike、Hα、Hβ、F）の実装済み仕様は [plan_archive_history.md](plan_archive_history.md) の「完了済みフェーズ仕様（アーカイブ）」に隔離しました。現在着手中の詳細は [plan_phase_G.md](plan_phase_G.md) を参照してください。
+> 完了済みフェーズ（A〜E+、G-spike、Hα、Hβ、F、G）の実装済み仕様は [plan_archive_history.md](plan_archive_history.md) の「完了済みフェーズ仕様（アーカイブ）」に隔離しました。現在着手中の詳細は [plan_phase_H_gamma.md](plan_phase_H_gamma.md) を参照してください。
 
 ## 未着手フェーズ仕様
 
@@ -24,7 +24,7 @@
 
 ### Phase G: 自動テッセレーション（三角・幾何学ローポリ）（完了）
 
-> **完了済み（2026-07-20）。詳細仕様は [plan_phase_G.md](plan_phase_G.md) を参照してください。**
+> **完了済み（2026-07-20）。詳細仕様は [plan_archive_history.md](plan_archive_history.md) を参照してください。**
 
 ### Phase H+: 保存・エクスポート（v1 必須分）と v1.1 以降
 
@@ -36,15 +36,9 @@
 
 下絵（Hα）・ズーム（Hβ）を G より前に切り出し。保存・PNG は v1 必須、それ以外は v1.1。
 
-##### Phase Hγ: 保存・作品一覧（v1 必須）
+##### Phase Hγ: 保存・作品一覧（v1 必須）（現在着手中）
 
-- 形式: **1作品＝1 JSON** + サムネPNG + 索引ファイル。`schemaVersion` は最初から。アトミック書き込み（temp→rename）。
-- **★文書データと表示レイアウトの分離**: `Artwork.canvasSize` は端末依存のため、永続 JSON には**幾何データ（`ArtworkDocument`）**として保存し、表示サイズ・下絵 fit は別フィールドまたは復元時に再計算。`schemaVersion` 切る前に設計を固定する。**Undo スナップショットも幾何データのみ**を保持し、`canvasSize` はセッション表示用に外す（分離後も undo が壊れないこと）。
-- 下絵: 取り込み時にアプリ内へ画像コピー。作品 JSON はコピーパスを参照。
-- 自動保存＋復帰。エンタイトルメント継ぎ目（無料10枚・エクスポート tier）を空実装で用意。
-- Undo/Redo: Redo と履歴の永続化は v1.1。v1 は D0 の Undo のみ。
-
-**完了条件**: 作品の保存・一覧・再開・削除。kill 後も復帰。下絵付き作品が壊れない。
+> **現在着手中のため本ファイルには詳細を置かない。詳細仕様は [plan_phase_H_gamma.md](plan_phase_H_gamma.md) を参照してください。**
 
 ##### Phase Hδ: PNG エクスポート（v1 必須）
 
@@ -109,14 +103,14 @@ Phase A〜E 完了時点のコードレビュー（2件）を統合した、**�
 | 14 | **自己クローズ後の冗長 Undo** | throwaway 点除去により undo 1回が見た目同一状態。バグではないが UX の小さな引っかかり | **低（仕様固定 or 除去）** |
 | 15 | **`clearDraft` / `clearAll` の Undo テスト不足** | 実装はあるがテストなし | **E+（完了済み）** |
 | 16 | **`detachVertexFromDraft` テスト不足** | polygon 版のみテスト済み | **E+（完了済み）** |
-| 17 | **G のANR対策未検討** | ~~数千三角形規模のドロネー分割をメインスレッド（UIスレッド）で実行すると画面が完全にフリーズし、OSに「応答なし」と判断され強制終了（ANR）される恐れがある → `compute()`（Isolate）への分離実行 + 計算中のローディング表示が必須~~ → **完了済み（2026-07-20）**。`lib/services/tessellation_service.dart`（`compute()` に渡すトップレベル関数、`triangulate` 本体はアルゴリズム未実装のため `UnimplementedError`）＋ `lib/providers/tessellation_provider.dart`（`isTessellatingProvider`／`TessellationController`）＋ `CanvasNotifier.commitTessellationResult` ＋ `editor_screen.dart` の `_TessellationBlockingOverlay`（`AbsorbPointer`）を実装 | **完了（配線のみ。アルゴリズム本体は次回）** |
+| 17 | **G のANR対策未検討** | ~~数千三角形規模のドロネー分割をメインスレッド（UIスレッド）で実行すると画面が完全にフリーズし、OSに「応答なし」と判断され強制終了（ANR）される恐れがある → `compute()`（Isolate）への分離実行 + 計算中のローディング表示が必須~~ → **完了済み（2026-07-20）**。`lib/services/tessellation_service.dart`（`compute()` に渡すトップレベル関数 `triangulate`、実装済み）＋ `lib/providers/tessellation_provider.dart`（`isTessellatingProvider`／`TessellationController`）＋ `CanvasNotifier.commitTessellationResult` ＋ `editor_screen.dart` の `_TessellationBlockingOverlay`（`AbsorbPointer`）を実装 | **完了** |
 | 18 | **Hα のOOM対策未検討** | 端末カメラの高解像度写真（4K以上）をそのままデコード・展開するとネイティブメモリを圧迫し OOM（メモリ不足）でクラッシュする → 取込時に上限解像度へダウンサンプリング必須 | **Hα** |
 | 19 | **保存・取込の失敗系** | 破損 JSON、権限拒否、ディスク満杯、不正画像 → クラッシュせずユーザーに通知 | **Hγ / Phase R QA** |
 | 20 | **G 三角サイズ（maxEdge/minEdge）** | ~~spacing 単一~~ → **maxEdge + minEdge** で品質定義。v1 UI なし。~~world 値は計画時点未確定 → G 着手前に実機相談で確定~~ → **完了済み（2026-07-20）**。実機チューニング（iPhone14相当 390x844）の結果、`maxEdge: 150.0`／`minEdge: 25.0`（角度フィルター案は不採用、`minEdge` 妥協案を採用）を `kTessellationDefaultMaxEdge`/`kTessellationDefaultMinEdge`（`lib/services/tessellation_service.dart`）として確定 | **完了** |
 
-### 着手前チェックリスト（統合、G を除く）
+### 着手前チェックリスト（統合、Hγ を除く）
 
-> **G の着手前チェックリストは [plan_phase_G.md](plan_phase_G.md) を参照**（現在着手中フェーズのため分離）。Hα・Hβ・G-spike・F の着手前チェックリストは完了済み（[plan_archive_history.md](plan_archive_history.md) 参照）。
+> **Hγ の着手前チェックリストは [plan_phase_H_gamma.md](plan_phase_H_gamma.md) を参照**（現在着手中フェーズのため分離）。Hα・Hβ・G-spike・F・G の着手前チェックリストは完了済み（[plan_archive_history.md](plan_archive_history.md) 参照）。
 
 **E+（完了済み）**
 
@@ -125,13 +119,11 @@ Phase A〜E 完了時点のコードレビュー（2件）を統合した、**�
 - [x] `clearDraft` / `clearAll` の Undo テスト（#15）
 - [x] `detachVertexFromDraft` テスト（#16）
 
-**Hγ（保存）の前**
+**Phase R 準備の並行推奨（Hγ と並行可）**
 
-- [ ] `ArtworkDocument` と表示レイアウトの分離**実装**（#9 — 設計は G-spike で確定済みであること）
-- [ ] Undo スナップショットが幾何のみであることの確認
-- [ ] `schemaVersion` v1 スキーマ確定
+> `ArtworkDocument` 分離・Undo スナップショット確認・`schemaVersion` 確定・統合 smoke 草案の4項目は [plan_phase_H_gamma.md](plan_phase_H_gamma.md) の着手前チェックリストへ移動済み。
+
 - [ ] `applicationId`・署名（Phase R の一部を並行推奨）
-- [ ] 統合 smoke チェックリスト草案（U2）
 
 **Phase R QA 前**
 
@@ -163,7 +155,7 @@ Phase A〜E 完了時点のコードレビュー（2件）を統合した、**�
 
 **中（G と同時）**
 
-> **G 該当項目は [plan_phase_G.md](plan_phase_G.md) の「追加すべきテスト（G関連）」に移行済み**（`compute()` ラッパー #17、テッセレーション出力で maxEdge 超え辺が残らないこと #20）。F 該当項目は実装・テスト済み（[plan_archive_history.md](plan_archive_history.md) 参照）。G 本番直前チェックリスト（#6 純関数抽出）着手時に、`absorbVerticesOnSegment` 等の共有テストが F 側で既にカバーされているかを確認すること。
+> **G 該当項目は実装・テスト済み**（`compute()` ラッパー #17、テッセレーション出力で maxEdge 超え辺が残らないこと #20。詳細は [plan_archive_history.md](plan_archive_history.md) 参照）。F 該当項目も実装・テスト済み（同ファイル参照）。
 
 **低（v1.1 / QA）**
 
@@ -218,5 +210,5 @@ Phase A〜E 完了時点のコードレビュー（2件）を統合した、**�
 
 ## 検討メモ（過去アーカイブ）
 
-> 過去の実装履歴と検討メモは [plan_archive_history.md](plan_archive_history.md) に隔離しました。現在着手中の詳細は [plan_phase_G.md](plan_phase_G.md) を参照してください。
+> 過去の実装履歴と検討メモは [plan_archive_history.md](plan_archive_history.md) に隔離しました。現在着手中の詳細は [plan_phase_H_gamma.md](plan_phase_H_gamma.md) を参照してください。
 
