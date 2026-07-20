@@ -37,8 +37,8 @@ class TessellationController {
   /// is the primary defense, this is the last line of it.
   Future<TessellationRejectReason?> tessellate(
     String polygonId, {
-    required double maxEdge,
-    required double minEdge,
+    double maxEdge = kTessellationDefaultMaxEdge,
+    double minEdge = kTessellationDefaultMinEdge,
   }) async {
     if (_ref.read(isTessellatingProvider)) return null;
 

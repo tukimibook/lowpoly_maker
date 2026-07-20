@@ -22,9 +22,9 @@
 
 > **完了済み（2026-07-17）。詳細仕様は [plan_archive_history.md](plan_archive_history.md) の「完了済みフェーズ仕様（アーカイブ）」に隔離しました。**
 
-### Phase G: 自動テッセレーション（三角・幾何学ローポリ）
+### Phase G: 自動テッセレーション（三角・幾何学ローポリ）（完了）
 
-> **現在着手中のため本ファイルには詳細を置かない。現在着手中の詳細は [plan_phase_G.md](plan_phase_G.md) を参照してください。**
+> **完了済み（2026-07-20）。詳細仕様は [plan_phase_G.md](plan_phase_G.md) を参照してください。**
 
 ### Phase H+: 保存・エクスポート（v1 必須分）と v1.1 以降
 
@@ -112,7 +112,7 @@ Phase A〜E 完了時点のコードレビュー（2件）を統合した、**�
 | 17 | **G のANR対策未検討** | ~~数千三角形規模のドロネー分割をメインスレッド（UIスレッド）で実行すると画面が完全にフリーズし、OSに「応答なし」と判断され強制終了（ANR）される恐れがある → `compute()`（Isolate）への分離実行 + 計算中のローディング表示が必須~~ → **完了済み（2026-07-20）**。`lib/services/tessellation_service.dart`（`compute()` に渡すトップレベル関数、`triangulate` 本体はアルゴリズム未実装のため `UnimplementedError`）＋ `lib/providers/tessellation_provider.dart`（`isTessellatingProvider`／`TessellationController`）＋ `CanvasNotifier.commitTessellationResult` ＋ `editor_screen.dart` の `_TessellationBlockingOverlay`（`AbsorbPointer`）を実装 | **完了（配線のみ。アルゴリズム本体は次回）** |
 | 18 | **Hα のOOM対策未検討** | 端末カメラの高解像度写真（4K以上）をそのままデコード・展開するとネイティブメモリを圧迫し OOM（メモリ不足）でクラッシュする → 取込時に上限解像度へダウンサンプリング必須 | **Hα** |
 | 19 | **保存・取込の失敗系** | 破損 JSON、権限拒否、ディスク満杯、不正画像 → クラッシュせずユーザーに通知 | **Hγ / Phase R QA** |
-| 20 | **G 三角サイズ（maxEdge/minEdge）** | ~~spacing 単一~~ → **maxEdge + minEdge（= max × 0.4 固定比率）** で品質定義。v1 UI なし。**world 値は計画時点未確定 → G 着手前に実機相談で確定** | **G-spike（仮値検証）／G 着手前（確定）** |
+| 20 | **G 三角サイズ（maxEdge/minEdge）** | ~~spacing 単一~~ → **maxEdge + minEdge** で品質定義。v1 UI なし。~~world 値は計画時点未確定 → G 着手前に実機相談で確定~~ → **完了済み（2026-07-20）**。実機チューニング（iPhone14相当 390x844）の結果、`maxEdge: 150.0`／`minEdge: 25.0`（角度フィルター案は不採用、`minEdge` 妥協案を採用）を `kTessellationDefaultMaxEdge`/`kTessellationDefaultMinEdge`（`lib/services/tessellation_service.dart`）として確定 | **完了** |
 
 ### 着手前チェックリスト（統合、G を除く）
 

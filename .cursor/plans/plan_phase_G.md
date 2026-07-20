@@ -1,11 +1,11 @@
-# Phase G: 自動テッセレーション（現在着手中）
+# Phase G: 自動テッセレーション（完了済み・2026-07-20）
 
 > **正本の位置づけ**: 全体像・確定した設計判断・品質方針・リリース要件は [ポリゴンアプリ再設計_e54196e6.plan.md](ポリゴンアプリ再設計_e54196e6.plan.md)（マスター）を参照。未着手フェーズ（Hγ/Hδ/R）の詳細・技術的負債表・テスト方針・リスクと対策は [plan_future_phases.md](plan_future_phases.md) を参照。完了済みフェーズ（A〜E+、G-spike、Hα、Hβ、F）の実装済み仕様・過去（2026-07-10〜2026-07-19）の検討メモは [plan_archive_history.md](plan_archive_history.md) を参照。着手時の進捗・次ステップは下記 **現在のステータス** を参照。
 > **運用**: 本ファイルは「現在着手中のフェーズ」専用ファイル。ファイル名にフェーズ名を含める（`plan_phase_<フェーズ>.md`）運用とし、G が完了し次のフェーズ（Hγ）に進んだら、本ファイルの中身を Hγ の詳細（[plan_future_phases.md](plan_future_phases.md) から該当セクションを移動）に差し替え、ファイル名も `plan_phase_H_gamma.md` にリネームして使い続ける（Hα → Hβ → F → G でこの運用を継続、2026-07-19）。G 完了時の実装完了メモ・検討メモは、差し替え時に [plan_archive_history.md](plan_archive_history.md) へ移す。Phase 完了コミット後は **現在のステータス** を次 Phase 用に更新する。
 
-## 📍 現在のステータス (2026-07-19)
-- **完了フェーズ**: Phase A〜E+・G-spike・Hα・Hβ・F がすべて完了。F では `TracePointGenerator`／`CanvasNotifier.commitTraceStroke`／`TraceStrokePreviewController`／`TraceGestureController`（Lock & Ignore）によるなぞりモードを実装し、サンプリング間隔をワールド座標の固定絶対距離（`kTraceVertexSpacing = 50.0`）に統一済み。詳細は [plan_archive_history.md](plan_archive_history.md) 参照。
-- **現在のフェーズ**: Phase G（自動テッセレーション）に着手する。**着手前提として、`maxEdge`/`minEdge` の world 値を実機相談で確定する必要がある**（#20、下記「着手前チェックリスト」参照）。
+## 📍 現在のステータス (2026-07-20)
+- **完了フェーズ**: Phase A〜E+・G-spike・Hα・Hβ・F・**G** がすべて完了。F では `TracePointGenerator`／`CanvasNotifier.commitTraceStroke`／`TraceStrokePreviewController`／`TraceGestureController`（Lock & Ignore）によるなぞりモードを実装し、サンプリング間隔をワールド座標の固定絶対距離（`kTraceVertexSpacing = 50.0`）に統一済み。G では `triangulate`（Delaunay + maxEdge 細分化）を実装し、`maxEdge`/`minEdge` の world 値（150.0/25.0）を実機チューニングで確定（#20）。詳細は [plan_archive_history.md](plan_archive_history.md) 参照。
+- **現在のフェーズ**: Phase G 完了。次フェーズ（Hγ: 保存・作品一覧）へ進む。
 
 ## Phase G: 自動テッセレーション（三角・幾何学ローポリ）
 
@@ -39,6 +39,7 @@
 
 ~~**完了条件**: 閉じた輪郭の内部が三角メッシュで埋まり、生成後に頂点編集できる。**計算中は UI が固まらずローディング表示が出る（重い図形でも ANR が起きない）**。既定間隔で実機確認（顔・シンプルなイラスト等の代表例）。`flutter analyze` / `flutter test` パス。~~
 **完了条件**: 相談で確定した `maxEdge`/`minEdge` で、閉曲線内部が三角メッシュで埋まり、**max 超え三角が実用上残らない**。生成後に頂点編集可。計算中 UI フリーズなし（#17）。顔・シンプルなイラスト等で実機確認。`flutter analyze` / `flutter test` パス。
+→ **達成済み（2026-07-20）**。`triangulate`（Delaunay + maxEdge 超え辺の中点細分化、`minEdge`/`kTessellationMaxIterations` によるループ停止）実装済み。`maxEdge`/`minEdge` の world 値（150.0/25.0）は実機チューニングで確定済み（#20）。`compute()` 経由の非同期実行・ローディングUI（#17）と合わせて配線完了。
 
 ## 着手前チェックリスト（G 本番直前）
 
@@ -47,7 +48,7 @@
 - [x] 当たり判定のインターフェース切り出し（#10）（2026-07-20 実装完了。`lib/geometry/vertex_hit_test.dart` に `VertexHitTest`／`LinearVertexHitTest` を新設し、`CanvasNotifier` の `_findPolygonVertexNearIn`／`findVertexNear` を差し替え。内部実装は既存の O(n) 線形探索のまま。単体テストは `test/geometry/vertex_hit_test_test.dart`）
 - [ ] バッチ polygon insert + Undo 1回の API
 - [x] `compute()` 経由のテッセレーション呼び出し + ローディングUI実装（#17）（2026-07-20 実装完了。`lib/services/tessellation_service.dart`（`TessellationRequest`/`TessellationResult`/`triangulate`、Isolate に渡すトップレベル関数。`triangulate` 本体は次回のアルゴリズム実装まで `UnimplementedError`）＋ `lib/providers/tessellation_provider.dart`（`isTessellatingProvider`／`TessellationController.tessellate`、`compute()` 起動と成否ハンドリング）。`CanvasNotifier.commitTessellationResult` で境界頂点ID再利用＋Undo1回コミット。`lib/screens/editor_screen.dart` に `_TessellationBlockingOverlay`（`AbsorbPointer`＋ローディング表示）を追加。単体テストは `test/services/tessellation_service_test.dart`／`test/canvas_notifier_tessellation_test.dart`／`test/providers/tessellation_provider_test.dart`）
-- [ ] **`maxEdge` / `minEdge` の world 値を実機相談で確定してから実装**（#20）
+- [x] **`maxEdge` / `minEdge` の world 値を実機相談で確定してから実装**（#20）（2026-07-20 完了。実機チューニング（iPhone14相当 390x844、`test/geometry/tessellation_tuning_spike.dart` で検証、完了後にスパイクスクリプトと出力SVGは削除済み）の結果、`maxEdge: 150.0` で確認されたスリバー三角形対策として角度フィルター案を検討したが、元の境界頂点自体の鋭角には無力かつ無限ループの懸念があるため不採用。妥協案として `minEdge: 25.0` を採用。`lib/services/tessellation_service.dart` に `kTessellationDefaultMaxEdge`/`kTessellationDefaultMinEdge` として確定し、`TessellationController.tessellate`（`lib/providers/tessellation_provider.dart`）の既定値に設定済み）
 
 → その他フェーズの着手前チェックリストは [plan_future_phases.md](plan_future_phases.md) の「着手前チェックリスト（統合、G を除く）」を参照。
 

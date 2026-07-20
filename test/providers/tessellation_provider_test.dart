@@ -51,7 +51,7 @@ void main() {
 
     test(
       'a valid boundary reaches compute(), flips isTessellating true then false, '
-      'and surfaces computeFailed while triangulate() is unimplemented',
+      'and commits the triangulated result as a single undo entry',
       () async {
         final container = ProviderContainer();
         addTearDown(container.dispose);
@@ -73,13 +73,24 @@ void main() {
           minEdge: 20,
         );
 
-        expect(reason, TessellationRejectReason.computeFailed);
+        expect(reason, isNull);
         expect(flags, [true, false]);
         expect(container.read(isTessellatingProvider), isFalse);
-        // Artwork is left completely unchanged — nothing was committed.
+        // Committed as exactly one undo entry, replacing the original polygon.
+        expect(notifier.state.polygons.any((p) => p.id == polygonId), isFalse);
+        expect(notifier.canUndo, isTrue);
+        notifier.undo();
         expect(notifier.state, stateBefore);
       },
     );
+
+    // Note: `computeFailed` (triangulate()/compute() throwing) has no
+    // reliable trigger left to test end-to-end now that `triangulate` is
+    // implemented — it doesn't throw for any degenerate input (collinear or
+    // duplicate points, etc.) reachable past `sanitizeTessellationBoundary`,
+    // and forcing an actual `compute()`/Isolate failure isn't practical
+    // without mocking `compute()` itself. The `catch` branch that surfaces
+    // it stays in place as defensive-only code.
 
     test('a call while already in flight is an immediate no-op', () async {
       final container = ProviderContainer();
