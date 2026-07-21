@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../app.dart';
+import '../models/artwork_document.dart';
 import '../providers/auto_save_provider.dart';
 import '../providers/canvas_background_provider.dart';
 import '../providers/canvas_provider.dart';
 import '../providers/canvas_size_provider.dart';
 import '../providers/export_provider.dart';
+import '../providers/gallery_provider.dart';
 import '../providers/tessellation_provider.dart';
+import '../providers/underlay_layout_provider.dart';
 import '../providers/underlay_provider.dart';
 import '../widgets/canvas/polygon_canvas.dart';
 import '../widgets/toolbar/editor_toolbar.dart';
@@ -128,6 +132,7 @@ class EditorScreen extends ConsumerWidget {
               ),
             ],
           ),
+          const _SaveAndExitButton(),
         ],
       ),
       // `Stack` overlay instead of `Scaffold.bottomNavigationBar` (2026-07-16
@@ -156,6 +161,74 @@ class EditorScreen extends ConsumerWidget {
           if (isTessellating) const Positioned.fill(child: _TessellationBlockingOverlay()),
         ],
       ),
+    );
+  }
+}
+
+/// 「即時保存して作品一覧へ戻る」(defect-fix #2): forces an immediate
+/// (non-debounced) save via [AutoSaveService.flush] — including a freshly
+/// captured thumbnail, same as any debounced auto-save — then discards the
+/// entire navigation stack and returns to `GalleryScreen`, regardless of
+/// how this `EditorScreen` was reached (`HomeScreen`'s direct shortcut or
+/// `GalleryScreen`'s own 新規作成/開く).
+///
+/// A dedicated (`ConsumerStatefulWidget`) widget, not a stateless callback
+/// on [EditorScreen] itself, purely to hold [_isSaving] — the local "is a
+/// save+exit already in flight" flag that disables the button and swaps
+/// in a spinner for its whole duration, so a second tap while the first
+/// `flush()` is still awaiting can never fire a second, overlapping save
+/// (and, worse, a second stack-clearing navigation).
+class _SaveAndExitButton extends ConsumerStatefulWidget {
+  const _SaveAndExitButton();
+
+  @override
+  ConsumerState<_SaveAndExitButton> createState() => _SaveAndExitButtonState();
+}
+
+class _SaveAndExitButtonState extends ConsumerState<_SaveAndExitButton> {
+  bool _isSaving = false;
+
+  Future<void> _handleSaveAndExit() async {
+    if (_isSaving) return; // Belt-and-suspenders: onPressed is already null while true.
+    setState(() => _isSaving = true);
+    try {
+      final autoSaveService = ref.read(autoSaveServiceProvider);
+      if (autoSaveService != null) {
+        final document = ArtworkDocument(
+          artwork: ref.read(canvasProvider),
+          underlayImagePath: ref.read(underlayProvider).imagePath,
+          underlayLayout: ref.read(underlayLayoutProvider).value,
+        );
+        await autoSaveService.flush(document);
+      }
+      // The grid may still be showing this artwork's previous title/
+      // thumbnail (or may not have this artwork at all yet, for a
+      // brand-new one) — refresh so it reflects what was just saved the
+      // moment it's shown.
+      ref.invalidate(artworkIndexProvider);
+      if (!mounted) return;
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        PolygonArtApp.galleryRoute,
+        (route) => false,
+      );
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      key: const Key('save-and-exit-button'),
+      tooltip: '保存して作品一覧へ戻る',
+      onPressed: _isSaving ? null : _handleSaveAndExit,
+      icon: _isSaving
+          ? const SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : const Icon(Icons.check_circle_outline),
     );
   }
 }
