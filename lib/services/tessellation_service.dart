@@ -4,6 +4,8 @@ import 'dart:ui';
 
 import 'package:delaunay/delaunay.dart';
 
+import '../geometry/point_in_polygon.dart';
+
 /// Input to [triangulate], safe to pass across an `Isolate` boundary via
 /// `compute()` — plain data only, no Flutter engine objects and no
 /// closures. [boundary] must already be a validated, safe-to-triangulate
@@ -71,16 +73,24 @@ const double kTessellationDefaultMinEdge = 25.0;
 /// (and cannot) touch `Artwork`/`CanvasNotifier`/any Flutter engine object
 /// other than plain [Offset] values.
 ///
-/// Algorithm: constrained Delaunay triangulation of
-/// [TessellationRequest.boundary] (G-spike Tier B, `delaunay` package),
-/// then iteratively subdivides every triangle edge longer than
-/// [TessellationRequest.maxEdge] by inserting a jittered midpoint and
-/// re-triangulating, until either no edge exceeds [TessellationRequest.maxEdge]
-/// or [kTessellationMaxIterations] is reached. An edge is left un-subdivided
-/// once splitting it would leave either half shorter than
-/// [TessellationRequest.minEdge], even if it is still longer than
-/// [TessellationRequest.maxEdge] — this is what actually stops the loop for
-/// small/oddly-shaped input instead of subdividing forever.
+/// Algorithm: unconstrained Delaunay triangulation of the current point
+/// set (G-spike Tier B, `delaunay` package — which always fills the
+/// convex hull, not a constrained polygon interior), then **discards any
+/// triangle whose centroid falls outside [TessellationRequest.boundary]**
+/// via [isPointInPolygon] (so concave rings do not keep the convex-hull
+/// "gap" triangles), then iteratively subdivides every remaining triangle
+/// edge longer than [TessellationRequest.maxEdge] by inserting a jittered
+/// midpoint and re-triangulating, until either no edge exceeds
+/// [TessellationRequest.maxEdge] or [kTessellationMaxIterations] is
+/// reached. An edge is left un-subdivided once splitting it would leave
+/// either half shorter than [TessellationRequest.minEdge], even if it is
+/// still longer than [TessellationRequest.maxEdge] — this is what actually
+/// stops the loop for small/oddly-shaped input instead of subdividing
+/// forever.
+///
+/// The Point-in-Polygon filter runs *inside* this function (already
+/// dispatched via `compute()`), never as a second Isolate hop and never
+/// on the UI thread — see defect-fix #3.
 TessellationResult triangulate(TessellationRequest request) {
   final random = Random();
   var points = List<Offset>.of(request.boundary);
@@ -88,7 +98,14 @@ TessellationResult triangulate(TessellationRequest request) {
 
   for (var iteration = 0; iteration < kTessellationMaxIterations; iteration++) {
     final delaunay = Delaunay(_toFloat32List(points))..update();
-    triangleIndices = _groupTriangles(delaunay.triangles);
+    // Filter *before* the edge-subdivision pass: exterior (convex-hull
+    // gap) triangles must not fuel further midpoints, or the next
+    // iteration just recreates more exterior triangles.
+    triangleIndices = _filterInteriorTriangles(
+      _groupTriangles(delaunay.triangles),
+      points,
+      request.boundary,
+    );
 
     final midpointsToAdd = <Offset>[];
     final processedEdges = <(int, int)>{};
@@ -112,6 +129,28 @@ TessellationResult triangulate(TessellationRequest request) {
   }
 
   return TessellationResult(points: points, triangleIndices: triangleIndices);
+}
+
+/// Keeps only those [triangles] whose centroid lies inside [boundary]
+/// (the artist's original ring). Dropped triangles are the unconstrained
+/// Delaunay fill of the convex-hull gaps outside a concave polygon.
+List<(int, int, int)> _filterInteriorTriangles(
+  List<(int, int, int)> triangles,
+  List<Offset> points,
+  List<Offset> boundary,
+) {
+  return [
+    for (final triangle in triangles)
+      if (isPointInPolygon(_centroid(points, triangle), boundary)) triangle,
+  ];
+}
+
+Offset _centroid(List<Offset> points, (int, int, int) triangle) {
+  final (i, j, k) = triangle;
+  final a = points[i];
+  final b = points[j];
+  final c = points[k];
+  return Offset((a.dx + b.dx + c.dx) / 3, (a.dy + b.dy + c.dy) / 3);
 }
 
 /// Converts [points] into the flat `[x0, y0, x1, y1, ...]` layout the

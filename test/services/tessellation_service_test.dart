@@ -1,8 +1,19 @@
+import 'dart:ui';
+
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:polygon_art_app/geometry/point_in_polygon.dart';
 import 'package:polygon_art_app/services/tessellation_service.dart';
 
 double _edgeLength(Offset a, Offset b) => (a - b).distance;
+
+Offset _centroid(List<Offset> points, (int, int, int) triangle) {
+  final (i, j, k) = triangle;
+  final a = points[i];
+  final b = points[j];
+  final c = points[k];
+  return Offset((a.dx + b.dx + c.dx) / 3, (a.dy + b.dy + c.dy) / 3);
+}
 
 Iterable<(Offset, Offset)> _edgesOf(TessellationResult result) {
   return [
@@ -162,5 +173,78 @@ void main() {
         expect({a, b, c}, hasLength(3)); // no degenerate triangle
       }
     });
+
+    // Defect-fix #3: unconstrained Delaunay fills the convex hull, so an
+    // L-shape would previously keep a triangle covering the missing
+    // top-right quadrant. The centroid Point-in-Polygon filter must drop
+    // that exterior triangle (and keep doing so across subdivision passes).
+    test(
+      'drops triangles whose centroid lies outside a concave (L-shaped) boundary',
+      () {
+        const lShape = [
+          Offset(0, 0),
+          Offset(100, 0),
+          Offset(100, 50),
+          Offset(50, 50),
+          Offset(50, 100),
+          Offset(0, 100),
+        ];
+        const request = TessellationRequest(
+          boundary: lShape,
+          maxEdge: 200, // no subdivision — isolate the filter itself
+          minEdge: 1,
+        );
+
+        final result = triangulate(request);
+
+        expect(result.triangleIndices, isNotEmpty);
+        // Without the filter, unconstrained Delaunay of these 6 points
+        // produces a triangle covering the cut-out (centroid near (≈67,≈67)).
+        // After filtering, every remaining centroid must be inside the L.
+        for (final triangle in result.triangleIndices) {
+          expect(
+            isPointInPolygon(_centroid(result.points, triangle), lShape),
+            isTrue,
+          );
+        }
+        // A known exterior probe in the cut-out must not be covered by any
+        // remaining triangle centroid sitting in that bay.
+        expect(isPointInPolygon(const Offset(75, 75), lShape), isFalse);
+        for (final triangle in result.triangleIndices) {
+          final centroid = _centroid(result.points, triangle);
+          expect(centroid.dx > 50 && centroid.dy > 50, isFalse);
+        }
+      },
+    );
+
+    test(
+      'keeps dropping exterior triangles across subdivision iterations on a '
+      'concave boundary',
+      () {
+        const lShape = [
+          Offset(0, 0),
+          Offset(200, 0),
+          Offset(200, 100),
+          Offset(100, 100),
+          Offset(100, 200),
+          Offset(0, 200),
+        ];
+        const request = TessellationRequest(
+          boundary: lShape,
+          maxEdge: 80,
+          minEdge: 5,
+        );
+
+        final result = triangulate(request);
+
+        expect(result.triangleIndices, isNotEmpty);
+        for (final triangle in result.triangleIndices) {
+          expect(
+            isPointInPolygon(_centroid(result.points, triangle), lShape),
+            isTrue,
+          );
+        }
+      },
+    );
   });
 }
