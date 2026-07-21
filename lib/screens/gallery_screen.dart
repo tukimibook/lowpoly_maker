@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/artwork_summary.dart';
 import '../providers/gallery_provider.dart';
+import '../widgets/versioned_file_image.dart';
 import 'editor_screen.dart';
 
 /// 作品一覧 (Phase Hγ): lists every saved [ArtworkSummary] from
@@ -171,7 +172,12 @@ class _ArtworkTile extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Expanded(child: _Thumbnail(path: summary.thumbnailPath)),
+            Expanded(
+              child: _Thumbnail(
+                path: summary.thumbnailPath,
+                updatedAt: summary.updatedAt,
+              ),
+            ),
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
               child: Row(
@@ -202,23 +208,30 @@ class _ArtworkTile extends StatelessWidget {
 }
 
 class _Thumbnail extends StatelessWidget {
-  const _Thumbnail({required this.path});
+  const _Thumbnail({required this.path, required this.updatedAt});
 
   final String path;
+
+  /// Bumped whenever the artwork's index entry is rewritten (see
+  /// `AutoSaveService._saveNow`) — fed into both [VersionedFileImage]'s
+  /// cache key and this widget's [ValueKey] so an in-place thumbnail
+  /// overwrite at the same [path] reloads declaratively (defect-fix #4).
+  final DateTime updatedAt;
 
   @override
   Widget build(BuildContext context) {
     return ColoredBox(
       color: Theme.of(context).colorScheme.surfaceContainerHigh,
       // A synchronous existence check first, rather than always mounting
-      // `Image.file` and relying on its `errorBuilder`: a never-generated
+      // `Image` and relying on its `errorBuilder`: a never-generated
       // (or deleted) thumbnail is common and expected (e.g. before the
       // very first auto-save has completed), not exceptional, so this
       // avoids kicking off a real, unnecessary async decode attempt that
       // is guaranteed to fail every single time for that artwork.
       child: File(path).existsSync()
-          ? Image.file(
-              File(path),
+          ? Image(
+              image: VersionedFileImage(File(path), updatedAt),
+              key: ValueKey(updatedAt),
               fit: BoxFit.cover,
               width: double.infinity,
               height: double.infinity,
