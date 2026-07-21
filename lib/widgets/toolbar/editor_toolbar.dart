@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../geometry/tessellation_input.dart';
 import '../../models/canvas_mode.dart';
 import '../../models/draw_mode.dart';
 import '../../models/underlay_layout.dart';
@@ -9,6 +10,7 @@ import '../../providers/detach_cycle_provider.dart';
 import '../../providers/drag_preview_provider.dart';
 import '../../providers/polygon_edit_target_provider.dart';
 import '../../providers/selected_vertex_provider.dart';
+import '../../providers/tessellation_provider.dart';
 import '../../providers/trace_gesture_provider.dart';
 import '../../providers/trace_stroke_preview_provider.dart';
 import '../../providers/underlay_layout_provider.dart';
@@ -443,6 +445,7 @@ class _NoSelectionRow extends ConsumerWidget {
     final notifier = ref.read(canvasProvider.notifier);
     final polygonIndex = ref.watch(polygonCycleIndexProvider);
     final edgeIndex = ref.watch(edgeCycleIndexProvider);
+    final isTessellating = ref.watch(isTessellatingProvider);
 
     final targetPolygonId = resolvePolygonTarget(
       polygons: artwork.polygons,
@@ -484,6 +487,29 @@ class _NoSelectionRow extends ConsumerWidget {
       ref.read(edgeCycleIndexProvider.notifier).state = -1;
     }
 
+    // Phase G (plan #17)'s auto-tessellation engine — `TessellationController`,
+    // `compute(triangulate, ...)`, `commitTessellationResult` — was fully
+    // implemented but never actually wired to any control (2026-07-21 実機
+    // テスト調査で発覚). "図形を切り替え" already lets the artist single out
+    // one polygon by ID without needing to tap precisely on it, so this
+    // reuses that exact target rather than adding a whole separate
+    // targeting UI.
+    Future<void> tessellateTargetPolygon() async {
+      final polygonId = targetPolygonId;
+      if (polygonId == null) return;
+      final rejectReason = await ref.read(tessellationControllerProvider).tessellate(polygonId);
+      // The target polygon no longer exists after a successful tessellation
+      // (Phase G — it's replaced by many new triangle polygons), so the old
+      // cycle position is meaningless either way; mirrors `deleteTargetPolygon`.
+      ref.read(polygonCycleIndexProvider.notifier).state = -1;
+      ref.read(edgeCycleIndexProvider.notifier).state = -1;
+      if (rejectReason != null && context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(_describeTessellationRejection(rejectReason))));
+      }
+    }
+
     return SizedBox(
       height: _kRowHeight,
       child: Row(
@@ -513,8 +539,32 @@ class _NoSelectionRow extends ConsumerWidget {
             onPressed: targetPolygonId == null ? null : deleteTargetPolygon,
             icon: const Icon(Icons.delete_outline),
           ),
+          IconButton(
+            key: const Key('tessellate-target-polygon-button'),
+            tooltip: 'この図形を分割（テッセレーション）',
+            iconSize: 28,
+            onPressed: (targetPolygonId == null || isTessellating)
+                ? null
+                : tessellateTargetPolygon,
+            icon: const Icon(Icons.change_history),
+          ),
         ],
       ),
     );
+  }
+}
+
+/// User-facing Japanese text for a [TessellationRejectReason] — shown as a
+/// `SnackBar` by [_NoSelectionRow]'s tessellate button. Never lets a
+/// rejection (or the underlying `compute()` throwing) surface as a raw
+/// exception/stack trace.
+String _describeTessellationRejection(TessellationRejectReason reason) {
+  switch (reason) {
+    case TessellationRejectReason.tooFewVertices:
+      return '頂点が少なすぎるため分割できません';
+    case TessellationRejectReason.selfIntersecting:
+      return '図形が交差しているため分割できません';
+    case TessellationRejectReason.computeFailed:
+      return '分割処理に失敗しました。もう一度お試しください';
   }
 }

@@ -10,6 +10,7 @@ import 'package:polygon_art_app/providers/detach_cycle_provider.dart';
 import 'package:polygon_art_app/providers/drag_preview_provider.dart';
 import 'package:polygon_art_app/providers/polygon_edit_target_provider.dart';
 import 'package:polygon_art_app/providers/selected_vertex_provider.dart';
+import 'package:polygon_art_app/providers/tessellation_provider.dart';
 import 'package:polygon_art_app/providers/trace_gesture_provider.dart';
 import 'package:polygon_art_app/providers/trace_stroke_preview_provider.dart';
 import 'package:polygon_art_app/providers/viewport_provider.dart';
@@ -505,6 +506,81 @@ void main() {
             originalPositions[id],
           );
         }
+      },
+    );
+
+    // Phase G (plan #17)'s tessellation engine was fully implemented
+    // (`TessellationController`, `compute(triangulate, ...)`,
+    // `commitTessellationResult`) but never actually wired to any control —
+    // discovered during real-device testing (2026-07-21). These two guard
+    // against that regressing again now that the button exists.
+    testWidgets(
+      'テッセレーション button is disabled until 図形を切り替え picks a target, and '
+      'greyed out (with a change_history icon) either way',
+      (tester) async {
+        await pumpEditorWithTriangle(tester);
+
+        final tessellateButton = find.byKey(
+          const Key('tessellate-target-polygon-button'),
+        );
+        expect(tessellateButton, findsOneWidget);
+        expect(tester.widget<IconButton>(tessellateButton).onPressed, isNull);
+
+        await tester.tap(_iconButtonByTooltip('図形を切り替え'));
+        await tester.pump();
+
+        expect(tester.widget<IconButton>(tessellateButton).onPressed, isNotNull);
+      },
+    );
+
+    testWidgets(
+      'tapping it tessellates the targeted polygon into a single-undo-entry '
+      'replacement, and resets the whole-shape cycle afterwards',
+      (tester) async {
+        final container = await pumpEditorWithTriangle(tester);
+        final stateBefore = container.read(canvasProvider);
+        final originalPolygonId = stateBefore.polygons.single.id;
+
+        await tester.tap(_iconButtonByTooltip('図形を切り替え'));
+        await tester.pump();
+
+        final tessellateButton = find.byKey(
+          const Key('tessellate-target-polygon-button'),
+        );
+        // `compute()` spawns a real `Isolate` — outside `runAsync`, a
+        // `testWidgets` test's fake-clock zone can never let it resolve
+        // (see `test/services/thumbnail_capture_service_test.dart`'s doc for
+        // the same constraint). Polling `isTessellatingProvider` directly on
+        // the container (rather than `pumpAndSettle`, which fights this
+        // exact real-Isolate-vs-fake-clock mismatch — see 2026-07-20's
+        // `gallery_screen_test.dart` investigation) sidesteps that
+        // entirely: real time actually elapses inside this callback, so a
+        // handful of short real delays is enough once the flag flips back.
+        await tester.runAsync(() async {
+          await tester.tap(tessellateButton);
+          for (var i = 0; i < 50 && container.read(isTessellatingProvider); i++) {
+            await Future<void>.delayed(const Duration(milliseconds: 20));
+          }
+        });
+        await tester.pump();
+
+        expect(container.read(isTessellatingProvider), isFalse);
+        final stateAfter = container.read(canvasProvider);
+        // The original polygon is gone, replaced by (at least) one new
+        // triangle — this triangle's edges are all well under the default
+        // maxEdge, so no further subdivision should have happened.
+        expect(stateAfter.polygons.any((p) => p.id == originalPolygonId), isFalse);
+        expect(stateAfter.polygons, isNotEmpty);
+        // Single undo entry, exactly like the direct-controller test
+        // (`test/providers/tessellation_provider_test.dart`).
+        expect(container.read(canvasProvider.notifier).canUndo, isTrue);
+        container.read(canvasProvider.notifier).undo();
+        expect(container.read(canvasProvider), stateBefore);
+
+        // The whole-shape row's cycle counters were reset — mirrors
+        // 図形を削除's own behavior above, since the old target polygon ID
+        // can no longer resolve to anything either way.
+        expect(tester.widget<IconButton>(tessellateButton).onPressed, isNull);
       },
     );
   });
