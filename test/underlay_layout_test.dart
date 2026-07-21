@@ -35,10 +35,21 @@ void main() {
       expect(restored.opacity, 1.0);
     });
 
-    test('toMap deliberately omits visible (an Hγ persistence decision, not yet made)', () {
+    test('toMap deliberately omits visible (Hγ decision, 2026-07-20: not persisted)', () {
       const layout = UnderlayLayout(offset: Offset.zero, scale: 1.0, visible: false);
 
       expect(layout.toMap().containsKey('visible'), isFalse);
+    });
+
+    test('toJson/fromJson are aliases of toMap/fromMap (ArtworkDocument naming)', () {
+      const layout = UnderlayLayout(offset: Offset(12.5, -3), scale: 1.75, opacity: 0.4);
+
+      expect(layout.toJson(), layout.toMap());
+
+      final restored = UnderlayLayout.fromJson(layout.toJson());
+      expect(restored.offset, layout.offset);
+      expect(restored.scale, layout.scale);
+      expect(restored.opacity, layout.opacity);
     });
 
     test('worldToLocal inverts the offset/scale placement', () {

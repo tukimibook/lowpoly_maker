@@ -7,7 +7,9 @@ import '../../geometry/viewport_pinch.dart';
 import '../../models/canvas_mode.dart';
 import '../../models/draw_mode.dart';
 import '../../providers/canvas_background_provider.dart';
+import '../../providers/canvas_capture_provider.dart';
 import '../../providers/canvas_provider.dart';
+import '../../providers/canvas_size_provider.dart';
 import '../../providers/detach_cycle_provider.dart';
 import '../../providers/drag_preview_provider.dart';
 import '../../providers/polygon_drag_preview_provider.dart';
@@ -380,34 +382,42 @@ class PolygonCanvas extends ConsumerWidget {
 
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!context.mounted) return;
-          notifier.setCanvasSize(size);
+          ref.read(canvasSizeProvider).setSize(size);
         });
 
         // The underlay paints behind the polygon layer; each gets its own
-        // `RepaintBoundary` so redrawing one (e.g. an opacity change, or a
-        // vertex drag) never forces the other to repaint too.
-        final content = Stack(
-          children: [
-            UnderlayLayer(size: size),
-            RepaintBoundary(
-              child: CustomPaint(
-                size: size,
-                painter: PolygonPainter(
-                  artwork: artwork,
-                  mode: mode,
-                  viewport: viewport,
-                  dragPreview: dragPreview,
-                  vertexDragPreview: vertexDragPreview,
-                  polygonDragPreview: polygonDragPreview,
-                  selectedVertexId: selectedVertexId,
-                  highlightedPolygonId: highlightedPolygonId,
-                  targetEdge: targetEdge,
-                  canvasBrightness: canvasBrightness,
-                  tracePreview: tracePreview,
+        // inner `RepaintBoundary` so redrawing one (e.g. an opacity change,
+        // or a vertex drag) never forces the other to repaint too. The
+        // whole `Stack` is *also* wrapped in an outer, keyed
+        // `RepaintBoundary` — nested `RepaintBoundary`s are fully
+        // supported — so `ThumbnailCaptureService` (via
+        // `canvasRepaintBoundaryKeyProvider`) can capture underlay +
+        // polygons together as one gallery thumbnail (Phase Hγ).
+        final content = RepaintBoundary(
+          key: ref.watch(canvasRepaintBoundaryKeyProvider),
+          child: Stack(
+            children: [
+              UnderlayLayer(size: size),
+              RepaintBoundary(
+                child: CustomPaint(
+                  size: size,
+                  painter: PolygonPainter(
+                    artwork: artwork,
+                    mode: mode,
+                    viewport: viewport,
+                    dragPreview: dragPreview,
+                    vertexDragPreview: vertexDragPreview,
+                    polygonDragPreview: polygonDragPreview,
+                    selectedVertexId: selectedVertexId,
+                    highlightedPolygonId: highlightedPolygonId,
+                    targetEdge: targetEdge,
+                    canvasBrightness: canvasBrightness,
+                    tracePreview: tracePreview,
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         );
 
         if (mode == CanvasMode.draw && drawMode == DrawMode.trace) {

@@ -75,6 +75,15 @@ class UnderlayController extends StateNotifier<UnderlayState> {
       state = state.copyWith(errorMessage: '画像を読み込めませんでした: $error');
     }
   }
+
+  /// Directly sets [state.imagePath] — used to restore a saved artwork's
+  /// underlay (`GalleryController.openArtwork`) or clear it for a brand
+  /// new one (`GalleryController.createNewArtwork`), as opposed to
+  /// [pickImage]'s interactive picker flow. Always clears any previous
+  /// error: a restore/reset is not a failed pick.
+  void setImagePath(String? path) {
+    state = UnderlayState(imagePath: path);
+  }
 }
 
 /// Provides the single [UnderlayPicker] instance used to import underlay

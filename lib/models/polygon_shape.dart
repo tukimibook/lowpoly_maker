@@ -21,4 +21,33 @@ abstract class PolygonShape with _$PolygonShape {
     required Color strokeColor,
     required double strokeWidth,
   }) = _PolygonShape;
+
+  /// Deserializes one entry of `Artwork.toJson()`'s `polygons` list.
+  /// [vertexIds] are restored as-is (UUID references into `Artwork.vertices`
+  /// — resolving/validating them is the caller's job, not this model's).
+  factory PolygonShape.fromJson(Map<String, dynamic> json) {
+    return PolygonShape(
+      id: json['id'] as String,
+      vertexIds: (json['vertexIds'] as List<dynamic>).cast<String>(),
+      fillColor: Color(json['fillColor'] as int),
+      strokeColor: Color(json['strokeColor'] as int),
+      strokeWidth: (json['strokeWidth'] as num).toDouble(),
+    );
+  }
+}
+
+/// [PolygonShape.toJson] — an extension, not a class-body method; see
+/// `ArtworkJson`'s doc (`models/artwork.dart`) for why freezed classes need
+/// this pattern for custom instance methods.
+extension PolygonShapeJson on PolygonShape {
+  /// Serializes colors via [Color.toARGB32] (the non-deprecated replacement
+  /// for the old `Color.value` getter) as a single 32-bit ARGB int, matching
+  /// [PolygonShape.fromJson]'s [Color.new] constructor.
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'vertexIds': vertexIds,
+    'fillColor': fillColor.toARGB32(),
+    'strokeColor': strokeColor.toARGB32(),
+    'strokeWidth': strokeWidth,
+  };
 }

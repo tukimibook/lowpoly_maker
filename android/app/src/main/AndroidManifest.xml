@@ -6,14 +6,16 @@
     <!-- <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" /> -->
 
-    <!-- Phase 10: PNG ギャラリー保存（gal パッケージ利用時に有効化） -->
-    <!-- <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
-        android:maxSdkVersion="29" /> -->
+    <!-- Phase Hδ: PNG ギャラリー保存（gal パッケージ）。API 30+ はスコープドストレージで
+         不要（gal 側が実行時に判定）。API 23-29 のみ必要 -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29" />
 
     <application
         android:label="Polygon Art"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:requestLegacyExternalStorage="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"

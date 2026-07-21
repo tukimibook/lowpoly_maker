@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'screens/editor_screen.dart';
+import 'screens/gallery_screen.dart';
 import 'screens/home_screen.dart';
 
 /// Seed color every [ThemeData] (light and dark alike) is generated from,
@@ -13,6 +14,7 @@ class PolygonArtApp extends StatelessWidget {
 
   static const String homeRoute = '/';
   static const String editorRoute = '/editor';
+  static const String galleryRoute = '/gallery';
 
   /// Builds the app's [ThemeData] for [brightness]. Every widget outside the
   /// canvas (see `EditorScreen`'s independent
@@ -47,6 +49,7 @@ class PolygonArtApp extends StatelessWidget {
       routes: {
         homeRoute: (context) => const HomeScreen(),
         editorRoute: (context) => const EditorScreen(),
+        galleryRoute: (context) => const GalleryScreen(),
       },
     );
   }

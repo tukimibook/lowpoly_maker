@@ -155,8 +155,12 @@ class CanvasNotifier extends StateNotifier<Artwork> {
   /// Pushes the current [state] onto [_undoStack] so the next mutation can
   /// be reversed. Called immediately before every user-visible artwork
   /// change (point placement, close, erase, clear, …) but never for
-  /// layout-only updates ([setCanvasSize]) or internal bookkeeping such as
-  /// [_removeLastDraftVertex] during double-tap self-close.
+  /// internal bookkeeping such as [_removeLastDraftVertex] during
+  /// double-tap self-close. Layout-only state (canvas size, viewport,
+  /// underlay placement) never even reaches here — it lives in its own
+  /// provider outside [Artwork] entirely (see `CanvasSizeController`,
+  /// `ViewportController`, `UnderlayLayoutController`), so [state] itself
+  /// is always pure geometry/document data (Phase Hγ, #9).
   ///
   /// Caps the stack at [kUndoStackLimit], dropping the oldest snapshot once
   /// exceeded, so a long session can't grow this list without bound.
@@ -178,12 +182,6 @@ class CanvasNotifier extends StateNotifier<Artwork> {
     _resetPendingTap();
     state = _undoStack.removeLast();
     return true;
-  }
-
-  /// Records the rendered size of the canvas widget in world coordinates.
-  void setCanvasSize(Size size) {
-    if (state.canvasSize == size) return;
-    state = state.copyWith(canvasSize: size);
   }
 
   /// Handles a tap while in [CanvasMode.draw].
@@ -1230,6 +1228,18 @@ class CanvasNotifier extends StateNotifier<Artwork> {
       );
     }
     state = state.copyWith(vertices: vertices, draftVertexIds: const []);
+  }
+
+  /// Replaces the entire artwork in one shot — used when opening a saved
+  /// artwork or starting a brand new one (Phase Hγ gallery, `GalleryController`).
+  /// Clears the undo stack entirely: an artwork's edit history has no
+  /// meaning once the artwork itself has been swapped out from under it,
+  /// and carrying it over would let [undo] reach back into a *different*
+  /// artwork's past state.
+  void loadArtwork(Artwork artwork) {
+    _resetPendingTap();
+    _undoStack.clear();
+    state = artwork;
   }
 
   /// Removes every confirmed polygon and any in-progress draft, along with

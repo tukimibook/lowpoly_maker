@@ -44,6 +44,14 @@ class HomeScreen extends StatelessWidget {
                 icon: const Icon(Icons.add),
                 label: const Text('新規作成'),
               ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: () {
+                  Navigator.of(context).pushNamed(PolygonArtApp.galleryRoute);
+                },
+                icon: const Icon(Icons.photo_library_outlined),
+                label: const Text('作品一覧'),
+              ),
             ],
           ),
         ),

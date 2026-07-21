@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../providers/auto_save_provider.dart';
 import '../providers/canvas_background_provider.dart';
 import '../providers/canvas_provider.dart';
+import '../providers/canvas_size_provider.dart';
+import '../providers/export_provider.dart';
 import '../providers/tessellation_provider.dart';
 import '../providers/underlay_provider.dart';
 import '../widgets/canvas/polygon_canvas.dart';
@@ -15,6 +18,14 @@ import '../widgets/toolbar/editor_toolbar.dart';
 const Color _lightCanvasBackground = Color(0xFFF5F5F5); // Colors.grey.shade100
 const Color _darkCanvasBackground = Color(0xFF212121); // Colors.grey.shade900
 
+/// The two Phase Hδ export destinations offered by [EditorScreen]'s app bar
+/// menu — a private enum (rather than wiring each `PopupMenuItem`'s
+/// `onTap` directly to `ExportController.exportToGallery`/
+/// `exportViaShareSheet`) so both share one `PopupMenuButton.onSelected`
+/// callback and the exact same "read the current artwork/canvasSize, then
+/// dispatch" plumbing.
+enum _ExportAction { gallery, share }
+
 class EditorScreen extends ConsumerWidget {
   const EditorScreen({super.key});
 
@@ -26,6 +37,9 @@ class EditorScreen extends ConsumerWidget {
     final isCanvasDark = canvasBrightness == Brightness.dark;
     final underlayImagePath = ref.watch(underlayProvider.select((state) => state.imagePath));
     final isTessellating = ref.watch(isTessellatingProvider);
+    // Activates auto-save (Phase Hγ) for the lifetime of this screen — see
+    // that provider's own doc for why watching it once here is enough.
+    ref.watch(autoSaveServiceProvider);
 
     // Picking success is now visible directly on the canvas (the underlay
     // is drawn immediately, fit to the canvas — see `UnderlayLayer`), so
@@ -37,6 +51,32 @@ class EditorScreen extends ConsumerWidget {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(next.errorMessage!)));
       }
     });
+
+    // Phase Hδ (#19): a failed/succeeded export never crashes — it always
+    // becomes exactly one `SnackBar`, the same "state carries the message,
+    // this listener just shows it once" pattern as the underlay listener
+    // above. Guarded on identity-changed-from-null so re-entering this
+    // screen doesn't re-toast a stale result from a previous visit.
+    ref.listen<ExportState>(exportControllerProvider, (previous, next) {
+      final message = next.errorMessage ?? next.successMessage;
+      final previousMessage = previous?.errorMessage ?? previous?.successMessage;
+      if (message != null && message != previousMessage) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+      }
+    });
+    final isExporting = ref.watch(exportControllerProvider.select((s) => s.isExporting));
+
+    Future<void> handleExport(_ExportAction action) async {
+      final currentArtwork = ref.read(canvasProvider);
+      final canvasSize = ref.read(canvasSizeProvider).value;
+      final controller = ref.read(exportControllerProvider.notifier);
+      switch (action) {
+        case _ExportAction.gallery:
+          await controller.exportToGallery(currentArtwork, canvasSize);
+        case _ExportAction.share:
+          await controller.exportViaShareSheet(currentArtwork, canvasSize);
+      }
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -60,6 +100,34 @@ class EditorScreen extends ConsumerWidget {
             onPressed: isEmpty ? null : () => ref.read(canvasProvider.notifier).clearAll(),
             icon: const Icon(Icons.delete_outline),
           ),
+          PopupMenuButton<_ExportAction>(
+            key: const Key('export-menu-button'),
+            tooltip: 'PNGを書き出す',
+            enabled: !isEmpty && !isExporting,
+            onSelected: handleExport,
+            icon: isExporting
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.ios_share),
+            itemBuilder: (context) => const [
+              PopupMenuItem(
+                key: Key('export-menu-gallery'),
+                value: _ExportAction.gallery,
+                child: ListTile(
+                  leading: Icon(Icons.save_alt_outlined),
+                  title: Text('ギャラリーに保存'),
+                ),
+              ),
+              PopupMenuItem(
+                key: Key('export-menu-share'),
+                value: _ExportAction.share,
+                child: ListTile(leading: Icon(Icons.share_outlined), title: Text('共有')),
+              ),
+            ],
+          ),
         ],
       ),
       // `Stack` overlay instead of `Scaffold.bottomNavigationBar` (2026-07-16
@@ -68,7 +136,7 @@ class EditorScreen extends ConsumerWidget {
       // height at all, so switching between draw/eraser/edit — whose
       // toolbar rows used to differ in height — can never again trigger
       // the underlay's fit-to-canvas recompute (`underlayFitCoordinatorProvider`
-      // listens for `canvasProvider`'s `canvasSize` to change) and make the
+      // listens for `canvasSizeProvider`'s value to change) and make the
       // underlay visibly jump. `EditorToolbar` floats on top, at the
       // bottom, as a normal `Positioned` overlay.
       body: Stack(

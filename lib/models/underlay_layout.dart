@@ -113,6 +113,15 @@ class UnderlayLayout {
     );
   }
 
+  /// Alias of [toMap] — named to match the `toJson`/`fromJson` naming used
+  /// by [Artwork]/[Vertex]/[PolygonShape]'s `ArtworkDocument` serialization
+  /// (Phase Hγ). Kept as a thin alias rather than a rename so existing
+  /// [toMap]/[fromMap] call sites and tests are unaffected.
+  Map<String, Object?> toJson() => toMap();
+
+  /// Alias of [fromMap] — see [toJson].
+  factory UnderlayLayout.fromJson(Map<String, Object?> json) => UnderlayLayout.fromMap(json);
+
   @override
   bool operator ==(Object other) {
     return identical(this, other) ||

@@ -90,4 +90,47 @@ void main() {
       expect(state.errorMessage, isNull);
     });
   });
+
+  group('UnderlayController.setImagePath (Phase Hγ — gallery 新規作成/開く)', () {
+    test('sets the image path directly, without going through the picker', () {
+      final container = ProviderContainer(
+        overrides: [underlayPickerProvider.overrideWithValue(_FakeUnderlayPicker())],
+      );
+      addTearDown(container.dispose);
+
+      container.read(underlayProvider.notifier).setImagePath('/documents/underlays/a1.jpg');
+
+      final state = container.read(underlayProvider);
+      expect(state.imagePath, '/documents/underlays/a1.jpg');
+      expect(state.errorMessage, isNull);
+    });
+
+    test('a null argument clears a previously set image path (for a new artwork)', () async {
+      final picker = _FakeUnderlayPicker()..nextPath = '/tmp/photo.jpg';
+      final container = ProviderContainer(
+        overrides: [underlayPickerProvider.overrideWithValue(picker)],
+      );
+      addTearDown(container.dispose);
+      await container.read(underlayProvider.notifier).pickImage();
+      expect(container.read(underlayProvider).imagePath, isNotNull);
+
+      container.read(underlayProvider.notifier).setImagePath(null);
+
+      expect(container.read(underlayProvider).imagePath, isNull);
+    });
+
+    test('clears a previous error even though it does not touch imagePath', () async {
+      final picker = _FakeUnderlayPicker()..nextError = Exception('boom');
+      final container = ProviderContainer(
+        overrides: [underlayPickerProvider.overrideWithValue(picker)],
+      );
+      addTearDown(container.dispose);
+      await container.read(underlayProvider.notifier).pickImage();
+      expect(container.read(underlayProvider).errorMessage, isNotNull);
+
+      container.read(underlayProvider.notifier).setImagePath('/documents/underlays/a1.jpg');
+
+      expect(container.read(underlayProvider).errorMessage, isNull);
+    });
+  });
 }

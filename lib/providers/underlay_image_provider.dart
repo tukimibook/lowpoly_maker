@@ -4,7 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../geometry/underlay_fit.dart';
-import 'canvas_provider.dart';
+import 'canvas_size_provider.dart';
 import 'underlay_layout_provider.dart';
 import 'underlay_provider.dart';
 
@@ -30,15 +30,15 @@ final underlayImageProvider = FutureProvider<ui.Image?>((ref) async {
 /// canvas is resized (e.g. device rotation).
 ///
 /// This provider's *value* is never read — it exists purely to register
-/// the [Ref.listen] side effects below exactly once. Watch/read it from
-/// somewhere that lives for the whole editing session (`UnderlayLayer`) to
-/// wire it up; nothing else needs to depend on it.
+/// the side effects below exactly once. Watch/read it from somewhere that
+/// lives for the whole editing session (`UnderlayLayer`) to wire it up;
+/// nothing else needs to depend on it.
 final underlayFitCoordinatorProvider = Provider<void>((ref) {
   void refit() {
     final image = ref.read(underlayImageProvider).valueOrNull;
     if (image == null) return;
 
-    final canvasSize = ref.read(canvasProvider).canvasSize;
+    final canvasSize = ref.read(canvasSizeProvider).value;
     if (canvasSize.isEmpty) return;
 
     final layoutController = ref.read(underlayLayoutProvider);
@@ -56,5 +56,15 @@ final underlayFitCoordinatorProvider = Provider<void>((ref) {
   ref.listen(underlayImageProvider, (previous, next) {
     if (next.valueOrNull != null) refit();
   });
-  ref.listen(canvasProvider.select((artwork) => artwork.canvasSize), (previous, next) => refit());
+
+  // `canvasSizeProvider`'s value lives on a plain `ValueNotifier` (Phase Hγ,
+  // #9 — moved out of `Artwork`/`canvasProvider` so it can never re-enter
+  // the undo stack), not a `StateNotifierProvider`'s state, so it can't be
+  // observed via `ref.listen(...select(...))` the way `canvasProvider` used
+  // to be. `addListener`/`removeListener` is the same pattern this file
+  // already relies on implicitly through `ValueNotifier`-backed controllers
+  // elsewhere (`underlayLayoutProvider`).
+  final canvasSizeController = ref.read(canvasSizeProvider);
+  canvasSizeController.addListener(refit);
+  ref.onDispose(() => canvasSizeController.removeListener(refit));
 });
