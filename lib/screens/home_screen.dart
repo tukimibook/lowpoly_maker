@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app.dart';
+import '../providers/gallery_provider.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Polygon Art'),
@@ -38,7 +40,11 @@ class HomeScreen extends StatelessWidget {
               ),
               const SizedBox(height: 32),
               FilledButton.icon(
+                // Same reset path as GalleryScreen's FAB (defect-fix #5):
+                // clear leftover canvas / underlay / tool mode before pushing
+                // the editor, so a previous session cannot leak in.
                 onPressed: () {
+                  ref.read(galleryControllerProvider).createNewArtwork();
                   Navigator.of(context).pushNamed(PolygonArtApp.editorRoute);
                 },
                 icon: const Icon(Icons.add),

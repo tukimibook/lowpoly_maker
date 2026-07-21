@@ -1,4 +1,5 @@
 import 'package:file/memory.dart';
+import 'package:flutter/painting.dart' show Offset;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -6,10 +7,16 @@ import 'package:polygon_art_app/models/artwork.dart';
 import 'package:polygon_art_app/models/artwork_document.dart';
 import 'package:polygon_art_app/models/artwork_index.dart';
 import 'package:polygon_art_app/models/artwork_summary.dart';
+import 'package:polygon_art_app/models/canvas_mode.dart';
+import 'package:polygon_art_app/models/draw_mode.dart';
 import 'package:polygon_art_app/models/underlay_layout.dart';
 import 'package:polygon_art_app/providers/artwork_repository_provider.dart';
 import 'package:polygon_art_app/providers/canvas_provider.dart';
+import 'package:polygon_art_app/providers/detach_cycle_provider.dart';
 import 'package:polygon_art_app/providers/gallery_provider.dart';
+import 'package:polygon_art_app/providers/polygon_edit_target_provider.dart';
+import 'package:polygon_art_app/providers/selected_vertex_provider.dart';
+import 'package:polygon_art_app/providers/tessellation_provider.dart';
 import 'package:polygon_art_app/providers/underlay_layout_provider.dart';
 import 'package:polygon_art_app/providers/underlay_provider.dart';
 import 'package:polygon_art_app/repositories/artwork_repository.dart';
@@ -82,6 +89,32 @@ void main() {
       expect(container.read(underlayProvider).imagePath, isNull);
       expect(container.read(underlayLayoutProvider).value, UnderlayLayout.initial);
     });
+
+    test(
+      'resets editor session UI (tool mode, selection, cycles) to defaults '
+      '(defect-fix #5)',
+      () {
+        final container = _containerWithRepository(repository);
+        addTearDown(container.dispose);
+        container.read(canvasModeProvider.notifier).state = CanvasMode.eraser;
+        container.read(drawModeProvider.notifier).state = DrawMode.trace;
+        container.read(selectedVertexProvider.notifier).state = 'v1';
+        container.read(polygonCycleIndexProvider.notifier).state = 3;
+        container.read(edgeCycleIndexProvider.notifier).state = 2;
+        container.read(detachCycleIndexProvider.notifier).state = 4;
+        container.read(isTessellatingProvider.notifier).state = true;
+
+        container.read(galleryControllerProvider).createNewArtwork();
+
+        expect(container.read(canvasModeProvider), CanvasMode.draw);
+        expect(container.read(drawModeProvider), DrawMode.tap);
+        expect(container.read(selectedVertexProvider), isNull);
+        expect(container.read(polygonCycleIndexProvider), -1);
+        expect(container.read(edgeCycleIndexProvider), -1);
+        expect(container.read(detachCycleIndexProvider), 0);
+        expect(container.read(isTessellatingProvider), isFalse);
+      },
+    );
   });
 
   group('GalleryController.openArtwork', () {
@@ -130,15 +163,38 @@ void main() {
       expect(container.read(underlayLayoutProvider).value, UnderlayLayout.initial);
     });
 
+    test(
+      'resets editor session UI so a previous eraser/edit mode does not leak '
+      'into the reopened artwork (defect-fix #5)',
+      () async {
+        final document = ArtworkDocument(artwork: _savedArtwork('saved-4'));
+        await repository.saveArtwork(document);
+        final container = _containerWithRepository(repository);
+        addTearDown(container.dispose);
+        container.read(canvasModeProvider.notifier).state = CanvasMode.edit;
+        container.read(drawModeProvider.notifier).state = DrawMode.trace;
+        container.read(selectedVertexProvider.notifier).state = 'stale-vertex';
+
+        await container.read(galleryControllerProvider).openArtwork('saved-4');
+
+        expect(container.read(canvasModeProvider), CanvasMode.draw);
+        expect(container.read(drawModeProvider), DrawMode.tap);
+        expect(container.read(selectedVertexProvider), isNull);
+      },
+    );
+
     test('returns false and leaves providers untouched for a missing id', () async {
       final container = _containerWithRepository(repository);
       addTearDown(container.dispose);
       final originalId = container.read(canvasProvider).id;
+      container.read(canvasModeProvider.notifier).state = CanvasMode.eraser;
 
       final opened = await container.read(galleryControllerProvider).openArtwork('missing');
 
       expect(opened, isFalse);
       expect(container.read(canvasProvider).id, originalId);
+      // Failed open must not clobber session UI either.
+      expect(container.read(canvasModeProvider), CanvasMode.eraser);
     });
   });
 
