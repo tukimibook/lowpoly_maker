@@ -79,7 +79,12 @@ class ExportController extends StateNotifier<ExportState> {
   /// it and rely on [state] for the `SnackBar` message instead.
   Future<bool> exportToGallery(Artwork artwork, Size canvasSize) async {
     return _runExport(artwork, canvasSize, (bytes) async {
-      await _galleryTarget.saveImageBytes(bytes, name: _fileNameFor(artwork));
+      // `gal`'s `name` must NOT include an extension — it detects one from
+      // the bytes themselves and appends it internally (see
+      // `GalleryExportTarget.saveImageBytes`'s doc). Passing the
+      // extension-suffixed name here would produce a double-extensioned
+      // file (e.g. `My Art.png.png`) on the device's gallery.
+      await _galleryTarget.saveImageBytes(bytes, name: _baseFileNameFor(artwork));
       return 'ギャラリーに保存しました';
     });
   }
@@ -88,7 +93,10 @@ class ExportController extends StateNotifier<ExportState> {
   /// (at [canvasSize]). Returns whether it succeeded.
   Future<bool> exportViaShareSheet(Artwork artwork, Size canvasSize) async {
     return _runExport(artwork, canvasSize, (bytes) async {
-      await _shareTarget.shareImageBytes(bytes, fileName: _fileNameFor(artwork));
+      // Unlike `gal` (see `exportToGallery`), `share_plus`'s
+      // `fileNameOverrides` *is* the full, displayed file name, so this one
+      // needs the extension.
+      await _shareTarget.shareImageBytes(bytes, fileName: '${_baseFileNameFor(artwork)}.png');
       return null; // The share sheet itself is the confirmation UI.
     });
   }
@@ -121,18 +129,20 @@ class ExportController extends StateNotifier<ExportState> {
     }
   }
 
-  /// A short, artist-facing filename — the artwork's own title (already
-  /// freeform Japanese/emoji-safe text the artist chose) with characters
-  /// that are invalid across every target filesystem stripped, falling
-  /// back to the artwork's [Artwork.id] if that leaves nothing usable
-  /// (e.g. a title made up entirely of stripped characters).
-  String _fileNameFor(Artwork artwork) {
+  /// A short, artist-facing filename *without* an extension — the
+  /// artwork's own title (already freeform Japanese/emoji-safe text the
+  /// artist chose) with characters that are invalid across every target
+  /// filesystem stripped, falling back to the artwork's [Artwork.id] if
+  /// that leaves nothing usable (e.g. a title made up entirely of stripped
+  /// characters). Callers append whatever extension their own target
+  /// actually expects — see [exportToGallery] vs [exportViaShareSheet].
+  String _baseFileNameFor(Artwork artwork) {
     final sanitized = artwork.title.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
     // A title made up *entirely* of stripped characters (e.g. "///") would
-    // otherwise sanitize into a useless all-underscore name ("___.png") —
-    // just as unusable as an empty one, so it falls back the same way.
+    // otherwise sanitize into a useless all-underscore name ("___") — just
+    // as unusable as an empty one, so it falls back the same way.
     final isUsable = sanitized.isNotEmpty && sanitized.replaceAll('_', '').isNotEmpty;
-    return '${isUsable ? sanitized : artwork.id}.png';
+    return isUsable ? sanitized : artwork.id;
   }
 
   /// Turns a caught export failure into Japanese, artist-facing text

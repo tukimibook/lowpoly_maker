@@ -111,7 +111,10 @@ void main() {
       expect(result, isTrue);
       expect(galleryTarget.callCount, 1);
       expect(galleryTarget.savedBytes, _pngBytes);
-      expect(galleryTarget.savedName, 'My Art.png');
+      // No extension: `gal` appends its own, detected from the bytes (see
+      // `GalleryExportTarget.saveImageBytes`'s doc) — passing one here
+      // would double it up (`"My Art.png.png"`).
+      expect(galleryTarget.savedName, 'My Art');
       expect(controller.state.isExporting, isFalse);
       expect(controller.state.errorMessage, isNull);
       expect(controller.state.successMessage, 'ギャラリーに保存しました');
@@ -125,7 +128,7 @@ void main() {
 
       await controller.exportToGallery(_artwork(title: 'a/b:c*d?e"f<g>h|i'), _canvasSize);
 
-      expect(galleryTarget.savedName, 'a_b_c_d_e_f_g_h_i.png');
+      expect(galleryTarget.savedName, 'a_b_c_d_e_f_g_h_i');
     });
 
     test('falls back to the artwork id when the title sanitizes to nothing', () async {
@@ -136,7 +139,7 @@ void main() {
 
       await controller.exportToGallery(_artwork(title: '///', id: 'artwork-42'), _canvasSize);
 
-      expect(galleryTarget.savedName, 'artwork-42.png');
+      expect(galleryTarget.savedName, 'artwork-42');
     });
 
     test('sets isExporting while the render/save is in flight', () async {
@@ -235,6 +238,36 @@ void main() {
       expect(controller.state.errorMessage, isNull);
       expect(controller.state.successMessage, isNotNull);
     });
+  });
+
+  group('ExportController file naming contract (gallery vs. share sheet)', () {
+    test(
+      'passes the gallery target a bare name (no extension) but the share target a '
+      'name with one, for the same artwork — gal appends its own extension '
+      'internally, so a pre-appended one would double up (e.g. "My Art.png.png")',
+      () async {
+        final galleryTarget = _RecordingGalleryTarget();
+        final shareTarget = _RecordingShareTarget();
+        final galleryController = ExportController(
+          _FakeRenderer(bytes: _pngBytes),
+          galleryTarget,
+          _RecordingShareTarget(),
+        );
+        final shareController = ExportController(
+          _FakeRenderer(bytes: _pngBytes),
+          _RecordingGalleryTarget(),
+          shareTarget,
+        );
+        addTearDown(galleryController.dispose);
+        addTearDown(shareController.dispose);
+
+        await galleryController.exportToGallery(_artwork(title: 'My Art'), _canvasSize);
+        await shareController.exportViaShareSheet(_artwork(title: 'My Art'), _canvasSize);
+
+        expect(galleryTarget.savedName, 'My Art');
+        expect(shareTarget.sharedFileName, 'My Art.png');
+      },
+    );
   });
 
   group('ExportController.exportViaShareSheet', () {

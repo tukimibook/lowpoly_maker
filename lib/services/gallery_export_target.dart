@@ -10,6 +10,14 @@ import 'package:gal/gal.dart';
 /// rather than `image_picker` being called inline.
 abstract class GalleryExportTarget {
   /// Saves [bytes] (already PNG-encoded) to the gallery under [name].
+  ///
+  /// [name] must NOT include a file extension: the real ([Gal]-backed)
+  /// implementation detects one from [bytes] itself and appends it — a
+  /// caller that already appends its own (e.g. `"$title.png"`) ends up
+  /// with a broken, double-extensioned file name (`"$title.png.png"`) on
+  /// the device's gallery. See `ExportController`'s `_baseFileNameFor`,
+  /// which callers should use to build [name].
+  ///
   /// Rethrows whatever the underlying platform reports (e.g. [GalException]
   /// — permission denied, disk full, unsupported format) — `ExportController`
   /// is responsible for catching it and turning it into a user-facing
