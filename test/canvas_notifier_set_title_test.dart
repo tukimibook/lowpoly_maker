@@ -39,7 +39,7 @@ void main() {
       final before = notifier.state;
 
       notifier.setTitle(kDefaultArtworkTitle);
-      notifier.setTitle('  ${kDefaultArtworkTitle}  ');
+      notifier.setTitle('  $kDefaultArtworkTitle  ');
 
       expect(identical(notifier.state, before) || notifier.state == before, isTrue);
       expect(notifier.state.title, kDefaultArtworkTitle);

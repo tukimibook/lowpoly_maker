@@ -1,5 +1,4 @@
 import 'package:file/memory.dart';
-import 'package:flutter/painting.dart' show Offset;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
