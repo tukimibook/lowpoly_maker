@@ -7,15 +7,11 @@ import '../../models/draw_mode.dart';
 import '../../models/underlay_layout.dart';
 import '../../providers/canvas_provider.dart';
 import '../../providers/detach_cycle_provider.dart';
-import '../../providers/drag_preview_provider.dart';
 import '../../providers/polygon_edit_target_provider.dart';
 import '../../providers/selected_vertex_provider.dart';
 import '../../providers/tessellation_provider.dart';
-import '../../providers/trace_gesture_provider.dart';
-import '../../providers/trace_stroke_preview_provider.dart';
 import '../../providers/underlay_layout_provider.dart';
 import '../../providers/underlay_provider.dart';
-import '../../providers/vertex_drag_preview_provider.dart';
 import '../../providers/viewport_provider.dart';
 
 /// Height each row (common + mode-specific) reserves. Two rows land the
@@ -86,18 +82,13 @@ class _CommonRow extends ConsumerWidget {
 
     void selectMode(CanvasMode newMode) {
       ref.read(canvasModeProvider.notifier).state = newMode;
-      ref.read(weldArmedProvider.notifier).state = false;
+      // Always drop in-flight previews (including whole-polygon drag) so a
+      // mid-gesture mode switch cannot leave a stale preview committed later.
+      clearGesturePreviews(ref.read);
       if (newMode != CanvasMode.edit) {
-        ref.read(selectedVertexProvider.notifier).state = null;
-        ref.read(detachCycleIndexProvider.notifier).state = 0;
-        ref.read(polygonCycleIndexProvider.notifier).state = -1;
-        ref.read(edgeCycleIndexProvider.notifier).state = -1;
-        ref.read(vertexDragPreviewProvider).value = null;
-      }
-      if (newMode != CanvasMode.draw) {
-        ref.read(dragPreviewProvider).value = null;
-        ref.read(traceGestureProvider).reset();
-        ref.read(traceStrokePreviewProvider).clear();
+        clearEditSelectionUi(ref.read);
+      } else {
+        ref.read(weldArmedProvider.notifier).state = false;
       }
     }
 
@@ -219,9 +210,7 @@ class _DrawModeRow extends ConsumerWidget {
       // No gesture can possibly be in flight while a toolbar button press
       // is being handled, but reset defensively anyway — mirrors
       // `_CommonRow.selectMode`'s own cleanup on every other mode switch.
-      ref.read(dragPreviewProvider).value = null;
-      ref.read(traceGestureProvider).reset();
-      ref.read(traceStrokePreviewProvider).clear();
+      clearGesturePreviews(ref.read);
     }
 
     return SizedBox(
@@ -381,7 +370,9 @@ class _EditModeRow extends ConsumerWidget {
                 : null,
             onPressed: () {
               ref.read(weldArmedProvider.notifier).state = true;
-              ScaffoldMessenger.of(context).showSnackBar(
+              final messenger = ScaffoldMessenger.of(context);
+              messenger.clearSnackBars();
+              messenger.showSnackBar(
                 const SnackBar(content: Text('Tap a vertex to weld')),
               );
             },
@@ -391,9 +382,7 @@ class _EditModeRow extends ConsumerWidget {
             tooltip: '選択を解除',
             iconSize: 28,
             onPressed: () {
-              ref.read(selectedVertexProvider.notifier).state = null;
-              ref.read(detachCycleIndexProvider.notifier).state = 0;
-              ref.read(weldArmedProvider.notifier).state = false;
+              clearEditSelectionUi(ref.read, resetWholeShapeCycles: false);
             },
             icon: const Icon(Icons.close),
           ),

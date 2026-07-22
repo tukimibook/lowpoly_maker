@@ -772,18 +772,12 @@ void main() {
       'their fixed midpoint, without placing any draft point',
       (tester) async {
         final container = await pumpEditor(tester);
-        // Eraser mode, on an empty canvas: its 1-finger action
-        // (`handleEraseTap`, fired once from `onScaleStart`) is a no-op
-        // with nothing under the touch to erase, so a pinch/pan started
-        // here is guaranteed to have no side effect on `Artwork` — while
-        // still sharing draw mode's `GestureDetector` (a lone
-        // `ScaleGestureRecognizer`, no competing tap/long-press
-        // recognizers), so the arena resolves immediately with no slop,
-        // just like a real single-`ScaleGestureRecognizer` widget. Edit
-        // mode's extra tap/long-press recognizers would otherwise eat a
-        // chunk of these small steps as slop before the arena resolves.
-        await tester.tap(find.byTooltip('消しゴムモード'));
-        await tester.pump();
+        // Draw mode on an empty canvas: a multi-finger pinch sets
+        // `hadMultiFinger`, so the 1-finger draft preview is discarded on
+        // release and `Artwork` stays empty. Draw mode's detector is
+        // scale-only (eraser's tap recognizer would add arena slop; edit
+        // mode's long-press would too), so these small interleaved steps
+        // resolve immediately.
         final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
         // Symmetric about a fixed midpoint (200, 150), so the focal point
         // never moves — isolates the scale change from any panning.
@@ -832,11 +826,9 @@ void main() {
       "the viewport's offset by exactly that movement, leaving scale at 1",
       (tester) async {
         final container = await pumpEditor(tester);
-        // Same reasoning as the pinch test above: eraser mode on an empty
-        // canvas has no 1-finger side effect, and shares draw mode's
-        // slop-free single-recognizer `GestureDetector`.
-        await tester.tap(find.byTooltip('消しゴムモード'));
-        await tester.pump();
+        // Same reasoning as the pinch test above: draw mode on an empty
+        // canvas discards the 1-finger preview when a second finger joins,
+        // and keeps a slop-free scale-only `GestureDetector`.
         final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
         const delta = Offset(40, -25);
 

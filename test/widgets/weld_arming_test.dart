@@ -241,6 +241,73 @@ void main() {
 
         expect(container.read(weldArmedProvider), isFalse);
         expect(container.read(canvasProvider).vertices.containsKey(mergeId), isTrue);
+        // Armed failure must not fall through to selection switching.
+        expect(container.read(selectedVertexProvider), keepId);
+      },
+    );
+
+    testWidgets(
+      'long-press dragging a vertex while armed clears the weld arm',
+      (tester) async {
+        final container = await _pumpEditor(tester);
+        final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
+
+        await _closeTriangleAt(tester, canvasTopLeft, const [
+          Offset(50, 50),
+          Offset(150, 50),
+          Offset(100, 150),
+        ]);
+
+        await tester.tap(find.byTooltip('編集モード'));
+        await tester.pump();
+
+        final vertexId = container.read(canvasProvider).polygons.single.vertexIds.first;
+        final pos = container.read(canvasProvider).vertices[vertexId]!.position;
+        await tester.tapAt(canvasTopLeft + pos);
+        await tester.pump();
+
+        await tester.tap(_weldButton());
+        await tester.pump();
+        expect(container.read(weldArmedProvider), isTrue);
+
+        final gesture = await tester.startGesture(canvasTopLeft + pos);
+        await tester.pump(const Duration(milliseconds: 600));
+        await gesture.moveBy(const Offset(10, 10));
+        await tester.pump();
+        await gesture.up();
+        await tester.pump();
+
+        expect(container.read(weldArmedProvider), isFalse);
+      },
+    );
+
+    testWidgets(
+      'pressing the weld button twice keeps a single SnackBar visible',
+      (tester) async {
+        final container = await _pumpEditor(tester);
+        final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
+
+        await _closeTriangleAt(tester, canvasTopLeft, const [
+          Offset(50, 50),
+          Offset(150, 50),
+          Offset(100, 150),
+        ]);
+
+        await tester.tap(find.byTooltip('編集モード'));
+        await tester.pump();
+
+        final vertexId = container.read(canvasProvider).polygons.single.vertexIds.first;
+        final pos = container.read(canvasProvider).vertices[vertexId]!.position;
+        await tester.tapAt(canvasTopLeft + pos);
+        await tester.pump();
+
+        await tester.tap(_weldButton());
+        await tester.pump();
+        await tester.tap(_weldButton());
+        await tester.pump();
+
+        expect(find.text('Tap a vertex to weld'), findsOneWidget);
+        expect(container.read(weldArmedProvider), isTrue);
       },
     );
   });

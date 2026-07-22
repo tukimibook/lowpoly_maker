@@ -280,17 +280,17 @@ class PolygonCanvas extends ConsumerWidget {
 
       // Explicit weld only while the toolbar has armed [weldArmedProvider]
       // — tapping another vertex without arming merely changes selection.
+      // Armed taps never fall through to selection switching (success,
+      // failure, empty canvas, and same-vertex taps all consume the arm).
       if (ref.read(weldArmedProvider)) {
-        var welded = false;
         if (selected != null && tappedId != null && tappedId != selected) {
           if (notifier.weldVertices(selected, tappedId)) {
             ref.read(selectedVertexProvider.notifier).state = selected;
             HapticFeedback.mediumImpact();
-            welded = true;
           }
         }
         ref.read(weldArmedProvider.notifier).state = false;
-        if (welded) return;
+        return;
       }
 
       ref.read(selectedVertexProvider.notifier).state = tappedId;
@@ -346,6 +346,10 @@ class PolygonCanvas extends ConsumerWidget {
         preferredVertexId: previouslySelected,
       );
       if (vertexId == null) return;
+
+      // A long-press drag is a move, not a weld target pick — never leave
+      // the toolbar's weld arm sticky across this gesture.
+      ref.read(weldArmedProvider.notifier).state = false;
 
       ref.read(selectedVertexProvider.notifier).state = vertexId;
       // A long-press that lands on a *different* vertex than the one
@@ -534,12 +538,20 @@ class PolygonCanvas extends ConsumerWidget {
           return GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTapUp: (details) => handleEditTap(details.localPosition),
-            onLongPressStart: (details) =>
-                startVertexDrag(details.localPosition),
+            onLongPressStart: (details) {
+              // `onScaleStart` fires before long-press resolves and may have
+              // already opened a whole-polygon drag preview — discard it so
+              // the vertex drag owns the gesture exclusively.
+              polygonDragPreview.value = null;
+              startVertexDrag(details.localPosition);
+            },
             onLongPressMoveUpdate: (details) =>
                 updateVertexDrag(details.localPosition),
             onLongPressEnd: (details) => commitVertexDrag(),
             onLongPressCancel: () {
+              // Do NOT clear [weldArmedProvider] here — Flutter also cancels
+              // the long-press recognizer on an ordinary tap (when the tap
+              // wins the arena), which would disarm before `onTapUp` ran.
               vertexDragPreview.value = null;
             },
             // A plain (non-long-press) 1-finger drag translates the whole
@@ -556,15 +568,25 @@ class PolygonCanvas extends ConsumerWidget {
                 // already had one) — a long-press vertex drag from finger
                 // 1 has no business surviving into a pinch/pan either.
                 vertexDragPreview.value = null;
+                polygonDragPreview.value = null;
                 return;
               }
+              if (vertexDragPreview.value != null) return;
               startPolygonDrag();
             },
             onScaleUpdate: (details) {
               if (applyViewportUpdate(details)) return;
+              // Vertex long-press drag wins over whole-polygon drag for the
+              // rest of this physical gesture.
+              if (vertexDragPreview.value != null) return;
               updatePolygonDrag(details.focalPointDelta);
             },
             onScaleEnd: (details) {
+              if (vertexDragPreview.value != null) {
+                polygonDragPreview.value = null;
+                endGestureSubCycle(details);
+                return;
+              }
               if (endGestureSubCycle(details)) {
                 commitPolygonDrag();
               } else {
@@ -573,6 +595,28 @@ class PolygonCanvas extends ConsumerWidget {
                 polygonDragPreview.value = null;
               }
             },
+            child: content,
+          );
+        }
+
+        // Eraser is its own detector so draw mode keeps a scale-only arena
+        // (no TapGestureRecognizer competing with commit-on-release). Deletes
+        // happen on `onTapUp` only — never from `onScaleStart`, which also
+        // fires for the first finger of a pinch/pan.
+        if (mode == CanvasMode.eraser) {
+          return GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTapUp: (details) {
+              notifier.handleEraseTap(
+                worldPosition(details.localPosition),
+                hitRadius: hitRadius(),
+              );
+            },
+            onScaleStart: beginGestureSubCycle,
+            onScaleUpdate: (details) {
+              applyViewportUpdate(details);
+            },
+            onScaleEnd: endGestureSubCycle,
             child: content,
           );
         }
@@ -588,24 +632,14 @@ class PolygonCanvas extends ConsumerWidget {
               dragPreview.value = null;
               return;
             }
-            if (mode == CanvasMode.eraser) {
-              notifier.handleEraseTap(
-                worldPosition(details.localFocalPoint),
-                hitRadius: hitRadius(),
-              );
-              return;
-            }
             updateDrawPreview(details.localFocalPoint);
           },
           onScaleUpdate: (details) {
             if (applyViewportUpdate(details)) return;
-            if (mode == CanvasMode.eraser) return;
             updateDrawPreview(details.localFocalPoint);
           },
           onScaleEnd: (details) {
-            final shouldCommit = endGestureSubCycle(details);
-            if (mode == CanvasMode.eraser) return;
-            if (shouldCommit) {
+            if (endGestureSubCycle(details)) {
               commitDrawDrag();
             } else {
               // Not a genuine single-finger release — discard rather than
