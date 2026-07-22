@@ -24,6 +24,12 @@ import '../repositories/artwork_repository.dart';
 /// callback — so it's testable with nothing more than a fake/in-memory
 /// [ArtworkRepository] and plain values, no `ProviderContainer` or
 /// rendered widget required.
+///
+/// Blank, never-persisted artworks (see [ArtworkDocumentBlank.isBlank] and
+/// [_persistedArtworkIds]) are not written to disk — so "新規作成 → 何も描かず戻る"
+/// does not pollute the gallery. Persistence membership is tracked only in
+/// memory (successful saves + [acknowledgePersistedArtwork]); this gate
+/// never does per-save `file.exists` / `readArtwork` I/O.
 class AutoSaveService {
   AutoSaveService({
     // Named `repository` (not `_repository`) so callers outside this
@@ -65,6 +71,20 @@ class AutoSaveService {
   /// still-running background save.
   Future<void>? lastSave;
 
+  /// Artwork ids known (in memory only) to already have a gallery entry —
+  /// filled by a successful [_saveNow] and by [acknowledgePersistedArtwork]
+  /// (e.g. after `GalleryController.openArtwork`). Used so blank skips never
+  /// hit storage to ask "does this file exist?".
+  final Set<String> _persistedArtworkIds = {};
+
+  /// Records that [id] already lives on disk / in the gallery index, without
+  /// touching storage. Call after successfully opening an existing artwork
+  /// so a later blank snapshot of that same id is still allowed to save
+  /// (avoids leaving stale geometry on disk while memory is empty).
+  void acknowledgePersistedArtwork(String id) {
+    _persistedArtworkIds.add(id);
+  }
+
   /// Records [document] as the latest snapshot to save, (re)starting the
   /// debounce countdown. Cheap — just resets a [Timer] — until [debounce]
   /// elapses with no further call, so it's safe to call on every single
@@ -79,7 +99,8 @@ class AutoSaveService {
   /// app-pause/dispose call sites, so the last few seconds of edits before
   /// a kill are never silently lost waiting for [debounce] to elapse.
   /// [document] defaults to whatever [scheduleSave] most recently recorded;
-  /// a no-op (no save) if nothing has ever been scheduled.
+  /// a no-op (no save) if nothing has ever been scheduled — or if the
+  /// snapshot is a never-persisted blank (see [_saveNow]).
   Future<void> flush([ArtworkDocument? document]) async {
     _timer?.cancel();
     _timer = null;
@@ -107,29 +128,38 @@ class AutoSaveService {
   /// error instead of a recoverable failure — a save failure (disk full,
   /// permission denial, a thumbnail capture that throws, …) must never
   /// crash the app (Phase Hγ #19).
+  ///
+  /// Skips entirely when [document] is [ArtworkDocumentBlank.isBlank] and
+  /// its id is not yet in [_persistedArtworkIds] (new empty canvas).
   Future<void> _saveNow(ArtworkDocument document) async {
+    final id = document.artwork.id;
+    if (document.isBlank && !_persistedArtworkIds.contains(id)) {
+      return;
+    }
+
     try {
       await _repository.saveArtwork(document);
 
       final thumbnailBytes = await _safeCaptureThumbnail();
       if (thumbnailBytes != null) {
-        await _repository.saveThumbnail(document.artwork.id, thumbnailBytes);
+        await _repository.saveThumbnail(id, thumbnailBytes);
       }
 
       final index = await _repository.readIndex();
       final summary = ArtworkSummary(
-        id: document.artwork.id,
+        id: id,
         title: document.artwork.title,
         updatedAt: DateTime.now(),
-        thumbnailPath: _repository.thumbnailPathFor(document.artwork.id),
-        documentPath: _repository.documentPathFor(document.artwork.id),
+        thumbnailPath: _repository.thumbnailPathFor(id),
+        documentPath: _repository.documentPathFor(id),
       );
       final artworks = [
         for (final existing in index.artworks)
-          if (existing.id != document.artwork.id) existing,
+          if (existing.id != id) existing,
         summary,
       ];
       await _repository.writeIndex(ArtworkIndex(artworks: artworks));
+      _persistedArtworkIds.add(id);
     } catch (error, stackTrace) {
       _onError(error, stackTrace);
     }

@@ -82,9 +82,51 @@ class EditorScreen extends ConsumerWidget {
       }
     }
 
+    Future<void> handleRename() async {
+      final controller = TextEditingController(text: artwork.title);
+      final newTitle = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) {
+          return AlertDialog(
+            title: const Text('作品名を変更'),
+            content: TextField(
+              key: const Key('artwork-rename-field'),
+              controller: controller,
+              autofocus: true,
+              decoration: const InputDecoration(hintText: '作品名'),
+              onSubmitted: (value) => Navigator.of(dialogContext).pop(value),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('キャンセル'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(controller.text),
+                child: const Text('保存'),
+              ),
+            ],
+          );
+        },
+      );
+      // Dispose after the dialog route has finished unmounting its TextField,
+      // otherwise the field may still notify the controller during exit.
+      WidgetsBinding.instance.addPostFrameCallback((_) => controller.dispose());
+      if (newTitle == null) return;
+      ref.read(canvasProvider.notifier).setTitle(newTitle);
+    }
+
     return Scaffold(
       appBar: AppBar(
-        title: Text(artwork.title),
+        title: InkWell(
+          key: const Key('artwork-title'),
+          onTap: handleRename,
+          borderRadius: BorderRadius.circular(8),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            child: Text(artwork.title),
+          ),
+        ),
         actions: [
           IconButton(
             tooltip: underlayImagePath == null ? '下絵を選択' : '下絵を変更',

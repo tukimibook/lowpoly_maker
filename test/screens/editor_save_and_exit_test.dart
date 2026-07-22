@@ -155,6 +155,9 @@ void main() {
         final repository = _TestArtworkRepository(MemoryFileSystem())
           ..onSave = () => saveGate.future;
         await pumpEditorFromHome(tester, repository: repository);
+        // Must have content — a blank new canvas is skipped by auto-save and
+        // would complete flush synchronously (no spinner / no saveArtwork).
+        await _drawOneTriangle(tester);
 
         await tester.tap(_saveAndExitButtonFinder());
         await tester.pump(); // Don't settle: the save never completes yet.
@@ -181,6 +184,25 @@ void main() {
 
         expect(find.byType(GalleryScreen), findsOneWidget);
         expect(repository.saveArtworkCallCount, 1);
+      },
+    );
+
+    testWidgets(
+      'leaving a brand-new blank canvas via save-and-exit does not create a '
+      'gallery entry (empty-canvas auto-save suppression)',
+      (tester) async {
+        final repository = _TestArtworkRepository(MemoryFileSystem());
+        await pumpEditorFromHome(tester, repository: repository);
+
+        await tester.runAsync(() async {
+          await tester.tap(_saveAndExitButtonFinder());
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+        });
+        await tester.pumpAndSettle();
+
+        expect(find.byType(GalleryScreen), findsOneWidget);
+        expect(repository.saveArtworkCallCount, 0);
+        expect((await repository.readIndex()).artworks, isEmpty);
       },
     );
   });

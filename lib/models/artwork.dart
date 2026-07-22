@@ -12,6 +12,11 @@ part 'artwork.freezed.dart';
 /// in place without one (Phase Hγ, U1 / `.cursor/plans/plan_phase_H_gamma.md`).
 const int kArtworkSchemaVersion = 1;
 
+/// Default [Artwork.title] for a brand-new, never-renamed piece — also the
+/// sentinel [ArtworkDocumentBlank.isBlank] uses so a title-only edit is
+/// treated as worth persisting (rename-ready; empty-canvas auto-save skip).
+const String kDefaultArtworkTitle = '無題の作品';
+
 /// The full state of a single artwork being edited.
 ///
 /// Vertices are normalized into a single shared pool ([vertices]), keyed by
@@ -41,7 +46,7 @@ abstract class Artwork with _$Artwork {
     @Default(<String>[]) List<String> draftVertexIds,
   }) = _Artwork;
 
-  factory Artwork.empty({required String id, String title = '無題の作品'}) {
+  factory Artwork.empty({required String id, String title = kDefaultArtworkTitle}) {
     return Artwork(id: id, title: title);
   }
 

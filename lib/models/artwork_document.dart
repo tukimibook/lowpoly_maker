@@ -65,3 +65,18 @@ extension ArtworkDocumentJson on ArtworkDocument {
     return json;
   }
 }
+
+/// Whether this document is a "discard-worthy" empty new piece for
+/// auto-save skip (Phase Hγ): no geometry, no underlay, and still the
+/// default title. Pure / synchronous — no I/O. A renamed empty canvas is
+/// intentionally *not* blank so a future rename feature can persist
+/// title-only edits without revisiting this gate.
+extension ArtworkDocumentBlank on ArtworkDocument {
+  bool get isBlank {
+    return artwork.polygons.isEmpty &&
+        artwork.draftVertexIds.isEmpty &&
+        artwork.vertices.isEmpty &&
+        underlayImagePath == null &&
+        artwork.title == kDefaultArtworkTitle;
+  }
+}

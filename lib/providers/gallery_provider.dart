@@ -7,6 +7,7 @@ import '../models/canvas_mode.dart';
 import '../models/draw_mode.dart';
 import '../models/underlay_layout.dart';
 import 'artwork_repository_provider.dart';
+import 'auto_save_provider.dart';
 import 'canvas_provider.dart';
 import 'detach_cycle_provider.dart';
 import 'polygon_edit_target_provider.dart';
@@ -61,6 +62,10 @@ class GalleryController {
     final repository = await _ref.read(artworkRepositoryProvider.future);
     final document = await repository.readArtwork(id);
     if (document == null) return false;
+
+    // Memory-only: tell auto-save this id already belongs in the gallery
+    // before loadArtwork triggers scheduleSave — no per-save file.exists.
+    _ref.read(autoSaveServiceProvider)?.acknowledgePersistedArtwork(id);
 
     _ref.read(canvasProvider.notifier).loadArtwork(document.artwork);
     _ref.read(underlayProvider.notifier).setImagePath(document.underlayImagePath);

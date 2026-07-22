@@ -161,6 +161,14 @@ class _CommonRow extends ConsumerWidget {
                         ],
                       ),
                     ),
+                    IconButton(
+                      key: const Key('underlay-clear-button'),
+                      tooltip: '下絵を削除',
+                      onPressed: hasUnderlay
+                          ? () => ref.read(underlayProvider.notifier).setImagePath(null)
+                          : null,
+                      icon: const Icon(Icons.hide_image_outlined),
+                    ),
                   ],
                 );
               },

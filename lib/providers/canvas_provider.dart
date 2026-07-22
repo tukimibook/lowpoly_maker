@@ -1242,6 +1242,17 @@ class CanvasNotifier extends StateNotifier<Artwork> {
     state = artwork;
   }
 
+  /// Updates [Artwork.title] (document metadata, not geometry). Trims
+  /// whitespace; an empty result falls back to [kDefaultArtworkTitle].
+  /// No-op when the resolved title equals the current one. Deliberately
+  /// does **not** call [_recordUndo] — undo is geometry-only.
+  void setTitle(String title) {
+    final trimmed = title.trim();
+    final resolved = trimmed.isEmpty ? kDefaultArtworkTitle : trimmed;
+    if (resolved == state.title) return;
+    state = state.copyWith(title: resolved);
+  }
+
   /// Removes every confirmed polygon and any in-progress draft, along with
   /// every vertex in the shared pool.
   void clearAll() {
