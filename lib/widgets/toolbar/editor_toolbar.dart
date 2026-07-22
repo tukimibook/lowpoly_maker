@@ -86,6 +86,7 @@ class _CommonRow extends ConsumerWidget {
 
     void selectMode(CanvasMode newMode) {
       ref.read(canvasModeProvider.notifier).state = newMode;
+      ref.read(weldArmedProvider.notifier).state = false;
       if (newMode != CanvasMode.edit) {
         ref.read(selectedVertexProvider.notifier).state = null;
         ref.read(detachCycleIndexProvider.notifier).state = 0;
@@ -338,6 +339,7 @@ class _EditModeRow extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final selectedVertexId = ref.watch(selectedVertexProvider);
+    final weldArmed = ref.watch(weldArmedProvider);
     final notifier = ref.read(canvasProvider.notifier);
     // Watched so `isVertexShared`/`polygonsReferencing` below stay fresh
     // across weld/detach/undo — mirrors the row above.
@@ -359,17 +361,39 @@ class _EditModeRow extends ConsumerWidget {
             },
           );
 
+    final colorScheme = Theme.of(context).colorScheme;
+
     return SizedBox(
       height: _kRowHeight,
       child: Row(
         children: [
           Expanded(child: Center(child: content)),
           IconButton(
+            key: const Key('weld-vertices-button'),
+            tooltip: 'Weld vertices',
+            iconSize: 28,
+            color: weldArmed ? colorScheme.primary : null,
+            style: weldArmed
+                ? IconButton.styleFrom(
+                    foregroundColor: colorScheme.onPrimaryContainer,
+                    backgroundColor: colorScheme.primaryContainer,
+                  )
+                : null,
+            onPressed: () {
+              ref.read(weldArmedProvider.notifier).state = true;
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Tap a vertex to weld')),
+              );
+            },
+            icon: const Icon(Icons.merge_type),
+          ),
+          IconButton(
             tooltip: '選択を解除',
             iconSize: 28,
             onPressed: () {
               ref.read(selectedVertexProvider.notifier).state = null;
               ref.read(detachCycleIndexProvider.notifier).state = 0;
+              ref.read(weldArmedProvider.notifier).state = false;
             },
             icon: const Icon(Icons.close),
           ),

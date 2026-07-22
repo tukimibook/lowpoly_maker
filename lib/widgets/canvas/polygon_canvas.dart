@@ -278,12 +278,19 @@ class PolygonCanvas extends ConsumerWidget {
         preferredVertexId: selected,
       );
 
-      if (selected != null && tappedId != null && tappedId != selected) {
-        if (notifier.weldVertices(selected, tappedId)) {
-          ref.read(selectedVertexProvider.notifier).state = selected;
-          HapticFeedback.mediumImpact();
-          return;
+      // Explicit weld only while the toolbar has armed [weldArmedProvider]
+      // — tapping another vertex without arming merely changes selection.
+      if (ref.read(weldArmedProvider)) {
+        var welded = false;
+        if (selected != null && tappedId != null && tappedId != selected) {
+          if (notifier.weldVertices(selected, tappedId)) {
+            ref.read(selectedVertexProvider.notifier).state = selected;
+            HapticFeedback.mediumImpact();
+            welded = true;
+          }
         }
+        ref.read(weldArmedProvider.notifier).state = false;
+        if (welded) return;
       }
 
       ref.read(selectedVertexProvider.notifier).state = tappedId;
