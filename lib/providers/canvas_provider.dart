@@ -744,9 +744,16 @@ class CanvasNotifier extends StateNotifier<Artwork> {
   ///
   /// A single [_recordUndo] + a single [state] update — "一括生成 = Undo
   /// 1回" (`.cursor/plans/plan_phase_G.md`).
+  /// Replaces [polygonId] with the triangles in [result].
+  ///
+  /// [result.points] layout must match [triangulate]: outer [boundaryRing]
+  /// IDs first, then each hole ring in [holeRings] flattened in order, then
+  /// any Steiner points (minted as fresh vertices). Hole polygons themselves
+  /// are left untouched — only [polygonId] is removed.
   void commitTessellationResult({
     required String polygonId,
     required List<String> boundaryRing,
+    List<List<String>> holeRings = const [],
     required TessellationResult result,
   }) {
     final polygon = state.polygons.where((p) => p.id == polygonId).firstOrNull;
@@ -756,8 +763,14 @@ class CanvasNotifier extends StateNotifier<Artwork> {
     final indexToVertexId = <int, String>{
       for (var i = 0; i < boundaryRing.length; i++) i: boundaryRing[i],
     };
+    var nextIndex = boundaryRing.length;
+    for (final holeRing in holeRings) {
+      for (final id in holeRing) {
+        indexToVertexId[nextIndex++] = id;
+      }
+    }
     final newVertices = <String, Vertex>{};
-    for (var i = boundaryRing.length; i < result.points.length; i++) {
+    for (var i = nextIndex; i < result.points.length; i++) {
       final vertex = Vertex(id: _uuid.v4(), position: result.points[i]);
       indexToVertexId[i] = vertex.id;
       newVertices[vertex.id] = vertex;

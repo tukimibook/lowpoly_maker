@@ -5,21 +5,32 @@ import 'dart:ui';
 import 'package:delaunay/delaunay.dart';
 
 import '../geometry/point_in_polygon.dart';
+import '../geometry/self_intersection.dart';
 
 /// Input to [triangulate], safe to pass across an `Isolate` boundary via
 /// `compute()` — plain data only, no Flutter engine objects and no
 /// closures. [boundary] must already be a validated, safe-to-triangulate
 /// ring (see `geometry/tessellation_input.dart`'s `sanitizeTessellationBoundary`).
+///
+/// Optional [holes] are closed rings of polygons fully contained in
+/// [boundary]; their interiors must not receive mesh triangles (Phase-1
+/// hole MVP — unconstrained Delaunay plus exclusion filters, not a true
+/// CDT library).
 class TessellationRequest {
   const TessellationRequest({
     required this.boundary,
     required this.maxEdge,
     required this.minEdge,
+    this.holes = const [],
   });
 
   /// Closed boundary ring in world coordinates, in order (last point
   /// implicitly connects back to the first).
   final List<Offset> boundary;
+
+  /// Closed hole rings fully inside [boundary]. Empty when there are no
+  /// contained shapes. Each ring is world-coordinate offsets in order.
+  final List<List<Offset>> holes;
 
   /// Triangle edges longer than this are subdivided further.
   final double maxEdge;
@@ -34,9 +45,10 @@ class TessellationRequest {
 class TessellationResult {
   const TessellationResult({required this.points, required this.triangleIndices});
 
-  /// Every point referenced by [triangleIndices]: [TessellationRequest.boundary]
-  /// first, in the same order, followed by any interior/subdivision points
-  /// introduced during meshing.
+  /// Every point referenced by [triangleIndices], in this order:
+  /// 1. [TessellationRequest.boundary] (unchanged, in order),
+  /// 2. each hole ring from [TessellationRequest.holes] flattened in order,
+  /// 3. any Steiner / subdivision points introduced during meshing.
   final List<Offset> points;
 
   /// Each triangle as a triple of indices into [points].
@@ -74,37 +86,30 @@ const double kTessellationDefaultMinEdge = 25.0;
 /// other than plain [Offset] values.
 ///
 /// Algorithm: unconstrained Delaunay triangulation of the current point
-/// set (G-spike Tier B, `delaunay` package — which always fills the
-/// convex hull, not a constrained polygon interior), then **discards any
-/// triangle whose centroid falls outside [TessellationRequest.boundary]**
-/// via [isPointInPolygon] (so concave rings do not keep the convex-hull
-/// "gap" triangles), then iteratively subdivides every remaining triangle
-/// edge longer than [TessellationRequest.maxEdge] by inserting a jittered
-/// midpoint and re-triangulating, until either no edge exceeds
-/// [TessellationRequest.maxEdge] or [kTessellationMaxIterations] is
-/// reached. An edge is left un-subdivided once splitting it would leave
-/// either half shorter than [TessellationRequest.minEdge], even if it is
-/// still longer than [TessellationRequest.maxEdge] — this is what actually
-/// stops the loop for small/oddly-shaped input instead of subdividing
-/// forever.
-///
-/// The Point-in-Polygon filter runs *inside* this function (already
-/// dispatched via `compute()`), never as a second Isolate hop and never
-/// on the UI thread — see defect-fix #3.
+/// set (outer boundary + hole ring vertices + Steiner points), then keeps
+/// only triangles whose centroid lies inside [TessellationRequest.boundary]
+/// **and** outside every hole, and whose edges do not properly cross any
+/// hole ring — then iteratively subdivides long edges (skipping midpoints
+/// that fall inside a hole) until [maxEdge] / [minEdge] /
+/// [kTessellationMaxIterations] stop the loop.
 TessellationResult triangulate(TessellationRequest request) {
   final random = Random();
-  var points = List<Offset>.of(request.boundary);
+  final holes = request.holes;
+  var points = <Offset>[
+    ...request.boundary,
+    for (final hole in holes) ...hole,
+  ];
   var triangleIndices = const <(int, int, int)>[];
 
   for (var iteration = 0; iteration < kTessellationMaxIterations; iteration++) {
     final delaunay = Delaunay(_toFloat32List(points))..update();
-    // Filter *before* the edge-subdivision pass: exterior (convex-hull
-    // gap) triangles must not fuel further midpoints, or the next
-    // iteration just recreates more exterior triangles.
-    triangleIndices = _filterInteriorTriangles(
+    // Filter *before* the edge-subdivision pass: exterior / hole-filling
+    // triangles must not fuel further midpoints.
+    triangleIndices = _filterKeepTriangles(
       _groupTriangles(delaunay.triangles),
       points,
       request.boundary,
+      holes,
     );
 
     final midpointsToAdd = <Offset>[];
@@ -112,15 +117,18 @@ TessellationResult triangulate(TessellationRequest request) {
     for (final triangle in triangleIndices) {
       for (final (i, j) in _edgesOf(triangle)) {
         final edgeKey = i < j ? (i, j) : (j, i);
-        if (!processedEdges.add(edgeKey)) continue; // shared with a neighboring triangle
+        if (!processedEdges.add(edgeKey)) continue;
 
         final a = points[i];
         final b = points[j];
         final length = (a - b).distance;
         if (length <= request.maxEdge) continue;
-        if (length / 2 < request.minEdge) continue; // would over-shrink the halves
+        if (length / 2 < request.minEdge) continue;
 
-        midpointsToAdd.add(_jitteredMidpoint(a, b, random));
+        final midpoint = _jitteredMidpoint(a, b, random);
+        // Hole interior is off-limits for Steiner points.
+        if (_isInsideAnyHole(midpoint, holes)) continue;
+        midpointsToAdd.add(midpoint);
       }
     }
 
@@ -131,19 +139,77 @@ TessellationResult triangulate(TessellationRequest request) {
   return TessellationResult(points: points, triangleIndices: triangleIndices);
 }
 
-/// Keeps only those [triangles] whose centroid lies inside [boundary]
-/// (the artist's original ring). Dropped triangles are the unconstrained
-/// Delaunay fill of the convex-hull gaps outside a concave polygon.
-List<(int, int, int)> _filterInteriorTriangles(
+/// Keeps triangles in the annulus: inside [boundary], outside every hole,
+/// and not straddling a hole via a proper edge/ring crossing.
+List<(int, int, int)> _filterKeepTriangles(
   List<(int, int, int)> triangles,
   List<Offset> points,
   List<Offset> boundary,
+  List<List<Offset>> holes,
 ) {
   return [
     for (final triangle in triangles)
-      if (isPointInPolygon(_centroid(points, triangle), boundary)) triangle,
+      if (_shouldKeepTriangle(triangle, points, boundary, holes)) triangle,
   ];
 }
+
+bool _shouldKeepTriangle(
+  (int, int, int) triangle,
+  List<Offset> points,
+  List<Offset> boundary,
+  List<List<Offset>> holes,
+) {
+  final centroid = _centroid(points, triangle);
+  if (!isPointInPolygon(centroid, boundary)) return false;
+  if (_isInsideAnyHole(centroid, holes)) return false;
+  if (_triangleEdgesProperlyCrossAnyHole(points, triangle, holes)) {
+    return false;
+  }
+  return true;
+}
+
+bool _isInsideAnyHole(Offset point, List<List<Offset>> holes) {
+  for (final hole in holes) {
+    if (isPointInPolygon(point, hole)) return true;
+  }
+  return false;
+}
+
+bool _triangleEdgesProperlyCrossAnyHole(
+  List<Offset> points,
+  (int, int, int) triangle,
+  List<List<Offset>> holes,
+) {
+  if (holes.isEmpty) return false;
+  for (final (i, j) in _edgesOf(triangle)) {
+    final a = points[i];
+    final b = points[j];
+    for (final hole in holes) {
+      if (_segmentProperlyCrossesRing(a, b, hole)) return true;
+    }
+  }
+  return false;
+}
+
+/// True when segment `a`-`b` properly crosses a ring edge (shared endpoints
+/// with hole vertices are ignored so mesh edges that lie on the hole
+/// boundary are allowed).
+bool _segmentProperlyCrossesRing(Offset a, Offset b, List<Offset> ring) {
+  for (var i = 0; i < ring.length; i++) {
+    final c = ring[i];
+    final d = ring[(i + 1) % ring.length];
+    if (_samePoint(a, c) ||
+        _samePoint(a, d) ||
+        _samePoint(b, c) ||
+        _samePoint(b, d)) {
+      continue;
+    }
+    if (segmentsIntersect(a, b, c, d)) return true;
+  }
+  return false;
+}
+
+bool _samePoint(Offset p, Offset q) => p.dx == q.dx && p.dy == q.dy;
 
 Offset _centroid(List<Offset> points, (int, int, int) triangle) {
   final (i, j, k) = triangle;

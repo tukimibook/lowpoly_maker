@@ -1,6 +1,9 @@
+import 'dart:ui';
+
 import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../geometry/polygon_containment.dart';
 import '../geometry/tessellation_input.dart';
 import '../services/tessellation_service.dart';
 import 'canvas_provider.dart';
@@ -15,11 +18,11 @@ import 'canvas_provider.dart';
 final isTessellatingProvider = StateProvider<bool>((ref) => false);
 
 /// Orchestrates one polygon's tessellation end-to-end: sanitize its
-/// boundary ring, dispatch the heavy triangulation to a background
-/// `Isolate` via `compute()`, and — on success — commit the result to
-/// [canvasProvider] as a single undo entry. Kept separate from
-/// [CanvasNotifier] itself, which stays `Ref`-free and limited to plain
-/// `Artwork` mutation.
+/// boundary ring, collect fully-contained hole rings from other polygons,
+/// dispatch the heavy triangulation to a background `Isolate` via
+/// `compute()`, and — on success — commit the result to [canvasProvider]
+/// as a single undo entry. Kept separate from [CanvasNotifier] itself,
+/// which stays `Ref`-free and limited to plain `Artwork` mutation.
 class TessellationController {
   TessellationController(this._ref);
 
@@ -58,17 +61,45 @@ class TessellationController {
     final ring = (sanitized as TessellationBoundaryOk).vertexIds;
     final boundary = [for (final id in ring) artwork.vertices[id]!.position];
 
+    // Fully-contained other polygons become holes. Partial overlaps are
+    // skipped (fail-safe) — see [isRingFullyContained].
+    final holeRings = <List<String>>[];
+    final holeOffsets = <List<Offset>>[];
+    for (final other in artwork.polygons) {
+      if (other.id == polygonId) continue;
+      final otherSanitized = sanitizeTessellationBoundary(
+        other.vertexIds,
+        vertices: artwork.vertices,
+      );
+      if (otherSanitized is! TessellationBoundaryOk) continue;
+      final otherRing = otherSanitized.vertexIds;
+      final otherBoundary = [
+        for (final id in otherRing) artwork.vertices[id]!.position,
+      ];
+      if (!isRingFullyContained(outer: boundary, inner: otherBoundary)) {
+        continue;
+      }
+      holeRings.add(otherRing);
+      holeOffsets.add(otherBoundary);
+    }
+
     _ref.read(isTessellatingProvider.notifier).state = true;
     try {
       final result = await compute(
         triangulate,
-        TessellationRequest(boundary: boundary, maxEdge: maxEdge, minEdge: minEdge),
+        TessellationRequest(
+          boundary: boundary,
+          holes: holeOffsets,
+          maxEdge: maxEdge,
+          minEdge: minEdge,
+        ),
       );
       _ref
           .read(canvasProvider.notifier)
           .commitTessellationResult(
             polygonId: polygonId,
             boundaryRing: ring,
+            holeRings: holeRings,
             result: result,
           );
       return null;

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:polygon_art_app/geometry/point_in_polygon.dart';
 import 'package:polygon_art_app/geometry/tessellation_input.dart';
 import 'package:polygon_art_app/providers/canvas_provider.dart';
 import 'package:polygon_art_app/providers/tessellation_provider.dart';
@@ -105,5 +106,77 @@ void main() {
 
       expect(reason, isNull);
     });
+
+    test(
+      'fully contained inner polygon becomes a hole: it survives commit and '
+      'no output triangle centroid falls inside it; partial overlap is ignored',
+      () async {
+        final container = ProviderContainer();
+        addTearDown(container.dispose);
+        final notifier = container.read(canvasProvider.notifier);
+
+        // Outer square.
+        notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.blue);
+        notifier.handleDrawTap(const Offset(200, 0), fillColor: Colors.blue);
+        notifier.handleDrawTap(const Offset(200, 200), fillColor: Colors.blue);
+        notifier.handleDrawTap(const Offset(0, 200), fillColor: Colors.blue);
+        notifier.closePolygon(Colors.blue);
+        final outerId = notifier.state.polygons.single.id;
+
+        // Fully contained inner triangle.
+        notifier.handleDrawTap(const Offset(70, 70), fillColor: Colors.red);
+        notifier.handleDrawTap(const Offset(130, 70), fillColor: Colors.red);
+        notifier.handleDrawTap(const Offset(100, 130), fillColor: Colors.red);
+        notifier.closePolygon(Colors.red);
+        final innerId = notifier.state.polygons
+            .firstWhere((p) => p.id != outerId)
+            .id;
+
+        // Partial-overlap rectangle (must NOT become a hole / must not crash).
+        notifier.handleDrawTap(const Offset(180, 80), fillColor: Colors.green);
+        notifier.handleDrawTap(const Offset(220, 80), fillColor: Colors.green);
+        notifier.handleDrawTap(const Offset(220, 120), fillColor: Colors.green);
+        notifier.handleDrawTap(const Offset(180, 120), fillColor: Colors.green);
+        notifier.closePolygon(Colors.green);
+        final partialId = notifier.state.polygons
+            .firstWhere((p) => p.fillColor == Colors.green)
+            .id;
+
+        final reason = await container.read(tessellationControllerProvider).tessellate(
+          outerId,
+          maxEdge: 80,
+          minEdge: 15,
+        );
+
+        expect(reason, isNull);
+        expect(notifier.state.polygons.any((p) => p.id == outerId), isFalse);
+        expect(notifier.state.polygons.any((p) => p.id == innerId), isTrue);
+        expect(notifier.state.polygons.any((p) => p.id == partialId), isTrue);
+
+        final inner = notifier.state.polygons.firstWhere((p) => p.id == innerId);
+        final holeRing = [
+          for (final id in inner.vertexIds) notifier.state.vertices[id]!.position,
+        ];
+
+        for (final polygon in notifier.state.polygons) {
+          if (polygon.id == innerId || polygon.id == partialId) continue;
+          // Output mesh triangles from the outer tessellation.
+          final positions = [
+            for (final id in polygon.vertexIds)
+              notifier.state.vertices[id]!.position,
+          ];
+          if (positions.length < 3) continue;
+          final centroid = Offset(
+            (positions[0].dx + positions[1].dx + positions[2].dx) / 3,
+            (positions[0].dy + positions[1].dy + positions[2].dy) / 3,
+          );
+          expect(
+            isPointInPolygon(centroid, holeRing),
+            isFalse,
+            reason: 'mesh triangle must not sit inside the hole',
+          );
+        }
+      },
+    );
   });
 }
