@@ -50,7 +50,8 @@ void main() {
         );
 
         expect(result.triangleIndices, isNotEmpty);
-        // Point layout: outer (4) then hole (4) then Steiner…
+        // Point layout: outer (4) then hole (4); coarse CDT adds no Steiner.
+        expect(result.points, [...outer, ...hole]);
         expect(result.points.take(4), outer);
         expect(result.points.skip(4).take(4), hole);
 

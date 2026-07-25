@@ -29,4 +29,5 @@ poly2tri.dart   barrel export
 
 - Step 1–2: skeleton + `common/` shapes and predicates.
 - Step 3: Sweep / AdvancingFront / SweepContext / CDT facade.
-- App adapter (`TessellationRequest`): not yet implemented.
+- Step 4: App adapter at `lib/geometry/poly2tri_adapter.dart` (coarse CDT;
+  Steiner refinement still pending).
