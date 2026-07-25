@@ -26,17 +26,14 @@ class P2tTriangle {
   /// Edge opposite vertex `i` is marked Delaunay (legalize scratch).
   final List<bool> delaunayEdge;
 
-  bool _interior = false;
+  /// Whether this triangle has been marked as interior (mesh-clean).
+  bool isInterior = false;
 
   P2tPoint getPoint(int index) => _points[index];
 
   List<P2tPoint> get points => _points;
 
   P2tTriangle? getNeighbor(int index) => _neighbors[index];
-
-  bool get isInterior => _interior;
-
-  set isInterior(bool value) => _interior = value;
 
   /// Whether [point] is one of this triangle's vertices (by reference).
   bool containsPoint(P2tPoint point) =>

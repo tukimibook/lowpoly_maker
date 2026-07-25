@@ -21,26 +21,24 @@ class P2tFrontNode {
 
 /// Advancing front: doubly-linked list of [P2tFrontNode]s with a search hint.
 class AdvancingFront {
-  AdvancingFront(this.head, this.tail) : _searchNode = head;
+  AdvancingFront(this.head, this.tail) : searchNode = head;
 
   P2tFrontNode head;
   P2tFrontNode tail;
-  P2tFrontNode _searchNode;
 
-  P2tFrontNode get searchNode => _searchNode;
-
-  set searchNode(P2tFrontNode node) => _searchNode = node;
+  /// Search cursor hint for [locateNode] / [locatePoint].
+  P2tFrontNode searchNode;
 
   /// Locate the node whose x-span contains [x] (search from hint).
   P2tFrontNode? locateNode(double x) {
-    var node = _searchNode;
+    var node = searchNode;
 
     if (x < node.value) {
       var prev = node.prev;
       while (prev != null) {
         node = prev;
         if (x >= node.value) {
-          _searchNode = node;
+          searchNode = node;
           return node;
         }
         prev = node.prev;
@@ -51,7 +49,7 @@ class AdvancingFront {
         node = next;
         if (x < node.value) {
           final result = node.prev!;
-          _searchNode = result;
+          searchNode = result;
           return result;
         }
         next = node.next;
@@ -63,7 +61,7 @@ class AdvancingFront {
   /// Locate the front node holding [point] by reference identity.
   P2tFrontNode? locatePoint(P2tPoint point) {
     final px = point.x;
-    P2tFrontNode? node = _searchNode;
+    P2tFrontNode? node = searchNode;
     final nx = node.point.x;
 
     if (px == nx) {
@@ -99,7 +97,7 @@ class AdvancingFront {
     }
 
     if (node != null) {
-      _searchNode = node;
+      searchNode = node;
     }
     return node;
   }
