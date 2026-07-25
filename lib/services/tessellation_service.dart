@@ -26,10 +26,11 @@ class TessellationRequest {
   /// contained shapes. Each ring is world-coordinate offsets in order.
   final List<List<Offset>> holes;
 
-  /// Reserved for Steiner refinement (not applied in the coarse-CDT step).
+  /// Target grid spacing for Steiner points (mesh density).
   final double maxEdge;
 
-  /// Reserved for Steiner refinement (not applied in the coarse-CDT step).
+  /// Minimum spacing between Steiner points and existing vertices / other
+  /// Steiners (also drives constraint-edge clearance).
   final double minEdge;
 }
 
@@ -40,19 +41,18 @@ class TessellationResult {
   /// Every point referenced by [triangleIndices], in this order:
   /// 1. [TessellationRequest.boundary] (unchanged, in order),
   /// 2. each hole ring from [TessellationRequest.holes] flattened in order,
-  /// 3. any Steiner / subdivision points introduced during meshing
-  ///    (none in the coarse-CDT step).
+  /// 3. any Steiner points introduced for density control.
   final List<Offset> points;
 
   /// Each triangle as a triple of indices into [points].
   final List<(int, int, int)> triangleIndices;
 }
 
-/// Safety valve retained for the upcoming Steiner-refinement step.
+/// Safety valve retained for historical tuning / future iterative refine.
 const int kTessellationMaxIterations = 10;
 
-/// Jitter half-width retained for the upcoming Steiner-refinement step
-/// (unused by the coarse CDT path).
+/// Historical jitter half-width from the old Delaunay midpoint refine path
+/// (unused by the poly2tri Steiner-grid path).
 const double kTessellationJitter = 1.0;
 
 /// Tuned world-space defaults from the Phase G on-device visual tuning pass
@@ -66,13 +66,16 @@ const double kTessellationDefaultMinEdge = 25.0;
 /// (and cannot) touch `Artwork`/`CanvasNotifier`/any Flutter engine object
 /// other than plain [Offset] values.
 ///
-/// Algorithm (Step 4): constrained Delaunay triangulation via the vendored
-/// poly2tri port ([runPoly2TriCdt]). Returns a coarse mesh; [maxEdge] /
-/// [minEdge] refinement is deferred to a later step.
+/// Algorithm: constrained Delaunay triangulation via vendored poly2tri,
+/// with Steiner points on a [TessellationRequest.maxEdge]-spaced grid
+/// filtered by [TessellationRequest.minEdge] and constraint clearance
+/// ([runPoly2TriCdt]).
 TessellationResult triangulate(TessellationRequest request) {
   final mesh = runPoly2TriCdt(
     boundary: request.boundary,
     holes: request.holes,
+    maxEdge: request.maxEdge,
+    minEdge: request.minEdge,
   );
   return TessellationResult(
     points: mesh.points,

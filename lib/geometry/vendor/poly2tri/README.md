@@ -29,5 +29,5 @@ poly2tri.dart   barrel export
 
 - Step 1–2: skeleton + `common/` shapes and predicates.
 - Step 3: Sweep / AdvancingFront / SweepContext / CDT facade.
-- Step 4: App adapter at `lib/geometry/poly2tri_adapter.dart` (coarse CDT;
-  Steiner refinement still pending).
+- Step 4–5: App adapter at `lib/geometry/poly2tri_adapter.dart` (CDT +
+  Steiner grid filtered by maxEdge / minEdge / constraint clearance).

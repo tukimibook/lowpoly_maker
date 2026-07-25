@@ -13,6 +13,8 @@ Offset _centroid(List<Offset> points, (int, int, int) triangle) {
   );
 }
 
+double _dist(Offset a, Offset b) => (a - b).distance;
+
 void main() {
   group('triangulate with holes', () {
     test('TessellationRequest defaults holes to empty', () {
@@ -25,7 +27,7 @@ void main() {
     });
 
     test(
-      'no triangle centroid lies inside a fully contained hole',
+      'no triangle centroid lies inside a fully contained hole (with Steiner)',
       () {
         const outer = [
           Offset(0, 0),
@@ -44,21 +46,30 @@ void main() {
           const TessellationRequest(
             boundary: outer,
             holes: [hole],
-            maxEdge: 80,
-            minEdge: 15,
+            maxEdge: 40,
+            minEdge: 10,
           ),
         );
 
         expect(result.triangleIndices, isNotEmpty);
-        // Point layout: outer (4) then hole (4); coarse CDT adds no Steiner.
-        expect(result.points, [...outer, ...hole]);
+        // Point layout: outer (4) then hole (4) then Steiner…
         expect(result.points.take(4), outer);
         expect(result.points.skip(4).take(4), hole);
+        expect(result.points.length, greaterThan(8));
 
         for (final triangle in result.triangleIndices) {
           final c = _centroid(result.points, triangle);
           expect(isPointInPolygon(c, outer), isTrue);
           expect(isPointInPolygon(c, hole), isFalse);
+        }
+
+        // Steiner points themselves must stay outside the hole.
+        for (final p in result.points.skip(8)) {
+          expect(isPointInPolygon(p, hole), isFalse);
+          expect(isPointInPolygon(p, outer), isTrue);
+          for (final v in [...outer, ...hole]) {
+            expect(_dist(p, v), greaterThanOrEqualTo(10));
+          }
         }
       },
     );
