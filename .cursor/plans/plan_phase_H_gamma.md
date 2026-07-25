@@ -4,7 +4,7 @@
 > **運用**: 本ファイルは「現在着手中のフェーズ」専用ファイル。ファイル名にフェーズ名を含める（`plan_phase_<フェーズ>.md`）運用とし、Hγ が完了し次のフェーズ（Hδ）に進んだら、本ファイルの中身を Hδ の詳細（[plan_future_phases.md](plan_future_phases.md) から該当セクションを移動）に差し替え、ファイル名も `plan_phase_H_delta.md` にリネームして使い続ける（Hα → Hβ → F → G → Hγ でこの運用を継続、2026-07-20）。Hγ 完了時の実装完了メモ・検討メモは、差し替え時に [plan_archive_history.md](plan_archive_history.md) へ移す。Phase 完了コミット後は **現在のステータス** を次 Phase 用に更新する。
 
 ## 📍 現在のステータス (2026-07-20)
-- **完了フェーズ**: Phase A〜E+・G-spike・Hα・Hβ・F・G がすべて完了。G では `triangulate`（Delaunay + maxEdge 細分化）を実装し、`maxEdge`/`minEdge` の world 値（150.0/25.0）を実機チューニングで確定（#20）。詳細は [plan_archive_history.md](plan_archive_history.md) 参照。
+- **完了フェーズ**: Phase A〜E+・G-spike・Hα・Hβ・F・G がすべて完了。G のテッセレーションは 2026-07-25 に純 Dart poly2tri CDT + Steiner 精錬へエンジン刷新済み（`delaunay` 廃止）。`maxEdge`/`minEdge` の world 値（150.0/25.0）は #20 で確定。詳細は [plan_archive_history.md](plan_archive_history.md) 参照。
 - **現在のフェーズ**: Phase G が完了し、Phase Hγ に着手。
 
 ## Phase Hγ: 保存・作品一覧（v1 必須）

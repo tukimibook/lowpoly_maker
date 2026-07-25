@@ -189,6 +189,11 @@ void main() {
 
       await tester.tap(find.byKey(const Key('gallery-tile-a1')));
       await tester.pumpAndSettle();
+      // Opening an artwork schedules AutoSave's debounce timer; drain it so
+      // the binding does not see a pending Timer after the widget tree is
+      // disposed.
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pumpAndSettle();
 
       expect(container.read(canvasProvider).id, 'a1');
       expect(find.text(_testArtworkTitle), findsOneWidget); // EditorScreen's AppBar title

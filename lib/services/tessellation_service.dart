@@ -26,11 +26,11 @@ class TessellationRequest {
   /// contained shapes. Each ring is world-coordinate offsets in order.
   final List<List<Offset>> holes;
 
-  /// Target grid spacing for Steiner points (mesh density).
+  /// Target edge / grid spacing for edge-splitting and Steiner density.
   final double maxEdge;
 
-  /// Minimum spacing between Steiner points and existing vertices / other
-  /// Steiners (also drives constraint-edge clearance).
+  /// Minimum spacing for Steiner safety filters (ratio-linked to [maxEdge]
+  /// when using [kTessellationDefaultMinEdge]).
   final double minEdge;
 }
 
@@ -41,7 +41,11 @@ class TessellationResult {
   /// Every point referenced by [triangleIndices], in this order:
   /// 1. [TessellationRequest.boundary] (unchanged, in order),
   /// 2. each hole ring from [TessellationRequest.holes] flattened in order,
-  /// 3. any Steiner points introduced for density control.
+  /// 3. edge-split insert points (new vertices on long constrained edges),
+  /// 4. interior Steiner points (density control).
+  ///
+  /// Steps 3–4 are minted as fresh vertices by
+  /// `CanvasNotifier.commitTessellationResult`.
   final List<Offset> points;
 
   /// Each triangle as a triple of indices into [points].
@@ -51,24 +55,25 @@ class TessellationResult {
 /// Safety valve retained for historical tuning / future iterative refine.
 const int kTessellationMaxIterations = 10;
 
-/// Historical jitter half-width from the old Delaunay midpoint refine path
-/// (unused by the poly2tri Steiner-grid path).
-const double kTessellationJitter = 1.0;
+/// Primary density parameter (world units). Look-tuned default.
+const double kTessellationDefaultMaxEdge = 120.0;
 
-/// Tuned world-space defaults from the Phase G on-device visual tuning pass
-/// (`test/geometry/tessellation_tuning_spike.dart`, iPhone14相当 390x844;
-/// spike script and its outputs removed after tuning — see plan #20).
-const double kTessellationDefaultMaxEdge = 150.0;
-const double kTessellationDefaultMinEdge = 25.0;
+/// [kTessellationDefaultMaxEdge] に対する minEdge の比率（max : min = ratio : 1）。
+const double kTessellationMinToMaxEdgeRatio = 8.0;
+
+/// Secondary spacing parameter, ratio-linked to [kTessellationDefaultMaxEdge]
+/// as `maxEdge / [kTessellationMinToMaxEdgeRatio]` (1:8). Changing the primary
+/// default scales this automatically for UX tuning.
+const double kTessellationDefaultMinEdge =
+    kTessellationDefaultMaxEdge / kTessellationMinToMaxEdgeRatio;
 
 /// Top-level function passed to `compute()` (Phase G, plan #17). Must not
 /// capture any outer state — it runs in a separate `Isolate` and must not
 /// (and cannot) touch `Artwork`/`CanvasNotifier`/any Flutter engine object
 /// other than plain [Offset] values.
 ///
-/// Algorithm: constrained Delaunay triangulation via vendored poly2tri,
-/// with Steiner points on a [TessellationRequest.maxEdge]-spaced grid
-/// filtered by [TessellationRequest.minEdge] and constraint clearance
+/// Algorithm: poly2tri CDT with contour edge-splitting, then jittered
+/// Steiner points filtered by [TessellationRequest.minEdge]
 /// ([runPoly2TriCdt]).
 TessellationResult triangulate(TessellationRequest request) {
   final mesh = runPoly2TriCdt(

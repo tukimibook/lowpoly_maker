@@ -25,7 +25,7 @@ void main() {
     });
 
     test(
-      'no triangle centroid lies inside a fully contained hole (with Steiner)',
+      'no triangle centroid lies inside a fully contained hole (with densify)',
       () {
         const outer = [
           Offset(0, 0),
@@ -50,7 +50,7 @@ void main() {
         );
 
         expect(result.triangleIndices, isNotEmpty);
-        // Point layout: outer (4) then hole (4) then Steiner…
+        // Point layout: outer (4) then hole (4) then edge-splits / Steiners…
         expect(result.points.take(4), outer);
         expect(result.points.skip(4).take(4), hole);
         expect(result.points.length, greaterThan(8));
@@ -61,10 +61,11 @@ void main() {
           expect(isPointInPolygon(c, hole), isFalse);
         }
 
-        // Steiner points themselves must stay outside the hole.
+        // Interior extras (strictly inside outer, outside hole) keep minEdge.
         for (final p in result.points.skip(8)) {
-          expect(isPointInPolygon(p, hole), isFalse);
-          expect(isPointInPolygon(p, outer), isTrue);
+          if (!isPointInPolygon(p, outer) || isPointInPolygon(p, hole)) {
+            continue;
+          }
           for (final v in [...outer, ...hole]) {
             expect(_dist(p, v), greaterThanOrEqualTo(10));
           }

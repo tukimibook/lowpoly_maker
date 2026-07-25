@@ -243,11 +243,22 @@
 - G 本番直前に `_polygonEdgeGraph` / `_shortestBoundaryPath` / `_absorbVerticesAlongNewSegment` / `_collapseConsecutive*` を `geometry/` へ純関数抽出（2026-07-14 commit `13836db`）。`buildPolygonEdgeGraph`/`findShortestBoundaryPath`（`lib/geometry/polygon_graph.dart`）、`findVerticesAlongSegment`（`lib/geometry/line_absorption.dart`）、`collapseConsecutiveRingIds`/`collapseConsecutiveOpenIds`/`hasNonConsecutiveDuplicate`（`lib/geometry/ring_collapse.dart`）として存在。
 - G 入力サニタイズ（#8）: `lib/geometry/tessellation_input.dart`（`sanitizeTessellationBoundary`/`weldCoincidentRingVertices`）＋ `lib/geometry/self_intersection.dart`（`segmentsIntersect`/`isSelfIntersectingRing`）。coincident-but-unwelded は正規化（自動溶接）、自己交差ポリゴンは弾く方針。
 - 当たり判定のインターフェース切り出し（#10）: `lib/geometry/vertex_hit_test.dart` に `VertexHitTest`／`LinearVertexHitTest` を新設し `CanvasNotifier` の `_findPolygonVertexNearIn`／`findVertexNear` を差し替え。内部実装は既存の O(n) 線形探索のまま。
-- `triangulate`（`lib/services/tessellation_service.dart`）本体: `delaunay` パッケージで初期分割 → 生成された三角形の辺を走査し `maxEdge` を超える辺の中点（ジッター付き、`kTessellationJitter = 1.0`）を追加 → 再分割、を繰り返す。`minEdge` 未達（分割後の半辺が `minEdge` を下回る）ならその辺の分割はスキップ。`kTessellationMaxIterations = 10` で強制停止。
+- ~~`triangulate`（`lib/services/tessellation_service.dart`）本体: `delaunay` パッケージで初期分割 → 生成された三角形の辺を走査し `maxEdge` を超える辺の中点（ジッター付き、`kTessellationJitter = 1.0`）を追加 → 再分割、を繰り返す。`minEdge` 未達（分割後の半辺が `minEdge` を下回る）ならその辺の分割はスキップ。`kTessellationMaxIterations = 10` で強制停止。~~
 - **重い三角分割は `compute()`（Isolate）で実行し、計算中は画面にローディングインジケータを表示する**（#17）。失敗時は Artwork 不変 + ユーザー通知（`TessellationRejectReason.computeFailed`）。`isTessellatingProvider` と `TessellationController.tessellate`（`lib/providers/tessellation_provider.dart`）、`_TessellationBlockingOverlay`（`AbsorbPointer`、`lib/screens/editor_screen.dart`）で実装。
+
+#### エンジン刷新後の現行仕様（2026-07-25〜、Phase G 完了後）
+
+穴空きポリゴン対応とスリバー排除のため、G 完了時点の `delaunay` 依存パイプラインを廃止し、純 Dart の poly2tri（Sweep-line CDT）内製エンジンへ差し替えた。
+
+- **エンジン**: `lib/geometry/vendor/poly2tri/` に poly2tri（BSD-3-Clause、上流 [jhasse/poly2tri](https://github.com/jhasse/poly2tri)）を純 Dart 移植。`CDT` / `Sweep` / `SweepContext` / `AdvancingFront` および `P2tPoint`・`P2tEdge`・`P2tTriangle`・述語（`orient2d` / `inCircle`）。Flutter / アプリモデル非依存。
+- **アダプター**: `lib/geometry/poly2tri_adapter.dart` の `runPoly2TriCdt` が `TessellationRequest`（`Offset` リング）↔ poly2tri を橋渡し。重複・近接座標は `kP2tEpsilon` 以内で同一 `P2tPoint` にマージ。`TessellationResult.points` のインデックス契約は **boundary → holes flatten → Steiner** を厳守。
+- **穴**: Phase-1 で導入した `TessellationRequest.holes`（完全内包ポリゴン）を真の制約辺として CDT に渡す（旧: 非制約 Delaunay + 重心フィルタ）。
+- **品質精錬（Steiner）**: `triangulate` 前に外枠 AABB 上へ `maxEdge` 間隔のグリッド Steiner を生成し `CDT.addPoint` で登録。フィルタは (1) 外枠の厳密内側かつ全穴の外側 (2) 既存頂点・他 Steiner から ≥ `minEdge` (3) 制約辺からのクリアランス（`max(kP2tEpsilon, minEdge * 0.25)`）(4) 上限 `kPoly2TriMaxSteinerPoints`。既定の `kTessellationDefaultMaxEdge` / `kTessellationDefaultMinEdge`（150.0 / 25.0）は継続利用。
+- **依存除去**: `flutter pub remove delaunay` 相当で `pubspec.yaml` から削除。旧検証用 `test/spike_tessellation_test.dart` を削除し、関連 Linter 警告を解消（`flutter analyze` → No issues found）。
 
 **完了条件**: 相談で確定した `maxEdge`/`minEdge` で、閉曲線内部が三角メッシュで埋まり、**max 超え三角が実用上残らない**。生成後に頂点編集可。計算中 UI フリーズなし（#17）。顔・シンプルなイラスト等で実機確認。`flutter analyze` / `flutter test` パス。
 → **達成済み（2026-07-20）**。`maxEdge`/`minEdge` の world 値（150.0/25.0）は実機チューニングで確定済み（#20）。`compute()` 経由の非同期実行・ローディングUI（#17）と合わせて配線完了。
+→ **エンジン刷新達成済み（2026-07-25）**。上記 poly2tri CDT + アダプター + Steiner 精錬に置換。穴付きフィクスチャでも制約辺を保持し穴内に三角形重心が落ちないことを単体テストで確認。
 
 **着手前チェックリスト（G 本番直前、すべて完了）**:
 - [x] 境界グラフ・吸着・リング畳みの純関数抽出（#6）（2026-07-14 commit `13836db`。単体テストは 2026-07-20 `test/geometry/polygon_graph_test.dart`／`line_absorption_test.dart`／`ring_collapse_test.dart`）
@@ -260,9 +271,10 @@
 
 **追加したテスト（G関連）**:
 - `compute()` ラッパーが Isolate 経由でも正しい結果を返すこと（#17）
-- テッセレーション出力で maxEdge 超え辺が実用上残らないこと・`minEdge`/最大イテレーションによるループ停止（#20）
+- ~~テッセレーション出力で maxEdge 超え辺が実用上残らないこと・`minEdge`/最大イテレーションによるループ停止（#20）~~（旧 delaunay 中点再分割前提）
+- poly2tri CDT コア（四角形・穴付き）およびアダプター経由の Steiner 精錬・穴制約（`test/geometry/vendor/poly2tri/`・`test/services/tessellation_service_test.dart`・`tessellation_holes_test.dart`）
 
-詳細な設計経緯・実装内容は本ファイル末尾の「検討メモ（G、2026-07-20）」を参照（Phase G 自体の検討メモは着手中の日常的なやり取りに分散しており、個別の日付エントリとしては記録が薄いため、上記完了済み仕様の記述をもって正本とする）。
+詳細な設計経緯・実装内容は本ファイル末尾の「検討メモ（G、2026-07-20）」および「2026-07-25: Phase G エンジン刷新」を参照。
 
 ## 検討メモ（過去アーカイブ: 2026-07-10〜07-15）
 
@@ -867,3 +879,14 @@ Phase G の実装・テストがすべて完了。次フェーズ（Hγ: 保存�
 - `plan_phase_G.md` を `plan_phase_H_gamma.md` にリネームし、内容を Phase Hγ（保存・作品一覧）専用に再構築（詳細仕様・着手前チェックリストを `plan_future_phases.md` から移行）。
 - `plan_future_phases.md` は未着手フェーズ（Hδ/R）の詳細・技術的負債表・テスト方針・リスクと対策の正本として残置し、移動元の跡地にはリンク案内のみを残した。
 - [ポリゴンアプリ再設計_e54196e6.plan.md](ポリゴンアプリ再設計_e54196e6.plan.md)（マスター）のファイル分割案内・frontmatter todos（`phase-g-tessellation` を completed に更新）も追随。
+
+### 2026-07-25: Phase G エンジン刷新（delaunay → 純 Dart poly2tri CDT）
+
+Phase G 完了後（Hγ 着手期間中）に実施した、テッセレーションエンジンの大規模アーキテクチャ刷新の記録。
+
+1. **エンジンの刷新**: 複雑な穴空きポリゴンへの対応とスリバー（極端に細長い三角形）排除のため、`delaunay` パッケージへの依存を完全に削除し、純 Dart 実装の poly2tri（Sweep-line algorithm）をベースとした内製 CDT エンジン（`lib/geometry/vendor/poly2tri/`）へ差し替えた。外部 pub 依存を増やさず、C++/JS 上流に忠実な shapes・predicates・Sweep・CDT ファサードを移植した。途中で検証した `dts` パッケージは古典的 CDT ではないこと等が判明し不採用、リポジトリはクリーンな状態へ戻したうえで本移植に進んだ。
+2. **アダプター層**: `lib/geometry/poly2tri_adapter.dart`（`runPoly2TriCdt`）を新設し、`TessellationRequest` / `Offset` と poly2tri 間の変換を担当。`TessellationResult.points` のインデックス契約（boundary → holes flatten → Steiner）を担保。`tessellation_service.triangulate` は adapter 呼び出しに一本化した。
+3. **品質精錬（Steiner 点）**: `maxEdge` / `minEdge` 制約を満たすため、`CDT.triangulate()` 前に外枠バウンディングボックス基準のグリッド Steiner を自動追加し `CDT.addPoint` で登録。内外判定・`minEdge` 近接排除・制約辺クリアランスの安全フィルターを組み込み、poly2tri が苦手とする近接点／線分上点によるクラッシュを回避した。
+4. **技術的負債の排除**: `flutter pub remove delaunay` により依存を除去。旧検証用 `test/spike_tessellation_test.dart` を削除し、vendor 内の不要 getter/setter やテストの不要 `dart:ui` import 等の Linter 警告を解消。`flutter analyze` は No issues found。
+
+関連テスト: `test/geometry/vendor/poly2tri/`、`test/services/tessellation_service_test.dart`、`test/services/tessellation_holes_test.dart`、`test/providers/tessellation_provider_test.dart`。

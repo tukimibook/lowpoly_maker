@@ -7,27 +7,34 @@ import 'vendor/poly2tri/poly2tri.dart';
 /// Hard cap on accepted Steiner points (pathological tiny [maxEdge]).
 const int kPoly2TriMaxSteinerPoints = 5000;
 
+/// Half-width of the collinear-avoidance jitter applied only to edge-split
+/// insert points (±world units). Kept invisible; never applied to original
+/// contour vertices.
+const double kEdgeSplitCollinearJitterHalf = 0.01;
+
+/// Visual Steiner jitter amplitude as a fraction of [minEdge]
+/// (`halfWidth = minEdge * this`).
+const double kSteinerVisualJitterFactor = 0.4;
+
 /// Constrained Delaunay mesh from an outer [boundary] and optional [holes],
-/// with optional Steiner points for mesh density control.
+/// with edge-splitting and optional Steiner points for mesh density.
 ///
-/// Used by `tessellation_service.triangulate` to bridge
-/// `TessellationRequest` ↔ vendored poly2tri [CDT].
+/// Pipeline:
+/// 1. Split long constrained edges (micro-jitter on inserts only)
+/// 2. Build poly2tri [CDT] from the split rings
+/// 3. Place jittered Steiner grid points, keep only safe candidates
+/// 4. [CDT.triangulate]
 ///
-/// Steiner candidates are placed on a [maxEdge]-spaced axis-aligned grid
-/// over the boundary AABB, then filtered for:
-/// - strict interior of [boundary] and exterior of every hole
-/// - clearance ≥ [minEdge] from existing vertices and other Steiners
-/// - clearance from constrained segments (see [_constraintClearance])
-///
-/// Duplicate / near-duplicate coordinates (within [kP2tEpsilon]) share one
-/// [P2tPoint]. Returned [points] follow contract order: [boundary], flattened
-/// [holes], then accepted Steiner [Offset]s. Triangle indices prefer the
-/// first slot that mapped to each [P2tPoint].
+/// Returned [points] follow contract order:
+/// original [boundary] → flattened original [holes] → edge-split inserts →
+/// interior Steiners. Triangle indices prefer the first slot that mapped to
+/// each [P2tPoint] (identity map via coordinate merge within [kP2tEpsilon]).
 ({List<Offset> points, List<(int, int, int)> triangleIndices}) runPoly2TriCdt({
   required List<Offset> boundary,
   List<List<Offset>> holes = const [],
   double maxEdge = double.infinity,
   double minEdge = 0,
+  math.Random? random,
 }) {
   if (boundary.length < 3) {
     throw ArgumentError.value(
@@ -37,33 +44,65 @@ const int kPoly2TriMaxSteinerPoints = 5000;
     );
   }
 
+  final rng = random ?? math.Random();
+
+  final splitBoundary = splitRingEdges(
+    boundary,
+    maxEdge: maxEdge,
+    random: rng,
+  );
+  final splitHoles = <List<Offset>>[
+    for (final hole in holes)
+      if (hole.length >= 3)
+        splitRingEdges(hole, maxEdge: maxEdge, random: rng),
+  ];
+
+  final edgeSplitInsertsOrdered = <Offset>[
+    ...collectEdgeSplitInserts(
+      originalRing: boundary,
+      splitRing: splitBoundary,
+    ),
+    for (var hi = 0, si = 0; hi < holes.length; hi++)
+      if (holes[hi].length >= 3) ...[
+        ...collectEdgeSplitInserts(
+          originalRing: holes[hi],
+          splitRing: splitHoles[si++],
+        ),
+      ],
+  ];
+
   final cache = _P2tPointCache();
   final contour = <P2tPoint>[
-    for (final o in boundary) cache.getOrCreate(o),
+    for (final o in splitBoundary) cache.getOrCreate(o),
   ];
 
   final cdt = CDT(contour);
-  for (final hole in holes) {
-    if (hole.length < 3) continue;
+  for (final hole in splitHoles) {
     cdt.addHole([for (final o in hole) cache.getOrCreate(o)]);
   }
 
-  final existing = <Offset>[
+  final originalVerts = <Offset>[
     ...boundary,
     for (final hole in holes) ...hole,
   ];
   final constraintEdges = <(Offset, Offset)>[
-    ..._ringEdges(boundary),
-    for (final hole in holes) ..._ringEdges(hole),
+    ..._ringEdges(splitBoundary),
+    for (final hole in splitHoles) ..._ringEdges(hole),
   ];
 
-  final steiners = _generateSteinerPoints(
-    boundary: boundary,
-    holes: holes,
-    existing: existing,
+  final steinerExisting = <Offset>[
+    ...originalVerts,
+    ...edgeSplitInsertsOrdered,
+  ];
+
+  final steiners = generateJitteredSteinerPoints(
+    boundary: splitBoundary,
+    holes: splitHoles,
+    existingVertices: steinerExisting,
     constraintEdges: constraintEdges,
     maxEdge: maxEdge,
     minEdge: minEdge,
+    random: rng,
   );
 
   for (final s in steiners) {
@@ -72,7 +111,11 @@ const int kPoly2TriMaxSteinerPoints = 5000;
 
   cdt.triangulate();
 
-  final points = <Offset>[...existing, ...steiners];
+  final points = <Offset>[
+    ...originalVerts,
+    ...edgeSplitInsertsOrdered,
+    ...steiners,
+  ];
 
   final firstIndex = <P2tPoint, int>{};
   var slot = 0;
@@ -93,28 +136,104 @@ const int kPoly2TriMaxSteinerPoints = 5000;
   return (points: points, triangleIndices: triangleIndices);
 }
 
-List<(Offset, Offset)> _ringEdges(List<Offset> ring) {
-  if (ring.length < 2) return const [];
+/// Splits each edge of a closed [ring] into segments of length ≤ [maxEdge].
+///
+/// Original vertices are returned unchanged (same [Offset] instances).
+/// Inserted points receive only [kEdgeSplitCollinearJitterHalf] jitter.
+List<Offset> splitRingEdges(
+  List<Offset> ring, {
+  required double maxEdge,
+  required math.Random random,
+  double collinearJitterHalf = kEdgeSplitCollinearJitterHalf,
+}) {
+  if (ring.length < 2 || !(maxEdge > 0) || !maxEdge.isFinite) {
+    return List<Offset>.of(ring);
+  }
+
+  final out = <Offset>[];
+  for (var i = 0; i < ring.length; i++) {
+    final a = ring[i];
+    final b = ring[(i + 1) % ring.length];
+    out.add(a);
+
+    final length = (b - a).distance;
+    if (length <= maxEdge) continue;
+
+    final segments = (length / maxEdge).ceil();
+    for (var s = 1; s < segments; s++) {
+      final t = s / segments;
+      final mid = Offset(
+        a.dx + (b.dx - a.dx) * t,
+        a.dy + (b.dy - a.dy) * t,
+      );
+      out.add(applyAxisJitter(mid, random, collinearJitterHalf));
+    }
+  }
+  return out;
+}
+
+/// Points in [splitRing] that were not original vertices of [originalRing]
+/// (by reference identity).
+List<Offset> collectEdgeSplitInserts({
+  required List<Offset> originalRing,
+  required List<Offset> splitRing,
+}) {
   return [
-    for (var i = 0; i < ring.length; i++)
-      (ring[i], ring[(i + 1) % ring.length]),
+    for (final p in splitRing)
+      if (!_isOriginalVertex(p, originalRing)) p,
   ];
 }
 
-/// Clearance from constrained segments. Floored by [kP2tEpsilon]; scaled
-/// with [minEdge] so near-edge Steiners that destabilize poly2tri are dropped.
-double _constraintClearance(double minEdge) =>
-    math.max(kP2tEpsilon, minEdge * 0.25);
+bool _isOriginalVertex(Offset p, List<Offset> originalRing) {
+  for (final o in originalRing) {
+    if (identical(p, o)) return true;
+  }
+  return false;
+}
 
-List<Offset> _generateSteinerPoints({
+/// Axis-aligned jitter: each axis independently uniform in `[-halfWidth, halfWidth]`.
+Offset applyAxisJitter(Offset p, math.Random random, double halfWidth) {
+  if (halfWidth <= 0) return p;
+  double j() => (random.nextDouble() * 2 - 1) * halfWidth;
+  return Offset(p.dx + j(), p.dy + j());
+}
+
+/// True when [p] is strictly inside [boundary], outside every hole, and at
+/// least [minEdge] from all [existing] vertices and [constraintEdges].
+bool isSafeSteinerCandidate(
+  Offset p, {
   required List<Offset> boundary,
   required List<List<Offset>> holes,
   required List<Offset> existing,
   required List<(Offset, Offset)> constraintEdges,
-  required double maxEdge,
   required double minEdge,
 }) {
-  if (!(maxEdge > 0) || !maxEdge.isFinite) return const [];
+  if (!isPointInPolygon(p, boundary)) return false;
+  if (_isInsideAnyHole(p, holes)) return false;
+
+  final minDist = math.max(0.0, minEdge);
+  if (minDist > 0) {
+    final minDistSq = minDist * minDist;
+    if (_tooCloseToAny(p, existing, minDistSq)) return false;
+    if (_tooCloseToConstraints(p, constraintEdges, minDist)) return false;
+  }
+  return true;
+}
+
+/// Grid Steiner points with visual jitter; only [isSafeSteinerCandidate] pass.
+List<Offset> generateJitteredSteinerPoints({
+  required List<Offset> boundary,
+  required List<List<Offset>> holes,
+  required List<Offset> existingVertices,
+  required List<(Offset, Offset)> constraintEdges,
+  required double maxEdge,
+  required double minEdge,
+  required math.Random random,
+  double visualJitterFactor = kSteinerVisualJitterFactor,
+}) {
+  if (!(maxEdge > 0) || !maxEdge.isFinite || boundary.isEmpty) {
+    return const [];
+  }
 
   var xmin = boundary[0].dx;
   var xmax = boundary[0].dx;
@@ -128,39 +247,42 @@ List<Offset> _generateSteinerPoints({
   }
 
   final step = maxEdge;
-  final edgeClearance = _constraintClearance(minEdge);
-  final minDist = math.max(0.0, minEdge);
-  final minDistSq = minDist * minDist;
-
+  final jitterHalf = math.max(0.0, minEdge) * visualJitterFactor;
   final accepted = <Offset>[];
-  final acceptedAndExisting = List<Offset>.of(existing);
+  final acceptedAndExisting = List<Offset>.of(existingVertices);
 
-  // Grid strictly inside the AABB (never on the bbox corners / rim).
   for (var x = xmin + step; x < xmax - kP2tEpsilon; x += step) {
     for (var y = ymin + step; y < ymax - kP2tEpsilon; y += step) {
       if (accepted.length >= kPoly2TriMaxSteinerPoints) {
         return accepted;
       }
 
-      final candidate = Offset(x, y);
-
-      if (!isPointInPolygon(candidate, boundary)) continue;
-      if (_isInsideAnyHole(candidate, holes)) continue;
-
-      if (_tooCloseToAny(candidate, acceptedAndExisting, minDistSq)) {
+      final jittered = applyAxisJitter(Offset(x, y), random, jitterHalf);
+      if (!isSafeSteinerCandidate(
+        jittered,
+        boundary: boundary,
+        holes: holes,
+        existing: acceptedAndExisting,
+        constraintEdges: constraintEdges,
+        minEdge: minEdge,
+      )) {
         continue;
       }
 
-      if (_tooCloseToConstraints(candidate, constraintEdges, edgeClearance)) {
-        continue;
-      }
-
-      accepted.add(candidate);
-      acceptedAndExisting.add(candidate);
+      accepted.add(jittered);
+      acceptedAndExisting.add(jittered);
     }
   }
 
   return accepted;
+}
+
+List<(Offset, Offset)> _ringEdges(List<Offset> ring) {
+  if (ring.length < 2) return const [];
+  return [
+    for (var i = 0; i < ring.length; i++)
+      (ring[i], ring[(i + 1) % ring.length]),
+  ];
 }
 
 bool _isInsideAnyHole(Offset point, List<List<Offset>> holes) {

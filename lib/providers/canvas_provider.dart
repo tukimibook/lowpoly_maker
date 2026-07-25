@@ -748,8 +748,9 @@ class CanvasNotifier extends StateNotifier<Artwork> {
   ///
   /// [result.points] layout must match [triangulate]: outer [boundaryRing]
   /// IDs first, then each hole ring in [holeRings] flattened in order, then
-  /// any Steiner points (minted as fresh vertices). Hole polygons themselves
-  /// are left untouched — only [polygonId] is removed.
+  /// edge-split inserts and interior Steiner points (minted as fresh
+  /// vertices). Hole polygons themselves are left untouched — only
+  /// [polygonId] is removed.
   void commitTessellationResult({
     required String polygonId,
     required List<String> boundaryRing,
