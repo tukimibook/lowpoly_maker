@@ -28,4 +28,5 @@ poly2tri.dart   barrel export
 ## Port status
 
 - Step 1–2: skeleton + `common/` shapes and predicates.
-- Sweep / CDT / app adapter: not yet implemented.
+- Step 3: Sweep / AdvancingFront / SweepContext / CDT facade.
+- App adapter (`TessellationRequest`): not yet implemented.

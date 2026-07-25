@@ -98,3 +98,32 @@ bool inScanArea(P2tPoint pa, P2tPoint pb, P2tPoint pc, P2tPoint pd) {
   }
   return true;
 }
+
+/// True when the angle at [pa] between [pb] and [pc] is obtuse
+/// (`dot < 0`). Used by advancing-front hole fills.
+bool isAngleObtuse(P2tPoint pa, P2tPoint pb, P2tPoint pc) {
+  final ax = pb.x - pa.x;
+  final ay = pb.y - pa.y;
+  final bx = pc.x - pa.x;
+  final by = pc.y - pa.y;
+  return (ax * bx + ay * by) < 0;
+}
+
+/// Sweep-line point order: ascending `y`, then ascending `x`.
+/// Suitable for [List.sort].
+int comparePoints(P2tPoint a, P2tPoint b) {
+  final byY = a.y.compareTo(b.y);
+  if (byY != 0) return byY;
+  return a.x.compareTo(b.x);
+}
+
+/// Thrown for unsupported / invalid poly2tri input configurations.
+class P2tException implements Exception {
+  P2tException(this.message, [this.points = const <P2tPoint>[]]);
+
+  final String message;
+  final List<P2tPoint> points;
+
+  @override
+  String toString() => 'P2tException: $message';
+}
