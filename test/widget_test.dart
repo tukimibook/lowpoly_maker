@@ -585,6 +585,170 @@ void main() {
     );
   });
 
+  group('Edit mode polygon tap selection (Phase Select Hit-Testing)', () {
+    Future<ProviderContainer> pumpEditorReady(WidgetTester tester) async {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const PolygonArtApp(),
+        ),
+      );
+      await tester.tap(find.text('新規作成'));
+      await tester.pumpAndSettle();
+      return container;
+    }
+
+    Future<void> closeCurrentDraft(WidgetTester tester) async {
+      await tester.tap(_iconButtonByTooltip('多角形を閉じる'));
+      await tester.pump();
+    }
+
+    Future<void> enterEditMode(WidgetTester tester) async {
+      await tester.tap(find.byTooltip('編集モード'));
+      await tester.pump();
+    }
+
+    PolygonPainter currentPainter(WidgetTester tester) {
+      return tester.widget<CustomPaint>(_canvasCustomPaintFinder()).painter
+          as PolygonPainter;
+    }
+
+    testWidgets(
+      'tapping a polygon fill highlights that polygon (syncs cycle index)',
+      (tester) async {
+        final container = await pumpEditorReady(tester);
+        final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
+
+        await tester.tapAt(canvasTopLeft + const Offset(50, 50));
+        await tester.pump();
+        await tester.tapAt(canvasTopLeft + const Offset(150, 50));
+        await tester.pump();
+        await tester.tapAt(canvasTopLeft + const Offset(100, 150));
+        await tester.pump();
+        await closeCurrentDraft(tester);
+
+        await enterEditMode(tester);
+        final polygonId = container.read(canvasProvider).polygons.single.id;
+
+        // Clear interior, well away from vertices (hit radius ~48).
+        await tester.tapAt(canvasTopLeft + const Offset(100, 80));
+        await tester.pump();
+
+        expect(container.read(selectedVertexProvider), isNull);
+        expect(container.read(polygonCycleIndexProvider), 0);
+        expect(currentPainter(tester).highlightedPolygonId, polygonId);
+      },
+    );
+
+    testWidgets(
+      'tapping an overlap selects the front-most (later) polygon',
+      (tester) async {
+        final container = await pumpEditorReady(tester);
+        final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
+
+        // Back triangle.
+        await tester.tapAt(canvasTopLeft + const Offset(40, 40));
+        await tester.pump();
+        await tester.tapAt(canvasTopLeft + const Offset(160, 40));
+        await tester.pump();
+        await tester.tapAt(canvasTopLeft + const Offset(100, 160));
+        await tester.pump();
+        await closeCurrentDraft(tester);
+        final backId = container.read(canvasProvider).polygons.single.id;
+
+        // Front triangle overlapping the first (drawn second = on top).
+        await tester.tap(find.byTooltip('描画モード'));
+        await tester.pump();
+        await tester.tapAt(canvasTopLeft + const Offset(70, 70));
+        await tester.pump();
+        await tester.tapAt(canvasTopLeft + const Offset(190, 70));
+        await tester.pump();
+        await tester.tapAt(canvasTopLeft + const Offset(130, 190));
+        await tester.pump();
+        await closeCurrentDraft(tester);
+        final frontId = container.read(canvasProvider).polygons.last.id;
+        expect(frontId, isNot(backId));
+
+        await enterEditMode(tester);
+
+        // Overlap region: inside both rings, away from vertices.
+        await tester.tapAt(canvasTopLeft + const Offset(110, 100));
+        await tester.pump();
+
+        expect(container.read(polygonCycleIndexProvider), 1);
+        expect(currentPainter(tester).highlightedPolygonId, frontId);
+      },
+    );
+
+    testWidgets(
+      'tapping within the vertex hit radius prefers vertex selection over fill',
+      (tester) async {
+        final container = await pumpEditorReady(tester);
+        final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
+
+        await tester.tapAt(canvasTopLeft + const Offset(50, 50));
+        await tester.pump();
+        await tester.tapAt(canvasTopLeft + const Offset(150, 50));
+        await tester.pump();
+        await tester.tapAt(canvasTopLeft + const Offset(100, 150));
+        await tester.pump();
+        await closeCurrentDraft(tester);
+
+        await enterEditMode(tester);
+        final polygon = container.read(canvasProvider).polygons.single;
+        final vertexA = polygon.vertexIds.first;
+        final vertexAPos =
+            container.read(canvasProvider).vertices[vertexA]!.position;
+
+        // Select the fill first so a whole-shape target is active.
+        await tester.tapAt(canvasTopLeft + const Offset(100, 80));
+        await tester.pump();
+        expect(container.read(polygonCycleIndexProvider), 0);
+
+        // Vertex tap must win over the active fill target.
+        await tester.tapAt(canvasTopLeft + vertexAPos);
+        await tester.pump();
+
+        expect(container.read(selectedVertexProvider), vertexA);
+        expect(container.read(polygonCycleIndexProvider), -1);
+        expect(_iconButtonByTooltip('図形を切り替え'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'tapping blank canvas clears both vertex and polygon selection',
+      (tester) async {
+        final container = await pumpEditorReady(tester);
+        final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
+
+        await tester.tapAt(canvasTopLeft + const Offset(50, 50));
+        await tester.pump();
+        await tester.tapAt(canvasTopLeft + const Offset(150, 50));
+        await tester.pump();
+        await tester.tapAt(canvasTopLeft + const Offset(100, 150));
+        await tester.pump();
+        await closeCurrentDraft(tester);
+
+        await enterEditMode(tester);
+        await tester.tapAt(canvasTopLeft + const Offset(100, 80));
+        await tester.pump();
+        expect(container.read(polygonCycleIndexProvider), 0);
+
+        // Far from the triangle and its vertex hit radii.
+        await tester.tapAt(canvasTopLeft + const Offset(320, 320));
+        await tester.pump();
+
+        expect(container.read(selectedVertexProvider), isNull);
+        expect(container.read(polygonCycleIndexProvider), -1);
+        expect(container.read(edgeCycleIndexProvider), -1);
+        expect(currentPainter(tester).highlightedPolygonId, isNull);
+      },
+    );
+  });
+
   group(
     'Edit mode selected-vertex UX enhancements (2026-07-17: seamless '
     'switch-and-drag + 選択解除)',

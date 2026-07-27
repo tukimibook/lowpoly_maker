@@ -278,8 +278,9 @@ class PolygonCanvas extends ConsumerWidget {
       // `findNearestPoint`'s doc, and `.cursor/plans/
       // plan_phase_H_alpha.md`, 2026-07-16 検討メモ).
       final selected = ref.read(selectedVertexProvider);
+      final world = worldPosition(localPosition);
       final tappedId = notifier.findVertexNear(
-        worldPosition(localPosition),
+        world,
         hitRadius: hitRadius(),
         preferredVertexId: selected,
       );
@@ -299,15 +300,35 @@ class PolygonCanvas extends ConsumerWidget {
         return;
       }
 
-      ref.read(selectedVertexProvider.notifier).state = tappedId;
-      ref.read(detachCycleIndexProvider.notifier).state = 0;
       if (tappedId != null) {
+        ref.read(selectedVertexProvider.notifier).state = tappedId;
+        ref.read(detachCycleIndexProvider.notifier).state = 0;
         // A vertex just became selected — the whole-shape target UI (図形
         // 切替/辺切替/追加/削除) that only shows while nothing is selected
         // is about to disappear, so leave it starting fresh next time.
         ref.read(polygonCycleIndexProvider.notifier).state = -1;
         ref.read(edgeCycleIndexProvider.notifier).state = -1;
+        return;
       }
+
+      // Vertex miss: fall back to filled-polygon hit-testing (Phase Select).
+      // Vertex handles always win over fills when both would apply.
+      ref.read(selectedVertexProvider.notifier).state = null;
+      ref.read(detachCycleIndexProvider.notifier).state = 0;
+      final polygonId = notifier.findPolygonContaining(world);
+      if (polygonId != null) {
+        final index = artwork.polygons.indexWhere((p) => p.id == polygonId);
+        if (index >= 0) {
+          ref.read(polygonCycleIndexProvider.notifier).state = index;
+          ref.read(edgeCycleIndexProvider.notifier).state = -1;
+          HapticFeedback.selectionClick();
+        }
+        return;
+      }
+
+      // Blank canvas: clear every edit-mode selection target.
+      ref.read(polygonCycleIndexProvider.notifier).state = -1;
+      ref.read(edgeCycleIndexProvider.notifier).state = -1;
     }
 
     void startPolygonDrag() {

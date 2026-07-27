@@ -1,11 +1,12 @@
 # Phase Hγ: 保存・作品一覧
 
-> **正本の位置づけ**: 全体像・確定した設計判断・品質方針・リリース要件は [ポリゴンアプリ再設計_e54196e6.plan.md](ポリゴンアプリ再設計_e54196e6.plan.md)（マスター）を参照。未着手フェーズ（Hδ/R）の詳細・技術的負債表・テスト方針・リスクと対策は [plan_future_phases.md](plan_future_phases.md) を参照。完了済みフェーズ（A〜E+、G-spike、Hα、Hβ、F、G）の実装済み仕様・過去（2026-07-10〜2026-07-20）の検討メモは [plan_archive_history.md](plan_archive_history.md) を参照。着手時の進捗・次ステップは下記 **現在のステータス** を参照。
+> **正本の位置づけ**: 全体像・確定した設計判断・品質方針・リリース要件は [ポリゴンアプリ再設計_e54196e6.plan.md](ポリゴンアプリ再設計_e54196e6.plan.md)（マスター）を参照。未着手フェーズ（Phase Select / Hδ / R）の詳細・技術的負債表・テスト方針・リスクと対策は [plan_future_phases.md](plan_future_phases.md) を参照。完了済みフェーズの実装済み仕様・過去の検討メモは [plan_archive_history.md](plan_archive_history.md) を参照。着手時の進捗・次ステップは下記 **現在のステータス** を参照。
 > **運用**: 本ファイルは「現在着手中のフェーズ」専用ファイル。ファイル名にフェーズ名を含める（`plan_phase_<フェーズ>.md`）運用とし、Hγ が完了し次のフェーズ（Hδ）に進んだら、本ファイルの中身を Hδ の詳細（[plan_future_phases.md](plan_future_phases.md) から該当セクションを移動）に差し替え、ファイル名も `plan_phase_H_delta.md` にリネームして使い続ける（Hα → Hβ → F → G → Hγ でこの運用を継続、2026-07-20）。Hγ 完了時の実装完了メモ・検討メモは、差し替え時に [plan_archive_history.md](plan_archive_history.md) へ移す。Phase 完了コミット後は **現在のステータス** を次 Phase 用に更新する。
 
-## 📍 現在のステータス (2026-07-20)
-- **完了フェーズ**: Phase A〜E+・G-spike・Hα・Hβ・F・G がすべて完了。G のテッセレーションは 2026-07-25 に純 Dart poly2tri CDT + Steiner 精錬へエンジン刷新済み（`delaunay` 廃止）。`maxEdge`/`minEdge` の world 値（150.0/25.0）は #20 で確定。詳細は [plan_archive_history.md](plan_archive_history.md) 参照。
-- **現在のフェーズ**: Phase G が完了し、Phase Hγ に着手。
+## 📍 現在のステータス (2026-07-27)
+- **完了フェーズ**: Phase A〜E+・G-spike・Hα・Hβ・F・G がすべて完了。G のテッセレーションは 2026-07-25 に純 Dart poly2tri CDT + Steiner 精錬へエンジン刷新済み。2026-07-27 に Phase G 補完（軌跡ベース意図推定＋ウェイポイント制約付き経路探索）を完了（[plan_archive_history.md](plan_archive_history.md) 参照）。
+- **現在のフェーズ**: Phase Hγ（保存・作品一覧）着手中。
+- **計画改定（2026-07-27）**: 図形タップ選択（Hit-Testing）＋彩色基盤を **Phase Select** として Hγ の**前または並行**の重要マイルストーンへ前倒し（詳細は [plan_future_phases.md](plan_future_phases.md)）。編集 UX・彩色の土台を保存スキーマ作業と並走／先行させる。
 
 ## Phase Hγ: 保存・作品一覧（v1 必須）
 

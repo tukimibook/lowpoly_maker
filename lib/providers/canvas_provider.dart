@@ -10,6 +10,7 @@ import '../geometry/nearest_point.dart';
 import '../geometry/point_in_polygon.dart';
 import '../geometry/polygon_containment.dart';
 import '../geometry/polygon_graph.dart';
+import '../geometry/polygon_hit_test.dart';
 import '../geometry/ring_collapse.dart';
 import '../geometry/self_intersection.dart';
 import '../geometry/vertex_hit_test.dart';
@@ -659,6 +660,25 @@ class CanvasNotifier extends StateNotifier<Artwork> {
       preferredId: preferredVertexId,
     );
     return nearest?.$1;
+  }
+
+  /// Front-most confirmed polygon whose filled ring contains [worldPosition],
+  /// or `null` when the point misses every shape.
+  ///
+  /// Pure lookup — does not mutate [state], record undo, or touch session
+  /// selection providers. Z-order matches [PolygonPainter]: later entries in
+  /// [Artwork.polygons] are painted on top and win on overlap.
+  String? findPolygonContaining(Offset worldPosition) {
+    final candidates = <PolygonHitCandidate>[
+      for (final polygon in state.polygons)
+        (
+          id: polygon.id,
+          ring: [
+            for (final id in polygon.vertexIds) state.vertices[id]!.position,
+          ],
+        ),
+    ];
+    return findTopmostPolygonIdAt(worldPosition, candidates: candidates);
   }
 
   /// Commits a new world position for [vertexId] in the shared vertex pool.

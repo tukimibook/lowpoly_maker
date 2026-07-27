@@ -890,3 +890,13 @@ Phase G 完了後（Hγ 着手期間中）に実施した、テッセレーシ�
 4. **技術的負債の排除**: `flutter pub remove delaunay` により依存を除去。旧検証用 `test/spike_tessellation_test.dart` を削除し、vendor 内の不要 getter/setter やテストの不要 `dart:ui` import 等の Linter 警告を解消。`flutter analyze` は No issues found。
 
 関連テスト: `test/geometry/vendor/poly2tri/`、`test/services/tessellation_service_test.dart`、`test/services/tessellation_holes_test.dart`、`test/providers/tessellation_provider_test.dart`。
+
+### 2026-07-27: Phase G 補完 — 軌跡ベース意図推定とウェイポイント制約付き経路探索
+
+共有境界クローズ（`_sharedBoundaryClosure`）が常に幾何最短弧を返すため、既存図形の**長い方の境界**を意図的になぞっても短弧側で結合されてしまう UX 課題への対応。Ask モードで設計合意後に実装（`flutter analyze` No issues / `flutter test` 全パス）。
+
+1. **意図推定（pure）**: `lib/geometry/boundary_intent.dart` を新設し、`inferBoundaryWaypoints` を実装。`draftVertexIds` のうち既存境界グラフ（`graph.containsKey`）上にある頂点だけを候補とし、経路端点（`fromId` / `toId`、クローズ時は draft の last→first）は必ず除外。draft は start→…→end 順、探索は end→start のため、中継候補は **draft 出現順の逆順** で返す（端→経由→始がなぞった弧と一致するようにする）。フリーハンドのみの draft は空リスト（後段フォールバック）。
+2. **経由地付き探索**: `lib/geometry/polygon_graph.dart` に `findBoundaryPathViaWaypoints` を新設。`waypoints` に従い既存の `findShortestBoundaryPath` を区間ごと（`from → w1 → … → wk → to`）に呼び出し連結。いずれかの区間が `null` なら全体 `null`。`findShortestBoundaryPath` 本体および `blockedHops`（グラフ外 draft のみ禁止）は**無変更**。
+3. **オーケストレーション**: `CanvasNotifier._sharedBoundaryClosure` で `inferBoundaryWaypoints` →（非空なら）`findBoundaryPathViaWaypoints` → 失敗／空なら **従来の `findShortestBoundaryPath` へフォールバック**。返却 mids の draft 既存 ID dedupe、および `closePolygon` 側の `_isSafeClosedRing` ゲートは維持。
+
+関連テスト: `test/geometry/boundary_intent_test.dart`（新規）、`test/geometry/polygon_graph_test.dart`（`findBoundaryPathViaWaypoints` の連結・切断・空 waypoints）。
