@@ -103,3 +103,35 @@ List<String>? findShortestBoundaryPath(
   }
   return path.reversed.toList();
 }
+
+/// Shortest boundary path from [fromId] to [toId] that is forced through
+/// each ID in [waypoints] in order: `from → w1 → … → wk → to`.
+///
+/// Each leg is resolved independently with [findShortestBoundaryPath]
+/// (same [graph] / [draftVertexIds] / blocked-hop rules). Returns `null`
+/// when any leg has no path. An empty [waypoints] list reduces to a single
+/// [findShortestBoundaryPath] call from [fromId] to [toId].
+List<String>? findBoundaryPathViaWaypoints(
+  String fromId,
+  String toId, {
+  required List<String> waypoints,
+  required Map<String, List<(String, double)>> graph,
+  required Set<String> draftVertexIds,
+}) {
+  final stops = <String>[...waypoints, toId];
+  var cursor = fromId;
+  final path = <String>[fromId];
+  for (final stop in stops) {
+    if (stop == cursor) continue;
+    final segment = findShortestBoundaryPath(
+      cursor,
+      stop,
+      graph: graph,
+      draftVertexIds: draftVertexIds,
+    );
+    if (segment == null) return null;
+    path.addAll(segment.skip(1));
+    cursor = stop;
+  }
+  return path;
+}

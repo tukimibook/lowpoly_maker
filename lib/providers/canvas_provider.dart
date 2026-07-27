@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
+import '../geometry/boundary_intent.dart';
 import '../geometry/edge_midpoint.dart';
 import '../geometry/line_absorption.dart';
 import '../geometry/nearest_point.dart';
@@ -1331,15 +1332,37 @@ class CanvasNotifier extends StateNotifier<Artwork> {
   /// Mid-path IDs already present in the draft are omitted so a boundary-
   /// tracing stroke that already walked those corners is not duplicated into
   /// a self-intersecting loop.
+  ///
+  /// When the draft already snapped onto on-graph corners along one boundary
+  /// arc, those IDs become waypoints ([inferBoundaryWaypoints]) so closing
+  /// follows that arc rather than the geometrically shorter opposite one.
+  /// Missing waypoints or a failed via-waypoint search fall back to plain
+  /// [findShortestBoundaryPath].
   List<String> _sharedBoundaryClosure(String startId, String endId) {
-    final draftIds = state.draftVertexIds.toSet();
+    final draftList = state.draftVertexIds;
+    final draftIds = draftList.toSet();
     final graph = buildPolygonEdgeGraph(state.polygons, state.vertices);
-    final path = findShortestBoundaryPath(
-      endId,
-      startId,
+    final waypoints = inferBoundaryWaypoints(
+      draftVertexIds: draftList,
       graph: graph,
-      draftVertexIds: draftIds,
+      fromId: endId,
+      toId: startId,
     );
+    final path = (waypoints.isEmpty
+            ? null
+            : findBoundaryPathViaWaypoints(
+                endId,
+                startId,
+                waypoints: waypoints,
+                graph: graph,
+                draftVertexIds: draftIds,
+              )) ??
+        findShortestBoundaryPath(
+          endId,
+          startId,
+          graph: graph,
+          draftVertexIds: draftIds,
+        );
     if (path == null || path.length <= 2) return const [];
     return path
         .sublist(1, path.length - 1)

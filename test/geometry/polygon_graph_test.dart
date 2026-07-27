@@ -279,4 +279,127 @@ void main() {
       );
     });
   });
+
+  group('findBoundaryPathViaWaypoints', () {
+    test('concatenates shortest legs through each waypoint in order', () {
+      // a-b-c is uniquely short (length 2); a-d-c is long (≈101). Forcing
+      // via d must yield the long arc even though shortest alone uses b.
+      final vertices = {
+        'a': _vertex('a', const Offset(0, 0)),
+        'b': _vertex('b', const Offset(1, 0)),
+        'c': _vertex('c', const Offset(2, 0)),
+        'd': _vertex('d', const Offset(1, 100)),
+      };
+      final graph = buildPolygonEdgeGraph(
+        [_polygon('p1', const ['a', 'b', 'c', 'd'])],
+        vertices,
+      );
+
+      expect(
+        findShortestBoundaryPath(
+          'a',
+          'c',
+          graph: graph,
+          draftVertexIds: const {},
+        ),
+        ['a', 'b', 'c'],
+      );
+
+      expect(
+        findBoundaryPathViaWaypoints(
+          'a',
+          'c',
+          waypoints: const ['d'],
+          graph: graph,
+          draftVertexIds: const {},
+        ),
+        ['a', 'd', 'c'],
+      );
+    });
+
+    test('supports multiple waypoints by chaining legs', () {
+      final vertices = {
+        'a': _vertex('a', const Offset(0, 0)),
+        'b': _vertex('b', const Offset(1, 0)),
+        'c': _vertex('c', const Offset(2, 0)),
+        'd': _vertex('d', const Offset(3, 0)),
+      };
+      final graph = buildPolygonEdgeGraph(
+        [
+          _polygon('p1', const ['a', 'b']),
+          _polygon('p2', const ['b', 'c']),
+          _polygon('p3', const ['c', 'd']),
+        ],
+        vertices,
+      );
+
+      expect(
+        findBoundaryPathViaWaypoints(
+          'a',
+          'd',
+          waypoints: const ['b', 'c'],
+          graph: graph,
+          draftVertexIds: const {},
+        ),
+        ['a', 'b', 'c', 'd'],
+      );
+    });
+
+    test('returns null when any leg is disconnected', () {
+      final vertices = {
+        'a': _vertex('a', const Offset(0, 0)),
+        'b': _vertex('b', const Offset(1, 0)),
+        'c': _vertex('c', const Offset(10, 10)),
+        'd': _vertex('d', const Offset(11, 10)),
+      };
+      final graph = buildPolygonEdgeGraph(
+        [
+          _polygon('p1', const ['a', 'b']),
+          _polygon('p2', const ['c', 'd']),
+        ],
+        vertices,
+      );
+
+      // a→b is fine, but b→c has no edge.
+      expect(
+        findBoundaryPathViaWaypoints(
+          'a',
+          'd',
+          waypoints: const ['b', 'c'],
+          graph: graph,
+          draftVertexIds: const {},
+        ),
+        isNull,
+      );
+    });
+
+    test('empty waypoints reduces to a plain shortest path', () {
+      final vertices = {
+        'a': _vertex('a', const Offset(0, 0)),
+        'b': _vertex('b', const Offset(1, 0)),
+        'c': _vertex('c', const Offset(2, 0)),
+        'd': _vertex('d', const Offset(1, 100)),
+      };
+      final graph = buildPolygonEdgeGraph(
+        [_polygon('p1', const ['a', 'b', 'c', 'd'])],
+        vertices,
+      );
+
+      expect(
+        findBoundaryPathViaWaypoints(
+          'a',
+          'c',
+          waypoints: const [],
+          graph: graph,
+          draftVertexIds: const {},
+        ),
+        findShortestBoundaryPath(
+          'a',
+          'c',
+          graph: graph,
+          draftVertexIds: const {},
+        ),
+      );
+    });
+  });
 }
