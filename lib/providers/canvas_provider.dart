@@ -6,8 +6,11 @@ import 'package:uuid/uuid.dart';
 import '../geometry/edge_midpoint.dart';
 import '../geometry/line_absorption.dart';
 import '../geometry/nearest_point.dart';
+import '../geometry/point_in_polygon.dart';
+import '../geometry/polygon_containment.dart';
 import '../geometry/polygon_graph.dart';
 import '../geometry/ring_collapse.dart';
+import '../geometry/self_intersection.dart';
 import '../geometry/vertex_hit_test.dart';
 import '../models/artwork.dart';
 import '../models/canvas_mode.dart';
@@ -21,6 +24,23 @@ const _uuid = Uuid();
 /// Minimum number of points required before a shape can be closed into a
 /// polygon.
 const int kMinPolygonVertices = 3;
+
+/// Outcome of [CanvasNotifier.closePolygon].
+enum ClosePolygonResult {
+  /// Draft was closed into a confirmed polygon.
+  closed,
+
+  /// Proposed ring would self-intersect or skewer existing geometry; draft
+  /// is left unchanged.
+  rejectedUnsafeClosingEdge,
+
+  /// Fewer than [kMinPolygonVertices] draft points — nothing to close.
+  tooFewVertices,
+}
+
+/// User-facing copy when [ClosePolygonResult.rejectedUnsafeClosingEdge].
+const String kClosePolygonRejectedMessage =
+    '図形を閉じられません（線が交差・貫通しています）';
 
 /// Tap distance (in world/logical pixels *at zoom scale 1*) within which
 /// tapping near an existing polygon's vertex snaps onto it, reusing that
@@ -313,6 +333,8 @@ class CanvasNotifier extends StateNotifier<Artwork> {
       )) {
         return false;
       }
+      // Consume the double-tap whether close succeeds or is rejected as an
+      // unsafe skewer — either way the artist meant "close", not "add point".
       closePolygon(fillColor, lineAbsorptionTolerance: lineAbsorptionTolerance);
       return true;
     }
@@ -1056,14 +1078,26 @@ class CanvasNotifier extends StateNotifier<Artwork> {
   /// as [handleDrawTap]'s own parameter of the same name — callers with a
   /// viewport transform (the toolbar's "閉じる" button included) should
   /// pass `kLineAbsorptionTolerance / transform.scale`.
-  void closePolygon(
+  ///
+  /// Returns [ClosePolygonResult.closed] on success. When the proposed ring
+  /// would self-intersect or skewer existing geometry, returns
+  /// [ClosePolygonResult.rejectedUnsafeClosingEdge], leaves the draft
+  /// untouched, and records nothing on the undo stack. Callers should surface
+  /// [kClosePolygonRejectedMessage] (e.g. via SnackBar) on that result.
+  ///
+  /// The most recent result is also mirrored on [lastClosePolygonResult] so
+  /// gesture handlers that close through [handleDrawTap] can read it afterward.
+  ClosePolygonResult? lastClosePolygonResult;
+
+  ClosePolygonResult closePolygon(
     Color fillColor, {
     double lineAbsorptionTolerance = kLineAbsorptionTolerance,
   }) {
     _resetPendingTap();
     final draftIds = state.draftVertexIds;
-    if (draftIds.length < kMinPolygonVertices) return;
-    _recordUndo();
+    if (draftIds.length < kMinPolygonVertices) {
+      return lastClosePolygonResult = ClosePolygonResult.tooFewVertices;
+    }
     final vertexIds = [
       ...draftIds,
       ..._closingEdgeVertices(
@@ -1072,6 +1106,11 @@ class CanvasNotifier extends StateNotifier<Artwork> {
         tolerance: lineAbsorptionTolerance,
       ),
     ];
+    if (!_isSafeClosedRing(vertexIds)) {
+      return lastClosePolygonResult =
+          ClosePolygonResult.rejectedUnsafeClosingEdge;
+    }
+    _recordUndo();
     final polygon = PolygonShape(
       id: _uuid.v4(),
       vertexIds: vertexIds,
@@ -1083,6 +1122,101 @@ class CanvasNotifier extends StateNotifier<Artwork> {
       polygons: [...state.polygons, polygon],
       draftVertexIds: const [],
     );
+    return lastClosePolygonResult = ClosePolygonResult.closed;
+  }
+
+  /// True when closing into [ringIds] would produce a geometrically safe
+  /// confirmed polygon: no self-intersection, and the implicit closing chord
+  /// (`last → first`) neither properly crosses an existing polygon edge nor
+  /// has its midpoint strictly inside an existing polygon (classic skewer).
+  ///
+  /// Only the closing chord is checked against existing geometry — freehand
+  /// draft edges were already accepted while drawing and must not block a
+  /// otherwise-valid boundary weld.
+  bool _isSafeClosedRing(List<String> ringIds) {
+    if (ringIds.length < kMinPolygonVertices) return false;
+    final points = <Offset>[];
+    for (final id in ringIds) {
+      final vertex = state.vertices[id];
+      if (vertex == null) return false;
+      points.add(vertex.position);
+    }
+    // Collapse consecutive coincident corners (e.g. an extra weld tap that
+    // minted a duplicate ID at the same spot) before the self-intersection
+    // check — zero-length edges otherwise look like crossings.
+    final simple = _collapseConsecutiveDuplicatePoints(points);
+    if (simple.length < kMinPolygonVertices) return false;
+    if (isSelfIntersectingRing(simple)) return false;
+
+    final closeA = points.last;
+    final closeB = points.first;
+    final closeMid = Offset(
+      (closeA.dx + closeB.dx) / 2,
+      (closeA.dy + closeB.dy) / 2,
+    );
+    // One-edge "ring" used with [ringsEdgesProperlyIntersect] so shared
+    // endpoints with existing polygon edges are skipped the same way.
+    final closingEdge = <Offset>[closeA, closeB];
+
+    final closeEndIds = {ringIds.last, ringIds.first};
+    for (final polygon in state.polygons) {
+      final ring = <Offset>[];
+      for (final id in polygon.vertexIds) {
+        final vertex = state.vertices[id];
+        if (vertex == null) return false;
+        ring.add(vertex.position);
+      }
+      // Classic skewer: both ends are corners of this polygon and the chord
+      // cuts through its interior. A fully contained inner polygon (hole)
+      // has endpoints that are *not* on the outer ring, so it stays allowed;
+      // a chord that pierces an unrelated shape is caught by the proper-
+      // intersection check below.
+      final endsOnThisPolygon =
+          closeEndIds.every(polygon.vertexIds.contains);
+      if (endsOnThisPolygon && _isStrictlyInsidePolygon(closeMid, ring)) {
+        return false;
+      }
+      if (ringsEdgesProperlyIntersect(closingEdge, ring)) return false;
+    }
+    return true;
+  }
+
+  List<Offset> _collapseConsecutiveDuplicatePoints(List<Offset> points) {
+    if (points.isEmpty) return const [];
+    final out = <Offset>[points.first];
+    for (var i = 1; i < points.length; i++) {
+      if (points[i] != out.last) out.add(points[i]);
+    }
+    if (out.length > 1 && out.first == out.last) out.removeLast();
+    return out;
+  }
+
+  /// [isPointInPolygon] with an explicit on-boundary → outside override so a
+  /// closing chord that reuses an existing edge is not mistaken for a skewer.
+  bool _isStrictlyInsidePolygon(Offset point, List<Offset> ring) {
+    if (_isOnRingBoundary(point, ring)) return false;
+    return isPointInPolygon(point, ring);
+  }
+
+  bool _isOnRingBoundary(Offset point, List<Offset> ring) {
+    const epsilon = 1e-6;
+    for (var i = 0; i < ring.length; i++) {
+      final a = ring[i];
+      final b = ring[(i + 1) % ring.length];
+      if (_distanceToSegment(point, a, b) <= epsilon) return true;
+    }
+    return false;
+  }
+
+  double _distanceToSegment(Offset p, Offset a, Offset b) {
+    final ab = b - a;
+    final lengthSq = ab.dx * ab.dx + ab.dy * ab.dy;
+    if (lengthSq == 0) return (p - a).distance;
+    var t = ((p.dx - a.dx) * ab.dx + (p.dy - a.dy) * ab.dy) / lengthSq;
+    if (t < 0) t = 0;
+    if (t > 1) t = 1;
+    final proj = Offset(a.dx + ab.dx * t, a.dy + ab.dy * t);
+    return (p - proj).distance;
   }
 
   /// Resolves what, if anything, belongs *between* the draft's last point
@@ -1193,16 +1327,24 @@ class CanvasNotifier extends StateNotifier<Artwork> {
   /// [_closingEdgeVertices] then falls back to absorbing any existing
   /// vertex that sits on the straight closing line instead of a shared
   /// boundary.
+  ///
+  /// Mid-path IDs already present in the draft are omitted so a boundary-
+  /// tracing stroke that already walked those corners is not duplicated into
+  /// a self-intersecting loop.
   List<String> _sharedBoundaryClosure(String startId, String endId) {
+    final draftIds = state.draftVertexIds.toSet();
     final graph = buildPolygonEdgeGraph(state.polygons, state.vertices);
     final path = findShortestBoundaryPath(
       endId,
       startId,
       graph: graph,
-      draftVertexIds: state.draftVertexIds.toSet(),
+      draftVertexIds: draftIds,
     );
     if (path == null || path.length <= 2) return const [];
-    return path.sublist(1, path.length - 1);
+    return path
+        .sublist(1, path.length - 1)
+        .where((id) => !draftIds.contains(id))
+        .toList();
   }
 
   /// Removes the most recently placed draft vertex without recording an undo

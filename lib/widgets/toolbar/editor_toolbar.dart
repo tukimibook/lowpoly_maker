@@ -272,10 +272,21 @@ class _DrawModeRow extends ConsumerWidget {
               tooltip: '多角形を閉じる',
               iconSize: 32,
               onPressed: canClose
-                  ? () => notifier.closePolygon(
-                      selectedColor,
-                      lineAbsorptionTolerance: kLineAbsorptionTolerance / viewportScale,
-                    )
+                  ? () {
+                      final result = notifier.closePolygon(
+                        selectedColor,
+                        lineAbsorptionTolerance:
+                            kLineAbsorptionTolerance / viewportScale,
+                      );
+                      if (result ==
+                          ClosePolygonResult.rejectedUnsafeClosingEdge) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(kClosePolygonRejectedMessage),
+                          ),
+                        );
+                      }
+                    }
                   : null,
               icon: const Icon(Icons.check_circle),
             ),

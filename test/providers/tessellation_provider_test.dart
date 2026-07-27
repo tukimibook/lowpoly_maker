@@ -4,6 +4,9 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:polygon_art_app/geometry/point_in_polygon.dart';
 import 'package:polygon_art_app/geometry/tessellation_input.dart';
+import 'package:polygon_art_app/models/artwork.dart';
+import 'package:polygon_art_app/models/polygon_shape.dart';
+import 'package:polygon_art_app/models/vertex.dart';
 import 'package:polygon_art_app/providers/canvas_provider.dart';
 import 'package:polygon_art_app/providers/tessellation_provider.dart';
 
@@ -28,13 +31,30 @@ void main() {
       addTearDown(container.dispose);
       final notifier = container.read(canvasProvider.notifier);
 
-      // Bowtie quadrilateral: opposite edges cross.
-      notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.red);
-      notifier.handleDrawTap(const Offset(10, 10), fillColor: Colors.red);
-      notifier.handleDrawTap(const Offset(10, 0), fillColor: Colors.red);
-      notifier.handleDrawTap(const Offset(0, 10), fillColor: Colors.red);
-      notifier.closePolygon(Colors.red);
-      final polygonId = notifier.state.polygons.single.id;
+      // Bowtie quadrilateral: opposite edges cross. Injected via loadArtwork
+      // because closePolygon now refuses to confirm a self-intersecting ring.
+      const polygonId = 'bowtie';
+      notifier.loadArtwork(
+        Artwork(
+          id: 'art',
+          title: 'bowtie',
+          vertices: {
+            'a': const Vertex(id: 'a', position: Offset(0, 0)),
+            'b': const Vertex(id: 'b', position: Offset(10, 10)),
+            'c': const Vertex(id: 'c', position: Offset(10, 0)),
+            'd': const Vertex(id: 'd', position: Offset(0, 10)),
+          },
+          polygons: [
+            const PolygonShape(
+              id: polygonId,
+              vertexIds: ['a', 'b', 'c', 'd'],
+              fillColor: Colors.red,
+              strokeColor: Colors.black,
+              strokeWidth: 1,
+            ),
+          ],
+        ),
+      );
 
       final flags = <bool>[];
       container.listen(isTessellatingProvider, (previous, next) => flags.add(next));

@@ -171,45 +171,92 @@ void main() {
       expect(path, ['a', 'b', 'c', 'd']);
     });
 
-    test('excludes draftVertexIds as mid-path hops but still allows toId itself', () {
-      // Chain a-b, b-c, c-d across separate polygons: 'b' and 'c' are each
-      // the *only* route between their neighbors (no ring closure shortcut,
-      // unlike a single polygon's own ring).
-      final vertices = {
-        'a': _vertex('a', const Offset(0, 0)),
-        'b': _vertex('b', const Offset(1, 0)),
-        'c': _vertex('c', const Offset(2, 0)),
-        'd': _vertex('d', const Offset(3, 0)),
-      };
-      final graph = buildPolygonEdgeGraph(
-        [
-          _polygon('p1', const ['a', 'b']),
-          _polygon('p2', const ['b', 'c']),
-          _polygon('p3', const ['c', 'd']),
-        ],
-        vertices,
-      );
+    test(
+      'allows on-graph draft vertices as mid-path hops (boundary tracing) '
+      'and still allows toId itself',
+      () {
+        // Chain a-b, b-c, c-d across separate polygons: 'b' and 'c' are each
+        // the *only* route between their neighbors (no ring closure shortcut,
+        // unlike a single polygon's own ring).
+        final vertices = {
+          'a': _vertex('a', const Offset(0, 0)),
+          'b': _vertex('b', const Offset(1, 0)),
+          'c': _vertex('c', const Offset(2, 0)),
+          'd': _vertex('d', const Offset(3, 0)),
+        };
+        final graph = buildPolygonEdgeGraph(
+          [
+            _polygon('p1', const ['a', 'b']),
+            _polygon('p2', const ['b', 'c']),
+            _polygon('p3', const ['c', 'd']),
+          ],
+          vertices,
+        );
 
-      // 'c' blocked as a mid-hop -> no path from a to d other than through it.
-      expect(
-        findShortestBoundaryPath(
+        // On-graph draft IDs must remain traversable — blocking them would
+        // seal the short arc the artist just traced along the boundary.
+        expect(
+          findShortestBoundaryPath(
+            'a',
+            'd',
+            graph: graph,
+            draftVertexIds: const {'a', 'b', 'c', 'd'},
+          ),
+          ['a', 'b', 'c', 'd'],
+        );
+
+        // Freehand-only draft IDs (absent from the graph) are ignored as
+        // hops in practice — they never appear as neighbors — and must not
+        // prevent a real on-graph path.
+        expect(
+          findShortestBoundaryPath(
+            'a',
+            'd',
+            graph: graph,
+            draftVertexIds: const {'freehand'},
+          ),
+          ['a', 'b', 'c', 'd'],
+        );
+
+        // toId itself may be in draftVertexIds without being blocked.
+        final path = findShortestBoundaryPath(
           'a',
-          'd',
+          'b',
           graph: graph,
-          draftVertexIds: const {'c'},
-        ),
-        isNull,
-      );
+          draftVertexIds: const {'b'},
+        );
+        expect(path, ['a', 'b']);
+      },
+    );
 
-      // toId itself may be in draftVertexIds without being blocked.
-      final path = findShortestBoundaryPath(
-        'a',
-        'b',
-        graph: graph,
-        draftVertexIds: const {'b'},
-      );
-      expect(path, ['a', 'b']);
-    });
+    test(
+      'returns the short boundary arc even when its mid vertices are already '
+      'listed in draftVertexIds',
+      () {
+        final vertices = {
+          'a': _vertex('a', const Offset(0, 0)),
+          'b': _vertex('b', const Offset(1, 0)),
+          'c': _vertex('c', const Offset(2, 0)),
+          'd': _vertex('d', const Offset(1, 100)),
+        };
+        final graph = buildPolygonEdgeGraph(
+          [_polygon('p1', const ['a', 'b', 'c', 'd'])],
+          vertices,
+        );
+
+        // Artist snapped a -> b -> c along the short top edge; closing from
+        // c back to a must still see that short arc (via b), not null.
+        expect(
+          findShortestBoundaryPath(
+            'c',
+            'a',
+            graph: graph,
+            draftVertexIds: const {'a', 'b', 'c'},
+          ),
+          ['c', 'b', 'a'],
+        );
+      },
+    );
 
     test('returns null when the graph has no connection between the two vertices', () {
       final vertices = {

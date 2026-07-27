@@ -242,6 +242,12 @@ class PolygonCanvas extends ConsumerWidget {
       if (matchedColor != null) {
         ref.read(selectedFillColorProvider.notifier).state = matchedColor;
       }
+      if (notifier.lastClosePolygonResult ==
+          ClosePolygonResult.rejectedUnsafeClosingEdge) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text(kClosePolygonRejectedMessage)),
+        );
+      }
     }
 
     /// Resamples whatever [tracePreview] accumulated (see

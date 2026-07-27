@@ -23,9 +23,11 @@ void main() {
         final aRight = aIds[2]; // (100, 100)
 
         // Polygon B: start on A's (0,0), arc far outside, end on A's (100,100).
+        // Freehand stays off the (0,0)-(100,100) diagonal so the draft edge
+        // does not pass through the start vertex (degenerate self-touch).
         notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.orange);
         notifier.handleDrawTap(
-          const Offset(-100, -100),
+          const Offset(-100, 50),
           fillColor: Colors.orange,
         );
         notifier.handleDrawTap(
@@ -46,7 +48,7 @@ void main() {
         ]);
         expect(
           notifier.state.vertices[closed.vertexIds[1]]!.position,
-          const Offset(-100, -100),
+          const Offset(-100, 50),
         );
         // The spliced corner is A's own vertex, reused (welded), not a copy.
         expect(aIds, contains(aTopRight));
@@ -282,6 +284,121 @@ void main() {
         final closed = notifier.state.polygons.last;
         expect(closed.vertexIds.first, aCorner);
         expect(closed.vertexIds, contains(bCorner));
+      },
+    );
+
+    test(
+      'closing after snapping along an existing boundary returns the short '
+      'arc without duplicating draft vertex IDs',
+      () {
+        final notifier = CanvasNotifier();
+        // Square A: (0,0)-(100,0)-(100,100)-(0,100).
+        notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.green);
+        notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.green);
+        notifier.handleDrawTap(const Offset(100, 100), fillColor: Colors.green);
+        notifier.handleDrawTap(const Offset(0, 100), fillColor: Colors.green);
+        expect(notifier.closePolygon(Colors.green), ClosePolygonResult.closed);
+        final aIds = notifier.state.polygons.single.vertexIds;
+        final a = aIds[0]; // (0,0)
+        final b = aIds[1]; // (100,0)
+        final c = aIds[2]; // (100,100)
+        final d = aIds[3]; // (0,100)
+
+        // Trace the whole boundary by snapping every corner, then close.
+        notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.orange);
+        notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.orange);
+        notifier.handleDrawTap(const Offset(100, 100), fillColor: Colors.orange);
+        notifier.handleDrawTap(const Offset(0, 100), fillColor: Colors.orange);
+        expect(notifier.state.draftVertexIds, [a, b, c, d]);
+
+        expect(notifier.closePolygon(Colors.orange), ClosePolygonResult.closed);
+        expect(notifier.state.polygons, hasLength(2));
+        final closed = notifier.state.polygons.last;
+        // No duplicated mid IDs — the draft already held the short-arc verts,
+        // and d→a is the square's own edge (nothing to splice).
+        expect(closed.vertexIds, [a, b, c, d]);
+        expect(closed.vertexIds.toSet(), hasLength(4));
+      },
+    );
+
+    test(
+      'closePolygon rejects a skewer chord that would cut through an existing '
+      'polygon (draft kept, no undo)',
+      () {
+        final notifier = CanvasNotifier();
+        // Obstacle square sitting between two distant weld targets. A plain
+        // last→first chord from the left tip to the right tip runs straight
+        // through its interior — that must be refused.
+        notifier.handleDrawTap(const Offset(50, 50), fillColor: Colors.grey);
+        notifier.handleDrawTap(const Offset(150, 50), fillColor: Colors.grey);
+        notifier.handleDrawTap(const Offset(150, 150), fillColor: Colors.grey);
+        notifier.handleDrawTap(const Offset(50, 150), fillColor: Colors.grey);
+        expect(notifier.closePolygon(Colors.grey), ClosePolygonResult.closed);
+
+        notifier.handleDrawTap(const Offset(0, 80), fillColor: Colors.green);
+        notifier.handleDrawTap(const Offset(0, 120), fillColor: Colors.green);
+        notifier.handleDrawTap(const Offset(30, 100), fillColor: Colors.green);
+        expect(notifier.closePolygon(Colors.green), ClosePolygonResult.closed);
+        final leftTip = notifier.state.polygons[1].vertexIds[2]; // (30,100)
+
+        notifier.handleDrawTap(const Offset(200, 80), fillColor: Colors.purple);
+        notifier.handleDrawTap(const Offset(200, 120), fillColor: Colors.purple);
+        notifier.handleDrawTap(const Offset(170, 100), fillColor: Colors.purple);
+        expect(notifier.closePolygon(Colors.purple), ClosePolygonResult.closed);
+        final rightTip = notifier.state.polygons[2].vertexIds[2]; // (170,100)
+
+        // Bridge left tip → freehand below → right tip. No shared boundary
+        // chain connects the tips, so close would invent the horizontal
+        // chord through the obstacle at y=100.
+        notifier.handleDrawTap(const Offset(30, 100), fillColor: Colors.orange);
+        notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.orange);
+        notifier.handleDrawTap(const Offset(170, 100), fillColor: Colors.orange);
+        expect(notifier.state.draftVertexIds.first, leftTip);
+        expect(notifier.state.draftVertexIds.last, rightTip);
+        final draftBefore = List<String>.from(notifier.state.draftVertexIds);
+
+        final undoAvailableBefore = notifier.canUndo;
+        expect(
+          notifier.closePolygon(Colors.orange),
+          ClosePolygonResult.rejectedUnsafeClosingEdge,
+        );
+        expect(notifier.state.polygons, hasLength(3));
+        expect(notifier.state.draftVertexIds, draftBefore);
+        // Rejected close must not push an undo snapshot.
+        expect(notifier.canUndo, undoAvailableBefore);
+      },
+    );
+
+    test(
+      'closing opposite corners follows the unique short boundary arc '
+      'instead of the diagonal skewer',
+      () {
+        final notifier = CanvasNotifier();
+        // Trapezoid where a→b→c (150) is clearly shorter than a→d→c (~212).
+        notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.green);
+        notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.green);
+        notifier.handleDrawTap(const Offset(100, 50), fillColor: Colors.green);
+        notifier.handleDrawTap(const Offset(0, 100), fillColor: Colors.green);
+        expect(notifier.closePolygon(Colors.green), ClosePolygonResult.closed);
+        final aIds = notifier.state.polygons.single.vertexIds;
+        final a = aIds[0]; // (0,0)
+        final b = aIds[1]; // (100,0)
+        final c = aIds[2]; // (100,50)
+        final d = aIds[3]; // (0,100)
+
+        notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.orange);
+        // Off the a–c diagonal so the freehand edge does not pass through a.
+        notifier.handleDrawTap(
+          const Offset(-50, 25),
+          fillColor: Colors.orange,
+        );
+        notifier.handleDrawTap(const Offset(100, 50), fillColor: Colors.orange);
+        expect(notifier.closePolygon(Colors.orange), ClosePolygonResult.closed);
+
+        final closed = notifier.state.polygons.last;
+        final freehand = closed.vertexIds[1];
+        expect(closed.vertexIds, [a, freehand, c, b]);
+        expect(closed.vertexIds, isNot(contains(d)));
       },
     );
   });

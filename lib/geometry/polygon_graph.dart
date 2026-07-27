@@ -46,11 +46,12 @@ Map<String, List<(String, double)>> buildPolygonEdgeGraph(
 /// instead, so drawing a shape from one existing corner to another never
 /// cuts straight across a boundary that's actually already there.
 ///
-/// Every ID in [draftVertexIds] is excluded as a mid-path hop — only
-/// [toId] itself is allowed as the destination even if it's also part of
-/// the draft — since draft vertices are already accounted for elsewhere,
-/// so routing through one would duplicate a corner into a
-/// self-intersecting loop instead of a clean weld.
+/// Draft-only (freehand) IDs — those absent from [graph] — are excluded as
+/// mid-path hops, while confirmed boundary vertices already in the draft
+/// remain usable relays. Blocking every draft ID would seal the short arc
+/// the artist just traced and force a null path (and a skewer chord).
+/// [toId] itself is always allowed as the destination even when it is also
+/// part of the draft.
 List<String>? findShortestBoundaryPath(
   String fromId,
   String toId, {
@@ -60,7 +61,13 @@ List<String>? findShortestBoundaryPath(
   if (fromId == toId) return [fromId];
   if (!graph.containsKey(fromId) || !graph.containsKey(toId)) return null;
 
-  final blockedHops = draftVertexIds.toSet()..remove(toId);
+  // Only freehand draft IDs (not present on the boundary graph) are blocked.
+  // On-graph draft vertices must stay traversable so a boundary-tracing
+  // stroke can still close along the short arc it just walked.
+  final blockedHops = draftVertexIds
+      .where((id) => !graph.containsKey(id))
+      .toSet()
+    ..remove(toId);
   final best = <String, double>{fromId: 0};
   final previous = <String, String>{};
   final settled = <String>{};
