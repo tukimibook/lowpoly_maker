@@ -851,4 +851,57 @@ void main() {
       expect(notifier.state, before);
     });
   });
+
+  group('CanvasNotifier changePolygonColor (Phase Select paint)', () {
+    test('updates fillColor and records a single undo entry', () {
+      final notifier = CanvasNotifier();
+      notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.red);
+      notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.red);
+      notifier.handleDrawTap(const Offset(50, 100), fillColor: Colors.red);
+      notifier.closePolygon(Colors.red);
+      final polygonId = notifier.state.polygons.single.id;
+      final before = notifier.state;
+
+      notifier.changePolygonColor(polygonId, Colors.blue);
+
+      expect(notifier.state.polygons.single.fillColor, Colors.blue);
+      expect(notifier.state.polygons.single.id, polygonId);
+      expect(notifier.canUndo, isTrue);
+
+      expect(notifier.undo(), isTrue);
+      expect(notifier.state, before);
+      expect(notifier.state.polygons.single.fillColor, Colors.red);
+    });
+
+    test('is a no-op for an unknown polygon ID (no undo entry)', () {
+      final notifier = CanvasNotifier();
+      notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.teal);
+      notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.teal);
+      notifier.handleDrawTap(const Offset(50, 100), fillColor: Colors.teal);
+      notifier.closePolygon(Colors.teal);
+      final before = notifier.state;
+      final couldUndoBefore = notifier.canUndo;
+
+      notifier.changePolygonColor('does-not-exist', Colors.purple);
+
+      expect(notifier.state, before);
+      expect(notifier.canUndo, couldUndoBefore);
+    });
+
+    test('is a no-op when the fill is already the requested color', () {
+      final notifier = CanvasNotifier();
+      notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.green);
+      notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.green);
+      notifier.handleDrawTap(const Offset(50, 100), fillColor: Colors.green);
+      notifier.closePolygon(Colors.green);
+      final polygonId = notifier.state.polygons.single.id;
+      final before = notifier.state;
+      final couldUndoBefore = notifier.canUndo;
+
+      notifier.changePolygonColor(polygonId, Colors.green);
+
+      expect(notifier.state, before);
+      expect(notifier.canUndo, couldUndoBefore);
+    });
+  });
 }

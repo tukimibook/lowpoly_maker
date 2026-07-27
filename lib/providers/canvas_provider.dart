@@ -49,14 +49,15 @@ const String kClosePolygonRejectedMessage =
 /// exact vertex so the two shapes truly share that corner in the data model
 /// ("weld"), not just visually (see [CanvasNotifier.findPolygonVertexNear]).
 ///
-/// Sized to roughly a fingertip (~48 logical px / Material's 48dp touch
-/// target). This is a *screen* tolerance — finger precision doesn't change
-/// with zoom — so every method below that hit-tests against it takes an
-/// explicit `hitRadius` parameter (defaulting to this constant) rather than
-/// using it directly. Callers that know the current viewport scale (e.g.
-/// `PolygonCanvas`) pass `kVertexHitRadius / transform.scale` so the
-/// on-screen tolerance stays constant regardless of zoom.
-const double kVertexHitRadius = 48.0;
+/// Sized to roughly a fingertip (~30 logical px — tightened from Material's
+/// 48dp touch target after real-device UX tuning). This is a *screen*
+/// tolerance — finger precision doesn't change with zoom — so every method
+/// below that hit-tests against it takes an explicit `hitRadius` parameter
+/// (defaulting to this constant) rather than using it directly. Callers that
+/// know the current viewport scale (e.g. `PolygonCanvas`) pass
+/// `kVertexHitRadius / transform.scale` so the on-screen tolerance stays
+/// constant regardless of zoom.
+const double kVertexHitRadius = 30.0;
 
 /// Perpendicular distance (in world/logical pixels) within which an
 /// existing confirmed vertex sitting near a freshly drawn segment gets
@@ -65,7 +66,7 @@ const double kVertexHitRadius = 48.0;
 /// happens to pass close to (e.g. another shape's edge sitting between
 /// them) absorbed into the new draft automatically, instead of requiring
 /// a separate, precise tap on each one. See [CanvasNotifier.handleDrawTap].
-const double kLineAbsorptionTolerance = 15.0;
+const double kLineAbsorptionTolerance = 10.0;
 
 /// Fixed world-coordinate distance between two consecutive vertices
 /// [generateTracePoints] generates along a なぞりモード ("trace mode")
@@ -838,6 +839,24 @@ class CanvasNotifier extends StateNotifier<Artwork> {
       ],
       vertices: {...state.vertices, ...newVertices},
     );
+  }
+
+  /// Updates [polygonId]'s [PolygonShape.fillColor] to [newColor].
+  ///
+  /// No-op when the ID is unknown or the fill is already [newColor], so a
+  /// repeated palette tap never pollutes the undo stack. A real change is
+  /// one [_recordUndo] entry — same D0 pattern as [deletePolygon] /
+  /// [translatePolygon]. Stroke style is intentionally untouched (v1.1).
+  void changePolygonColor(String polygonId, Color newColor) {
+    final index = state.polygons.indexWhere((p) => p.id == polygonId);
+    if (index < 0) return;
+    final polygon = state.polygons[index];
+    if (polygon.fillColor == newColor) return;
+
+    _recordUndo();
+    final updated = List<PolygonShape>.of(state.polygons);
+    updated[index] = polygon.copyWith(fillColor: newColor);
+    state = state.copyWith(polygons: updated);
   }
 
   /// Deletes [polygonId] entirely (the edit mode's "🗑️ 図形の削除" button).

@@ -347,25 +347,18 @@ void main() {
     }
 
     testWidgets(
-      'shows the four whole-shape buttons, with nothing highlighted until '
-      '図形を切り替え is pressed',
+      'shows the tap-to-select hint and cycle control, with nothing '
+      'highlighted until 図形を切り替え is pressed',
       (tester) async {
         await pumpEditorWithTriangle(tester);
 
+        expect(find.text('図形をタップして選択'), findsOneWidget);
         expect(_iconButtonByTooltip('図形を切り替え'), findsOneWidget);
-        expect(_iconButtonByTooltip('辺を切り替え'), findsOneWidget);
-        expect(_iconButtonByTooltip('ここに頂点を追加'), findsOneWidget);
-        expect(_iconButtonByTooltip('図形を削除'), findsOneWidget);
+        // Edge tools / more menu appear only after a polygon is targeted.
+        expect(_iconButtonByTooltip('辺を切り替え'), findsNothing);
+        expect(_iconButtonByTooltip('ここに頂点を追加'), findsNothing);
+        expect(find.byKey(const Key('polygon-more-menu-button')), findsNothing);
         expect(currentPainter(tester).highlightedPolygonId, isNull);
-
-        // 辺を切り替え/ここに頂点を追加/図形を削除 all require a target
-        // polygon first, so they start out disabled.
-        expect(tester.widget<IconButton>(_iconButtonByTooltip('辺を切り替え')).onPressed, isNull);
-        expect(
-          tester.widget<IconButton>(_iconButtonByTooltip('ここに頂点を追加')).onPressed,
-          isNull,
-        );
-        expect(tester.widget<IconButton>(_iconButtonByTooltip('図形を削除')).onPressed, isNull);
       },
     );
 
@@ -377,6 +370,8 @@ void main() {
       await tester.pump();
 
       expect(currentPainter(tester).highlightedPolygonId, polygonId);
+      expect(_iconButtonByTooltip('辺を切り替え'), findsOneWidget);
+      expect(find.byKey(const Key('fill-color-palette')), findsOneWidget);
     });
 
     testWidgets(
@@ -404,6 +399,7 @@ void main() {
         // The whole-shape row is gone now that a vertex is selected, and
         // its cycle counters were reset for next time.
         expect(_iconButtonByTooltip('図形を切り替え'), findsNothing);
+        expect(find.byKey(const Key('fill-color-palette')), findsNothing);
       },
     );
 
@@ -412,8 +408,10 @@ void main() {
 
       await tester.tap(_iconButtonByTooltip('図形を切り替え'));
       await tester.pump();
-      await tester.tap(_iconButtonByTooltip('図形を削除'));
-      await tester.pump();
+      await tester.tap(find.byKey(const Key('polygon-more-menu-button')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('図形を削除'));
+      await tester.pumpAndSettle();
 
       expect(container.read(canvasProvider).polygons, isEmpty);
     });
@@ -513,23 +511,28 @@ void main() {
     // (`TessellationController`, `compute(triangulate, ...)`,
     // `commitTessellationResult`) but never actually wired to any control —
     // discovered during real-device testing (2026-07-21). These two guard
-    // against that regressing again now that the button exists.
+    // against that regressing again now that the overflow menu item exists.
     testWidgets(
-      'テッセレーション button is disabled until 図形を切り替え picks a target, and '
-      'greyed out (with a change_history icon) either way',
+      'テッセレーション menu item appears only after 図形を切り替え picks a target',
       (tester) async {
         await pumpEditorWithTriangle(tester);
 
-        final tessellateButton = find.byKey(
-          const Key('tessellate-target-polygon-button'),
+        expect(find.byKey(const Key('polygon-more-menu-button')), findsNothing);
+        expect(
+          find.byKey(const Key('tessellate-target-polygon-button')),
+          findsNothing,
         );
-        expect(tessellateButton, findsOneWidget);
-        expect(tester.widget<IconButton>(tessellateButton).onPressed, isNull);
 
         await tester.tap(_iconButtonByTooltip('図形を切り替え'));
         await tester.pump();
 
-        expect(tester.widget<IconButton>(tessellateButton).onPressed, isNotNull);
+        await tester.tap(find.byKey(const Key('polygon-more-menu-button')));
+        await tester.pumpAndSettle();
+
+        final tessellateItem = find.byKey(
+          const Key('tessellate-target-polygon-button'),
+        );
+        expect(tessellateItem, findsOneWidget);
       },
     );
 
@@ -544,9 +547,14 @@ void main() {
         await tester.tap(_iconButtonByTooltip('図形を切り替え'));
         await tester.pump();
 
-        final tessellateButton = find.byKey(
-          const Key('tessellate-target-polygon-button'),
+        await tester.tap(find.byKey(const Key('polygon-more-menu-button')));
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const Key('tessellate-target-polygon-button')),
         );
+        await tester.pump();
+
         // `compute()` spawns a real `Isolate` — outside `runAsync`, a
         // `testWidgets` test's fake-clock zone can never let it resolve
         // (see `test/services/thumbnail_capture_service_test.dart`'s doc for
@@ -557,7 +565,6 @@ void main() {
         // entirely: real time actually elapses inside this callback, so a
         // handful of short real delays is enough once the flag flips back.
         await tester.runAsync(() async {
-          await tester.tap(tessellateButton);
           for (var i = 0; i < 50 && container.read(isTessellatingProvider); i++) {
             await Future<void>.delayed(const Duration(milliseconds: 20));
           }
@@ -577,10 +584,9 @@ void main() {
         container.read(canvasProvider.notifier).undo();
         expect(container.read(canvasProvider), stateBefore);
 
-        // The whole-shape row's cycle counters were reset — mirrors
-        // 図形を削除's own behavior above, since the old target polygon ID
-        // can no longer resolve to anything either way.
-        expect(tester.widget<IconButton>(tessellateButton).onPressed, isNull);
+        // Cycle counters were reset — back to the unselected hint row.
+        expect(find.text('図形をタップして選択'), findsOneWidget);
+        expect(find.byKey(const Key('polygon-more-menu-button')), findsNothing);
       },
     );
   });
@@ -633,7 +639,7 @@ void main() {
         await enterEditMode(tester);
         final polygonId = container.read(canvasProvider).polygons.single.id;
 
-        // Clear interior, well away from vertices (hit radius ~48).
+        // Clear interior, well away from vertices (hit radius ~30).
         await tester.tapAt(canvasTopLeft + const Offset(100, 80));
         await tester.pump();
 
@@ -659,23 +665,26 @@ void main() {
         await closeCurrentDraft(tester);
         final backId = container.read(canvasProvider).polygons.single.id;
 
-        // Front triangle overlapping the first (drawn second = on top).
+        // Front triangle fully inside the first (drawn second = on top).
+        // Vertices stay > kVertexHitRadius from the back triangle's corners
+        // so they don't snap/weld; a nested ring also closes safely.
         await tester.tap(find.byTooltip('描画モード'));
         await tester.pump();
-        await tester.tapAt(canvasTopLeft + const Offset(70, 70));
+        await tester.tapAt(canvasTopLeft + const Offset(70, 60));
         await tester.pump();
-        await tester.tapAt(canvasTopLeft + const Offset(190, 70));
+        await tester.tapAt(canvasTopLeft + const Offset(130, 60));
         await tester.pump();
-        await tester.tapAt(canvasTopLeft + const Offset(130, 190));
+        await tester.tapAt(canvasTopLeft + const Offset(100, 125));
         await tester.pump();
         await closeCurrentDraft(tester);
+        expect(container.read(canvasProvider).polygons, hasLength(2));
         final frontId = container.read(canvasProvider).polygons.last.id;
         expect(frontId, isNot(backId));
 
         await enterEditMode(tester);
 
-        // Overlap region: inside both rings, away from vertices.
-        await tester.tapAt(canvasTopLeft + const Offset(110, 100));
+        // Inside both rings, > kVertexHitRadius from every vertex.
+        await tester.tapAt(canvasTopLeft + const Offset(100, 82));
         await tester.pump();
 
         expect(container.read(polygonCycleIndexProvider), 1);

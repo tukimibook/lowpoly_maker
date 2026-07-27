@@ -169,13 +169,13 @@ void main() {
       'respects a scaled-down hitRadius exactly like handleDrawTap does',
       () {
         void buildTarget(CanvasNotifier notifier) {
-          // (300, 20) sits ~44.7px from the trace's end point below — far
-          // enough off the y=0 line (perpendicular distance 20) that the
-          // separate line-absorption tolerance (default 15px) never
+          // (300, 12) sits ~23.3px from the trace's end point below — far
+          // enough off the y=0 line (perpendicular distance 12) that the
+          // separate line-absorption tolerance (default 10px) never
           // absorbs it as a pass-through point, isolating this test to
           // hitRadius alone. The other two corners are far away so they
           // can't be confused for the target either.
-          notifier.handleDrawTap(const Offset(300, 20), fillColor: Colors.purple);
+          notifier.handleDrawTap(const Offset(300, 12), fillColor: Colors.purple);
           notifier.handleDrawTap(const Offset(500, 300), fillColor: Colors.purple);
           notifier.handleDrawTap(const Offset(200, 300), fillColor: Colors.purple);
           notifier.closePolygon(Colors.purple);
@@ -184,25 +184,25 @@ void main() {
         final atDefault = CanvasNotifier();
         buildTarget(atDefault);
         final targetVertexId = atDefault.state.polygons.single.vertexIds.first;
-        // ~44.7px from (300, 20): within the default 48px hitRadius, so
+        // ~23.3px from (300, 12): within the default 30px hitRadius, so
         // the trace's end point snaps onto (and shares the ID of) it.
-        atDefault.commitTraceStroke(const [Offset(0, 0), Offset(340, 0)]);
+        atDefault.commitTraceStroke(const [Offset(0, 0), Offset(320, 0)]);
         expect(atDefault.state.draftVertexIds, hasLength(2));
         expect(atDefault.state.draftVertexIds.last, targetVertexId);
 
         final scaledDown = CanvasNotifier();
         buildTarget(scaledDown);
-        // Same ~44.7px gap, but scaled down to a tighter screen distance
-        // (scale 2) exceeds it, so this must place an ordinary freehand
-        // point instead of snapping.
+        // Same ~23.3px gap, but scaled down to a tighter screen distance
+        // (scale 2 → hitRadius 15) exceeds it, so this must place an
+        // ordinary freehand point instead of snapping.
         scaledDown.commitTraceStroke(
-          const [Offset(0, 0), Offset(340, 0)],
+          const [Offset(0, 0), Offset(320, 0)],
           hitRadius: kVertexHitRadius / 2,
         );
         expect(scaledDown.state.draftVertexIds, hasLength(2));
         expect(
           scaledDown.state.vertices[scaledDown.state.draftVertexIds.last]!.position,
-          const Offset(340, 0),
+          const Offset(320, 0),
         );
       },
     );

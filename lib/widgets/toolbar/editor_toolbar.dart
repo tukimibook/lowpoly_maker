@@ -13,31 +13,22 @@ import '../../providers/tessellation_provider.dart';
 import '../../providers/underlay_layout_provider.dart';
 import '../../providers/underlay_provider.dart';
 import '../../providers/viewport_provider.dart';
+import 'fill_color_palette.dart';
 
-/// Height each row (common + mode-specific) reserves. Two rows land the
-/// whole bar in the ~120–150px "ゆったりとしたスペース" range agreed for a
-/// global, icon-only design (`.cursor/plans/plan_phase_H_alpha.md`,
-/// 2026-07-16 検討メモ) without needing to hard-code the bar's total
-/// height anywhere — [EditorScreen] no longer cares what this adds up to
-/// at all, since the `Stack` overlay structure keeps the canvas's own size
-/// independent of it regardless (see that file's doc comment).
+/// Height each context / common row reserves.
 const double _kRowHeight = 64;
 
-/// Bottom toolbar: two fixed-height rows, entirely icon-driven (no visible
-/// text anywhere — every control's accessible name lives in its
-/// [Tooltip]/`tooltip:` only), so the UI reads the same regardless of the
-/// user's language.
+/// Height of the conditional fill-color palette strip (Row 2).
+const double _kPaletteRowHeight = 52;
+
+/// Bottom toolbar: common mode row, a mode-specific context row, and an
+/// optional fill-color palette strip.
 ///
-/// - Row 1 is identical in every mode: the draw/eraser/edit switch, the
-///   underlay's visibility/opacity toggles (moved here from the old
-///   "下絵設定" modal sheet, removed 2026-07-16, so both are a single tap
-///   away instead of buried in a sheet), and undo.
-/// - Row 2 changes completely depending on [CanvasMode], mirroring the
-///   previous version's design (draw/eraser/edit each get their own
-///   sub-widget below) but every control is now a single icon-only toggle
-///   rather than a row of separate buttons — see [_EditModeRow] in
-///   particular, which condenses what used to be "one button per shared
-///   polygon" into a fixed two-button cycle/execute pair.
+/// - Row 0 is identical in every mode: draw/eraser/edit, underlay toggles,
+///   fit-screen, undo.
+/// - Row 1 changes with [CanvasMode] and (in edit) selection state.
+/// - Row 2 is the shared [FillColorPalette], shown only while drawing or
+///   while an edit-mode polygon is targeted with no vertex selected.
 class EditorToolbar extends ConsumerWidget {
   const EditorToolbar({super.key});
 
@@ -53,19 +44,18 @@ class EditorToolbar extends ConsumerWidget {
           const _CommonRow(),
           const Divider(height: 1),
           switch (mode) {
-            CanvasMode.draw => const _DrawModeRow(),
+            CanvasMode.draw => const _DrawModeContextRow(),
             CanvasMode.eraser => const _EraserModeRow(),
-            CanvasMode.edit => const _EditModeRow(),
+            CanvasMode.edit => const _EditModeContextRow(),
           },
+          const _PaletteRow(),
         ],
       ),
     );
   }
 }
 
-/// Row 1: always the same three mode icons, plus the underlay's
-/// visibility/opacity toggles and undo. See [EditorToolbar]'s doc for why
-/// this row never changes shape between modes.
+/// Row 0: mode switch, underlay, fit-screen, undo.
 class _CommonRow extends ConsumerWidget {
   const _CommonRow();
 
@@ -74,16 +64,11 @@ class _CommonRow extends ConsumerWidget {
     final mode = ref.watch(canvasModeProvider);
     final hasUnderlay = ref.watch(underlayProvider.select((state) => state.imagePath != null));
     final underlayController = ref.watch(underlayLayoutProvider);
-    // Watched only to keep `canUndo` (read below) fresh after every
-    // artwork mutation — mirrors the pre-existing `_DrawModeControls`/
-    // `_EditModeControls` pattern this replaces.
     ref.watch(canvasProvider);
     final canUndo = ref.read(canvasProvider.notifier).canUndo;
 
     void selectMode(CanvasMode newMode) {
       ref.read(canvasModeProvider.notifier).state = newMode;
-      // Always drop in-flight previews (including whole-polygon drag) so a
-      // mid-gesture mode switch cannot leave a stale preview committed later.
       clearGesturePreviews(ref.read);
       if (newMode != CanvasMode.edit) {
         clearEditSelectionUi(ref.read);
@@ -182,13 +167,9 @@ class _CommonRow extends ConsumerWidget {
   }
 }
 
-/// Row 2, draw mode: a タップ/なぞり sub-mode toggle (Phase F,
-/// `.cursor/plans/plan_phase_F.md`), the fill-color palette (unchanged —
-/// swatches were already language-independent), and a single "閉じる"
-/// icon button — the latter two apply the same regardless of which
-/// sub-mode grew the draft.
-class _DrawModeRow extends ConsumerWidget {
-  const _DrawModeRow();
+/// Row 1, draw mode: tap/trace toggle + close. Palette lives in [_PaletteRow].
+class _DrawModeContextRow extends ConsumerWidget {
+  const _DrawModeContextRow();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -197,19 +178,10 @@ class _DrawModeRow extends ConsumerWidget {
     final selectedColor = ref.watch(selectedFillColorProvider);
     final drawMode = ref.watch(drawModeProvider);
     final canClose = artwork.draftVertexIds.length >= kMinPolygonVertices;
-    // The toolbar's own tap has no gesture-side viewport scale to read from
-    // directly (unlike `PolygonCanvas`'s `hitRadius()`/`lineAbsorptionTolerance()`
-    // helpers), so it reads the current scale here instead — Phase Hβ's
-    // screen-px unification (`.cursor/plans/plan_phase_H_beta.md`) applies
-    // to this explicit "閉じる" action just as much as to the implicit
-    // double-tap close it mirrors.
     final viewportScale = ref.read(viewportProvider).value.scale;
 
     void selectDrawMode(DrawMode newDrawMode) {
       ref.read(drawModeProvider.notifier).state = newDrawMode;
-      // No gesture can possibly be in flight while a toolbar button press
-      // is being handled, but reset defensively anyway — mirrors
-      // `_CommonRow.selectMode`'s own cleanup on every other mode switch.
       clearGesturePreviews(ref.read);
     }
 
@@ -236,38 +208,7 @@ class _DrawModeRow extends ConsumerWidget {
               showSelectedIcon: false,
               onSelectionChanged: (selection) => selectDrawMode(selection.first),
             ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: kDefaultPolygonPalette.length,
-                separatorBuilder: (context, index) => const SizedBox(width: 10),
-                itemBuilder: (context, index) {
-                  final color = kDefaultPolygonPalette[index];
-                  final isSelected = color == selectedColor;
-                  return Tooltip(
-                    message: '塗り色を選択',
-                    child: GestureDetector(
-                      onTap: () => ref.read(selectedFillColorProvider.notifier).state = color,
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 120),
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: color,
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: isSelected ? Colors.black87 : Colors.transparent,
-                            width: 3,
-                          ),
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-            const SizedBox(width: 8),
+            const Spacer(),
             IconButton(
               tooltip: '多角形を閉じる',
               iconSize: 32,
@@ -297,9 +238,7 @@ class _DrawModeRow extends ConsumerWidget {
   }
 }
 
-/// Row 2, eraser mode: a decorative, non-interactive reminder of what
-/// tapping the canvas does in this mode — there is nothing to press here,
-/// erasing itself happens by tapping a vertex on the canvas.
+/// Row 1, eraser mode: non-interactive reminder.
 class _EraserModeRow extends StatelessWidget {
   const _EraserModeRow();
 
@@ -318,35 +257,19 @@ class _EraserModeRow extends StatelessWidget {
   }
 }
 
-/// Row 2, edit mode: one of three sub-views depending on selection state:
-/// - no vertex selected → [_NoSelectionRow] (whole-shape 図形/辺 target
-///   cycling, insertion, deletion).
-/// - a selected vertex that isn't shared → a decorative reminder (nothing
-///   to detach).
-/// - a selected, *shared* vertex → the detach cycle/execute pair.
-///
-/// Whenever a vertex *is* selected, a "選択を解除" button also sits fixed
-/// at the row's trailing edge regardless of which of the latter two
-/// sub-views is showing — a safety valve so the artist never has to hunt
-/// for empty canvas to tap in order to back out of a selection (e.g. once
-/// they've long-press-dragged one, per [PolygonCanvas.startVertexDrag]'s
-/// doc). It lines up under Row 1's "元に戻す" for the same reason: both are
-/// reversal/exit actions, so keeping them in the same column makes the
-/// spot easy to find without looking.
-class _EditModeRow extends ConsumerWidget {
-  const _EditModeRow();
+/// Row 1, edit mode: branches on vertex vs. whole-shape selection.
+class _EditModeContextRow extends ConsumerWidget {
+  const _EditModeContextRow();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final selectedVertexId = ref.watch(selectedVertexProvider);
     final weldArmed = ref.watch(weldArmedProvider);
     final notifier = ref.read(canvasProvider.notifier);
-    // Watched so `isVertexShared`/`polygonsReferencing` below stay fresh
-    // across weld/detach/undo — mirrors the row above.
     ref.watch(canvasProvider);
 
     if (selectedVertexId == null) {
-      return const _NoSelectionRow();
+      return const _WholeShapeContextRow();
     }
 
     final Widget content = notifier.isVertexShared(selectedVertexId)
@@ -403,73 +326,9 @@ class _EditModeRow extends ConsumerWidget {
   }
 }
 
-/// The ♻️/✂️ pair shown in [_EditModeRow] once the selected vertex is
-/// confirmed shared — split out purely so that widget stays focused on
-/// picking *which* sub-view to show alongside the always-present "選択を
-/// 解除" button, rather than also carrying this branch's own cycle state.
-class _DetachControls extends ConsumerWidget {
-  const _DetachControls({required this.selectedVertexId});
-
-  final String selectedVertexId;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final notifier = ref.read(canvasProvider.notifier);
-    final referencingPolygons = notifier.polygonsReferencing(selectedVertexId);
-    final draftReferences = notifier.draftReferencesVertex(selectedVertexId);
-    final cycleIndex = ref.watch(detachCycleIndexProvider);
-    final target = resolveDetachTarget(
-      referencingPolygons: referencingPolygons,
-      draftReferences: draftReferences,
-      rawCycleIndex: cycleIndex,
-    );
-
-    void cycleTarget() {
-      ref.read(detachCycleIndexProvider.notifier).state = cycleIndex + 1;
-    }
-
-    void executeDetach() {
-      final currentTarget = target;
-      if (currentTarget == null) return;
-      final copyId = currentTarget.isDraft
-          ? notifier.detachVertexFromDraft(selectedVertexId)
-          : notifier.detachVertexFromPolygon(selectedVertexId, currentTarget.polygonId!);
-      if (copyId != null) {
-        ref.read(selectedVertexProvider.notifier).state = copyId;
-      }
-      ref.read(detachCycleIndexProvider.notifier).state = 0;
-    }
-
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        IconButton(
-          tooltip: '切り離す多角形を切り替え',
-          iconSize: 32,
-          onPressed: cycleTarget,
-          icon: const Icon(Icons.autorenew),
-        ),
-        const SizedBox(width: 32),
-        IconButton(
-          tooltip: '選択中の多角形から切り離す',
-          iconSize: 32,
-          onPressed: target == null ? null : executeDetach,
-          icon: const Icon(Icons.content_cut),
-        ),
-      ],
-    );
-  }
-}
-
-/// Row 2, edit mode, no vertex selected: lets the artist target a whole
-/// polygon and one of its edges without ever needing to tap precisely on
-/// thin geometry — the four buttons operate purely through these two
-/// cycling providers, matching what [PolygonCanvas] highlights on the
-/// canvas (both read the exact same `resolvePolygonTarget`/
-/// `resolveEdgeTarget` pure functions, so the two views can never
-/// disagree).
-class _NoSelectionRow extends ConsumerWidget {
-  const _NoSelectionRow();
+/// Edit Row 1 with no vertex selected: hint + cycle, or edge tools + more.
+class _WholeShapeContextRow extends ConsumerWidget {
+  const _WholeShapeContextRow();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -483,15 +342,14 @@ class _NoSelectionRow extends ConsumerWidget {
       polygons: artwork.polygons,
       rawCycleIndex: polygonIndex,
     );
-    final targetPolygon = artwork.polygons.where((p) => p.id == targetPolygonId).firstOrNull;
+    final targetPolygon =
+        artwork.polygons.where((p) => p.id == targetPolygonId).firstOrNull;
     final targetEdge = targetPolygon == null
         ? null
         : resolveEdgeTarget(polygon: targetPolygon, rawCycleIndex: edgeIndex);
 
     void cyclePolygon() {
       ref.read(polygonCycleIndexProvider.notifier).state = polygonIndex + 1;
-      // An edge index only ever makes sense relative to whichever polygon
-      // it was last read against, so switching shapes always restarts it.
       ref.read(edgeCycleIndexProvider.notifier).state = -1;
     }
 
@@ -519,77 +377,225 @@ class _NoSelectionRow extends ConsumerWidget {
       ref.read(edgeCycleIndexProvider.notifier).state = -1;
     }
 
-    // Phase G (plan #17)'s auto-tessellation engine — `TessellationController`,
-    // `compute(triangulate, ...)`, `commitTessellationResult` — was fully
-    // implemented but never actually wired to any control (2026-07-21 実機
-    // テスト調査で発覚). "図形を切り替え" already lets the artist single out
-    // one polygon by ID without needing to tap precisely on it, so this
-    // reuses that exact target rather than adding a whole separate
-    // targeting UI.
     Future<void> tessellateTargetPolygon() async {
       final polygonId = targetPolygonId;
       if (polygonId == null) return;
-      final rejectReason = await ref.read(tessellationControllerProvider).tessellate(polygonId);
-      // The target polygon no longer exists after a successful tessellation
-      // (Phase G — it's replaced by many new triangle polygons), so the old
-      // cycle position is meaningless either way; mirrors `deleteTargetPolygon`.
+      final rejectReason =
+          await ref.read(tessellationControllerProvider).tessellate(polygonId);
       ref.read(polygonCycleIndexProvider.notifier).state = -1;
       ref.read(edgeCycleIndexProvider.notifier).state = -1;
       if (rejectReason != null && context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(_describeTessellationRejection(rejectReason))));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(_describeTessellationRejection(rejectReason))),
+        );
       }
     }
 
+    if (targetPolygonId == null) {
+      // A: no polygon targeted — hint is primary; cycle is secondary.
+      return SizedBox(
+        height: _kRowHeight,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '図形をタップして選択',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+              IconButton(
+                tooltip: '図形を切り替え',
+                iconSize: 22,
+                onPressed: artwork.polygons.isEmpty ? null : cyclePolygon,
+                icon: const Icon(Icons.autorenew),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // B/C: polygon targeted — edge tools + overflow for destructive/heavy ops.
     return SizedBox(
       height: _kRowHeight,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: [
-          IconButton(
-            tooltip: '図形を切り替え',
-            iconSize: 28,
-            onPressed: artwork.polygons.isEmpty ? null : cyclePolygon,
-            icon: const Icon(Icons.autorenew),
-          ),
-          IconButton(
-            tooltip: '辺を切り替え',
-            iconSize: 28,
-            onPressed: targetPolygonId == null ? null : cycleEdge,
-            icon: const Icon(Icons.skip_next),
-          ),
-          IconButton(
-            tooltip: 'ここに頂点を追加',
-            iconSize: 28,
-            onPressed: targetEdge == null ? null : addVertexAtEdge,
-            icon: const Icon(Icons.add_circle_outline),
-          ),
-          IconButton(
-            tooltip: '図形を削除',
-            iconSize: 28,
-            onPressed: targetPolygonId == null ? null : deleteTargetPolygon,
-            icon: const Icon(Icons.delete_outline),
-          ),
-          IconButton(
-            key: const Key('tessellate-target-polygon-button'),
-            tooltip: 'この図形を分割（テッセレーション）',
-            iconSize: 28,
-            onPressed: (targetPolygonId == null || isTessellating)
-                ? null
-                : tessellateTargetPolygon,
-            icon: const Icon(Icons.change_history),
-          ),
-        ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: Row(
+          children: [
+            IconButton(
+              tooltip: '辺を切り替え',
+              iconSize: 28,
+              onPressed: cycleEdge,
+              icon: const Icon(Icons.skip_next),
+            ),
+            IconButton(
+              tooltip: 'ここに頂点を追加',
+              iconSize: 28,
+              onPressed: targetEdge == null ? null : addVertexAtEdge,
+              icon: const Icon(Icons.add_circle_outline),
+            ),
+            const Spacer(),
+            PopupMenuButton<_PolygonMoreAction>(
+              key: const Key('polygon-more-menu-button'),
+              tooltip: 'その他',
+              icon: const Icon(Icons.more_horiz),
+              onSelected: (action) {
+                switch (action) {
+                  case _PolygonMoreAction.delete:
+                    deleteTargetPolygon();
+                  case _PolygonMoreAction.tessellate:
+                    tessellateTargetPolygon();
+                }
+              },
+              itemBuilder: (context) => [
+                const PopupMenuItem(
+                  value: _PolygonMoreAction.delete,
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.delete_outline),
+                    title: Text('図形を削除'),
+                  ),
+                ),
+                PopupMenuItem(
+                  key: const Key('tessellate-target-polygon-button'),
+                  value: _PolygonMoreAction.tessellate,
+                  enabled: !isTessellating,
+                  child: const ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.change_history),
+                    title: Text('この図形を分割（テッセレーション）'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
-/// User-facing Japanese text for a [TessellationRejectReason] — shown as a
-/// `SnackBar` by [_NoSelectionRow]'s tessellate button. Never lets a
-/// rejection (or the underlying `compute()` throwing) surface as a raw
-/// exception/stack trace.
+enum _PolygonMoreAction { delete, tessellate }
+
+/// Detach cycle/execute pair for a shared selected vertex.
+class _DetachControls extends ConsumerWidget {
+  const _DetachControls({required this.selectedVertexId});
+
+  final String selectedVertexId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final notifier = ref.read(canvasProvider.notifier);
+    final referencingPolygons = notifier.polygonsReferencing(selectedVertexId);
+    final draftReferences = notifier.draftReferencesVertex(selectedVertexId);
+    final cycleIndex = ref.watch(detachCycleIndexProvider);
+    final target = resolveDetachTarget(
+      referencingPolygons: referencingPolygons,
+      draftReferences: draftReferences,
+      rawCycleIndex: cycleIndex,
+    );
+
+    void cycleTarget() {
+      ref.read(detachCycleIndexProvider.notifier).state = cycleIndex + 1;
+    }
+
+    void executeDetach() {
+      final currentTarget = target;
+      if (currentTarget == null) return;
+      final copyId = currentTarget.isDraft
+          ? notifier.detachVertexFromDraft(selectedVertexId)
+          : notifier.detachVertexFromPolygon(
+              selectedVertexId,
+              currentTarget.polygonId!,
+            );
+      if (copyId != null) {
+        ref.read(selectedVertexProvider.notifier).state = copyId;
+      }
+      ref.read(detachCycleIndexProvider.notifier).state = 0;
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          tooltip: '切り離す多角形を切り替え',
+          iconSize: 32,
+          onPressed: cycleTarget,
+          icon: const Icon(Icons.autorenew),
+        ),
+        const SizedBox(width: 32),
+        IconButton(
+          tooltip: '選択中の多角形から切り離す',
+          iconSize: 32,
+          onPressed: target == null ? null : executeDetach,
+          icon: const Icon(Icons.content_cut),
+        ),
+      ],
+    );
+  }
+}
+
+/// Row 2: fill palette when draw mode, or edit with a polygon target and
+/// no vertex selected. Hidden otherwise.
+class _PaletteRow extends ConsumerWidget {
+  const _PaletteRow();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final mode = ref.watch(canvasModeProvider);
+    final selectedVertexId = ref.watch(selectedVertexProvider);
+    final artwork = ref.watch(canvasProvider);
+    final polygonIndex = ref.watch(polygonCycleIndexProvider);
+    final penColor = ref.watch(selectedFillColorProvider);
+
+    final targetPolygonId = resolvePolygonTarget(
+      polygons: artwork.polygons,
+      rawCycleIndex: polygonIndex,
+    );
+    final targetPolygon =
+        artwork.polygons.where((p) => p.id == targetPolygonId).firstOrNull;
+
+    final showDrawPalette = mode == CanvasMode.draw;
+    final showEditPalette = mode == CanvasMode.edit &&
+        selectedVertexId == null &&
+        targetPolygon != null;
+
+    if (!showDrawPalette && !showEditPalette) {
+      return const SizedBox.shrink();
+    }
+
+    final highlighted = showDrawPalette
+        ? penColor
+        : targetPolygon!.fillColor;
+
+    return SizedBox(
+      height: _kPaletteRowHeight,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+        child: FillColorPalette(
+          key: const Key('fill-color-palette'),
+          colors: kDefaultPolygonPalette,
+          highlightedColor: highlighted,
+          onColorSelected: (color) {
+            if (showDrawPalette) {
+              ref.read(selectedFillColorProvider.notifier).state = color;
+              return;
+            }
+            final id = targetPolygonId;
+            if (id == null) return;
+            ref.read(canvasProvider.notifier).changePolygonColor(id, color);
+          },
+        ),
+      ),
+    );
+  }
+}
+
 String _describeTessellationRejection(TessellationRejectReason reason) {
   switch (reason) {
     case TessellationRejectReason.tooFewVertices:

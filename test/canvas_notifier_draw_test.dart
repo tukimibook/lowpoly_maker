@@ -551,8 +551,8 @@ void main() {
 
       test(
         'a vertex 10px off a new segment is absorbed at the default line '
-        'tolerance (15px), but not once scaled down to a tighter screen '
-        'distance (e.g. zoomed in to scale 2, i.e. 7.5px)',
+        'tolerance (10px), but not once scaled down to a tighter screen '
+        'distance (e.g. zoomed in to scale 2, i.e. 5px)',
         () {
           final atDefault = CanvasNotifier();
           atDefault.handleDrawTap(const Offset(50, 10), fillColor: Colors.green);
@@ -580,9 +580,9 @@ void main() {
 
       test(
         "closePolygon's implicit closing edge absorbs a vertex sitting "
-        '10px off it at the default tolerance (15px), but not once scaled '
+        '10px off it at the default tolerance (10px), but not once scaled '
         'down to a tighter screen distance (e.g. zoomed in to scale 2, '
-        'i.e. 7.5px)',
+        'i.e. 5px)',
         () {
           // Mirrors canvas_notifier_closure_test.dart's un-scaled "welds
           // onto an existing vertex sitting on the straight closing line"
@@ -636,7 +636,7 @@ void main() {
           final onLineVertexId =
               atDefault.state.polygons.first.vertexIds.first; // (50, 10)
           atDefault.closePolygon(Colors.orange);
-          // Default tolerance (15px) absorbs the 10px-off vertex into the
+          // Default tolerance (10px) absorbs the 10px-off vertex into the
           // closing edge, so the new shape gains a fourth corner.
           expect(atDefault.state.polygons.last.vertexIds, hasLength(4));
           expect(
