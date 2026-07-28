@@ -396,9 +396,12 @@ void main() {
         expect(after, contains(selectedId));
         expect(before, isNot(contains(selectedId)));
 
-        // The whole-shape row is gone now that a vertex is selected, and
-        // its cycle counters were reset for next time.
-        expect(_iconButtonByTooltip('図形を切り替え'), findsNothing);
+        // The whole-shape edge tools are gone now that a vertex is selected,
+        // but 図形を切り替え stays pinned for Z-order rescue.
+        expect(_iconButtonByTooltip('図形を切り替え'), findsOneWidget);
+        expect(_iconButtonByTooltip('辺を切り替え'), findsNothing);
+        expect(_iconButtonByTooltip('ここに頂点を追加'), findsNothing);
+        expect(_iconButtonByTooltip('頂点を削除'), findsOneWidget);
         expect(find.byKey(const Key('fill-color-palette')), findsNothing);
       },
     );
@@ -723,7 +726,9 @@ void main() {
 
         expect(container.read(selectedVertexProvider), vertexA);
         expect(container.read(polygonCycleIndexProvider), -1);
-        expect(_iconButtonByTooltip('図形を切り替え'), findsNothing);
+        // Cycle control remains available even while a vertex is selected.
+        expect(_iconButtonByTooltip('図形を切り替え'), findsOneWidget);
+        expect(_iconButtonByTooltip('頂点を削除'), findsOneWidget);
       },
     );
 
@@ -872,7 +877,8 @@ void main() {
           await tester.tapAt(canvasTopLeft + vertexAPos);
           await tester.pump();
           expect(container.read(selectedVertexProvider), vertexAId);
-          expect(_iconButtonByTooltip('図形を切り替え'), findsNothing);
+          expect(_iconButtonByTooltip('図形を切り替え'), findsOneWidget);
+          expect(_iconButtonByTooltip('頂点を削除'), findsOneWidget);
           expect(_iconButtonByTooltip('選択を解除'), findsOneWidget);
 
           container.read(detachCycleIndexProvider.notifier).state = 3;
@@ -883,6 +889,7 @@ void main() {
           expect(container.read(selectedVertexProvider), isNull);
           expect(container.read(detachCycleIndexProvider), 0);
           expect(_iconButtonByTooltip('図形を切り替え'), findsOneWidget);
+          expect(_iconButtonByTooltip('頂点を削除'), findsNothing);
         },
       );
 
@@ -916,6 +923,8 @@ void main() {
           await tester.tapAt(canvasTopLeft + sharedSpot);
           await tester.pump();
 
+          expect(_iconButtonByTooltip('図形を切り替え'), findsOneWidget);
+          expect(_iconButtonByTooltip('頂点を削除'), findsOneWidget);
           expect(_iconButtonByTooltip('切り離す多角形を切り替え'), findsOneWidget);
           expect(_iconButtonByTooltip('選択中の多角形から切り離す'), findsOneWidget);
           expect(_iconButtonByTooltip('選択を解除'), findsOneWidget);

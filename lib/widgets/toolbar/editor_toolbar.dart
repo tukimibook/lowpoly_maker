@@ -257,85 +257,25 @@ class _EraserModeRow extends StatelessWidget {
   }
 }
 
-/// Row 1, edit mode: branches on vertex vs. whole-shape selection.
+/// Row 1, edit mode: one shared skeleton for every selection state.
+///
+/// - Left (fixed): 「図形を切り替え」 — always present so buried polygons
+///   remain reachable via cycling (Z-order rescue).
+/// - Center ([Expanded] + horizontal scroll): hint / edge tools / vertex
+///   tools depending on selection.
+/// - Right (fixed): 「⋯」 while a polygon is targeted with no vertex, or
+///   「選択を解除」 while a vertex is selected.
 class _EditModeContextRow extends ConsumerWidget {
   const _EditModeContextRow();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final selectedVertexId = ref.watch(selectedVertexProvider);
-    final weldArmed = ref.watch(weldArmedProvider);
-    final notifier = ref.read(canvasProvider.notifier);
-    ref.watch(canvasProvider);
-
-    if (selectedVertexId == null) {
-      return const _WholeShapeContextRow();
-    }
-
-    final Widget content = notifier.isVertexShared(selectedVertexId)
-        ? _DetachControls(selectedVertexId: selectedVertexId)
-        : Builder(
-            builder: (context) {
-              final color = Theme.of(context).colorScheme.primary;
-              return Tooltip(
-                message: 'タップで選択、長押しドラッグで移動',
-                child: Icon(Icons.touch_app_outlined, size: 28, color: color),
-              );
-            },
-          );
-
-    final colorScheme = Theme.of(context).colorScheme;
-
-    return SizedBox(
-      height: _kRowHeight,
-      child: Row(
-        children: [
-          Expanded(child: Center(child: content)),
-          IconButton(
-            key: const Key('weld-vertices-button'),
-            tooltip: 'Weld vertices',
-            iconSize: 28,
-            color: weldArmed ? colorScheme.primary : null,
-            style: weldArmed
-                ? IconButton.styleFrom(
-                    foregroundColor: colorScheme.onPrimaryContainer,
-                    backgroundColor: colorScheme.primaryContainer,
-                  )
-                : null,
-            onPressed: () {
-              ref.read(weldArmedProvider.notifier).state = true;
-              final messenger = ScaffoldMessenger.of(context);
-              messenger.clearSnackBars();
-              messenger.showSnackBar(
-                const SnackBar(content: Text('Tap a vertex to weld')),
-              );
-            },
-            icon: const Icon(Icons.merge_type),
-          ),
-          IconButton(
-            tooltip: '選択を解除',
-            iconSize: 28,
-            onPressed: () {
-              clearEditSelectionUi(ref.read, resetWholeShapeCycles: false);
-            },
-            icon: const Icon(Icons.close),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Edit Row 1 with no vertex selected: hint + cycle, or edge tools + more.
-class _WholeShapeContextRow extends ConsumerWidget {
-  const _WholeShapeContextRow();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
     final artwork = ref.watch(canvasProvider);
     final notifier = ref.read(canvasProvider.notifier);
+    final selectedVertexId = ref.watch(selectedVertexProvider);
     final polygonIndex = ref.watch(polygonCycleIndexProvider);
     final edgeIndex = ref.watch(edgeCycleIndexProvider);
+    final weldArmed = ref.watch(weldArmedProvider);
     final isTessellating = ref.watch(isTessellatingProvider);
 
     final targetPolygonId = resolvePolygonTarget(
@@ -348,8 +288,18 @@ class _WholeShapeContextRow extends ConsumerWidget {
         ? null
         : resolveEdgeTarget(polygon: targetPolygon, rawCycleIndex: edgeIndex);
 
+    final hasVertex = selectedVertexId != null;
+    final hasPolygon = targetPolygonId != null && !hasVertex;
+    final colorScheme = Theme.of(context).colorScheme;
+
     void cyclePolygon() {
-      ref.read(polygonCycleIndexProvider.notifier).state = polygonIndex + 1;
+      // Drop vertex selection first so the highlight / toolbar don't disagree
+      // about which layer is active after the cycle advances.
+      if (ref.read(selectedVertexProvider) != null) {
+        clearEditSelectionUi(ref.read, resetWholeShapeCycles: false);
+      }
+      final current = ref.read(polygonCycleIndexProvider);
+      ref.read(polygonCycleIndexProvider.notifier).state = current + 1;
       ref.read(edgeCycleIndexProvider.notifier).state = -1;
     }
 
@@ -367,6 +317,16 @@ class _WholeShapeContextRow extends ConsumerWidget {
       }
       ref.read(polygonCycleIndexProvider.notifier).state = -1;
       ref.read(edgeCycleIndexProvider.notifier).state = -1;
+    }
+
+    void deleteSelectedVertex() {
+      final id = selectedVertexId;
+      if (id == null) return;
+      final position = artwork.vertices[id]?.position;
+      if (position == null) return;
+      // Reuses the eraser path (undo + dissolve rules) without new notifier API.
+      notifier.handleEraseTap(position);
+      clearEditSelectionUi(ref.read, resetWholeShapeCycles: false);
     }
 
     void deleteTargetPolygon() {
@@ -391,36 +351,77 @@ class _WholeShapeContextRow extends ConsumerWidget {
       }
     }
 
-    if (targetPolygonId == null) {
-      // A: no polygon targeted — hint is primary; cycle is secondary.
-      return SizedBox(
-        height: _kRowHeight,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  '図形をタップして選択',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-              IconButton(
-                tooltip: '図形を切り替え',
-                iconSize: 22,
-                onPressed: artwork.polygons.isEmpty ? null : cyclePolygon,
-                icon: const Icon(Icons.autorenew),
-              ),
-            ],
-          ),
+    final List<Widget> middleChildren;
+    if (hasVertex) {
+      final vertexId = selectedVertexId;
+      middleChildren = [
+        IconButton(
+          key: const Key('delete-selected-vertex-button'),
+          tooltip: '頂点を削除',
+          iconSize: 28,
+          color: colorScheme.error,
+          onPressed: deleteSelectedVertex,
+          icon: const Icon(Icons.remove_circle_outline),
         ),
-      );
+        IconButton(
+          key: const Key('weld-vertices-button'),
+          tooltip: 'Weld vertices',
+          iconSize: 28,
+          color: weldArmed ? colorScheme.primary : null,
+          style: weldArmed
+              ? IconButton.styleFrom(
+                  foregroundColor: colorScheme.onPrimaryContainer,
+                  backgroundColor: colorScheme.primaryContainer,
+                )
+              : null,
+          onPressed: () {
+            ref.read(weldArmedProvider.notifier).state = true;
+            final messenger = ScaffoldMessenger.of(context);
+            messenger.clearSnackBars();
+            messenger.showSnackBar(
+              const SnackBar(content: Text('Tap a vertex to weld')),
+            );
+          },
+          icon: const Icon(Icons.merge_type),
+        ),
+        if (notifier.isVertexShared(vertexId))
+          _DetachControls(selectedVertexId: vertexId)
+        else
+          Tooltip(
+            message: 'タップで選択、長押しドラッグで移動',
+            child: Icon(
+              Icons.touch_app_outlined,
+              size: 28,
+              color: colorScheme.primary,
+            ),
+          ),
+      ];
+    } else if (hasPolygon) {
+      middleChildren = [
+        IconButton(
+          tooltip: '辺を切り替え',
+          iconSize: 28,
+          onPressed: cycleEdge,
+          icon: const Icon(Icons.skip_next),
+        ),
+        IconButton(
+          tooltip: 'ここに頂点を追加',
+          iconSize: 28,
+          onPressed: targetEdge == null ? null : addVertexAtEdge,
+          icon: const Icon(Icons.add_circle_outline),
+        ),
+      ];
+    } else {
+      middleChildren = [
+        Text(
+          '図形をタップして選択',
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+        ),
+      ];
     }
 
-    // B/C: polygon targeted — edge tools + overflow for destructive/heavy ops.
     return SizedBox(
       height: _kRowHeight,
       child: Padding(
@@ -428,51 +429,62 @@ class _WholeShapeContextRow extends ConsumerWidget {
         child: Row(
           children: [
             IconButton(
-              tooltip: '辺を切り替え',
+              tooltip: '図形を切り替え',
               iconSize: 28,
-              onPressed: cycleEdge,
-              icon: const Icon(Icons.skip_next),
+              onPressed: artwork.polygons.isEmpty ? null : cyclePolygon,
+              icon: const Icon(Icons.category_outlined),
             ),
-            IconButton(
-              tooltip: 'ここに頂点を追加',
-              iconSize: 28,
-              onPressed: targetEdge == null ? null : addVertexAtEdge,
-              icon: const Icon(Icons.add_circle_outline),
-            ),
-            const Spacer(),
-            PopupMenuButton<_PolygonMoreAction>(
-              key: const Key('polygon-more-menu-button'),
-              tooltip: 'その他',
-              icon: const Icon(Icons.more_horiz),
-              onSelected: (action) {
-                switch (action) {
-                  case _PolygonMoreAction.delete:
-                    deleteTargetPolygon();
-                  case _PolygonMoreAction.tessellate:
-                    tessellateTargetPolygon();
-                }
-              },
-              itemBuilder: (context) => [
-                const PopupMenuItem(
-                  value: _PolygonMoreAction.delete,
-                  child: ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: Icon(Icons.delete_outline),
-                    title: Text('図形を削除'),
-                  ),
+            Expanded(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: middleChildren,
                 ),
-                PopupMenuItem(
-                  key: const Key('tessellate-target-polygon-button'),
-                  value: _PolygonMoreAction.tessellate,
-                  enabled: !isTessellating,
-                  child: const ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: Icon(Icons.change_history),
-                    title: Text('この図形を分割（テッセレーション）'),
-                  ),
-                ),
-              ],
+              ),
             ),
+            if (hasPolygon)
+              PopupMenuButton<_PolygonMoreAction>(
+                key: const Key('polygon-more-menu-button'),
+                tooltip: 'その他',
+                icon: const Icon(Icons.more_horiz),
+                onSelected: (action) {
+                  switch (action) {
+                    case _PolygonMoreAction.delete:
+                      deleteTargetPolygon();
+                    case _PolygonMoreAction.tessellate:
+                      tessellateTargetPolygon();
+                  }
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(
+                    value: _PolygonMoreAction.delete,
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.delete_outline),
+                      title: Text('図形を削除'),
+                    ),
+                  ),
+                  PopupMenuItem(
+                    key: const Key('tessellate-target-polygon-button'),
+                    value: _PolygonMoreAction.tessellate,
+                    enabled: !isTessellating,
+                    child: const ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.change_history),
+                      title: Text('この図形を分割（テッセレーション）'),
+                    ),
+                  ),
+                ],
+              ),
+            if (hasVertex)
+              IconButton(
+                tooltip: '選択を解除',
+                iconSize: 28,
+                onPressed: () {
+                  clearEditSelectionUi(ref.read, resetWholeShapeCycles: false);
+                },
+                icon: const Icon(Icons.close),
+              ),
           ],
         ),
       ),
@@ -528,7 +540,7 @@ class _DetachControls extends ConsumerWidget {
           onPressed: cycleTarget,
           icon: const Icon(Icons.autorenew),
         ),
-        const SizedBox(width: 32),
+        const SizedBox(width: 8),
         IconButton(
           tooltip: '選択中の多角形から切り離す',
           iconSize: 32,
