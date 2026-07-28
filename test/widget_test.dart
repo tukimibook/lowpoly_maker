@@ -102,13 +102,22 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(container.read(canvasBackgroundProvider), Brightness.light);
-      expect(find.byIcon(Icons.dark_mode_outlined), findsOneWidget);
 
-      await tester.tap(find.byIcon(Icons.dark_mode_outlined));
-      await tester.pump();
+      // Theme toggle lives under AppBar ⋮ (environment), not the toolbar.
+      await tester.tap(find.byKey(const Key('editor-more-menu-button')));
+      await tester.pumpAndSettle();
+      expect(find.byIcon(Icons.dark_mode_outlined), findsOneWidget);
+      expect(find.text('Dark canvas'), findsOneWidget);
+
+      await tester.tap(find.text('Dark canvas'));
+      await tester.pumpAndSettle();
 
       expect(container.read(canvasBackgroundProvider), Brightness.dark);
+
+      await tester.tap(find.byKey(const Key('editor-more-menu-button')));
+      await tester.pumpAndSettle();
       expect(find.byIcon(Icons.light_mode_outlined), findsOneWidget);
+      expect(find.text('Light canvas'), findsOneWidget);
     },
   );
 

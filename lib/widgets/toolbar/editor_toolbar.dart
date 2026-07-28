@@ -4,15 +4,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../geometry/tessellation_input.dart';
 import '../../models/canvas_mode.dart';
 import '../../models/draw_mode.dart';
-import '../../models/underlay_layout.dart';
 import '../../providers/canvas_provider.dart';
 import '../../providers/detach_cycle_provider.dart';
 import '../../providers/polygon_edit_target_provider.dart';
 import '../../providers/preview_mode_provider.dart';
 import '../../providers/selected_vertex_provider.dart';
 import '../../providers/tessellation_provider.dart';
-import '../../providers/underlay_layout_provider.dart';
-import '../../providers/underlay_provider.dart';
 import '../../providers/viewport_provider.dart';
 import 'fill_color_palette.dart';
 
@@ -22,14 +19,12 @@ const double _kRowHeight = 64;
 /// Height of the conditional fill-color palette strip (Row 2).
 const double _kPaletteRowHeight = 52;
 
-/// Bottom toolbar: common mode row, a mode-specific context row, and a
-/// fill-color palette strip (always reserves height; content when drawing or
-/// when an edit-mode polygon is targeted with no vertex selected).
+/// Bottom toolbar: work-mode controls only (environment settings live in
+/// the AppBar — underlay, preview, export, theme/clear).
 ///
-/// - Row 0 is identical in every mode: draw/eraser/edit, underlay toggles,
-///   fit-screen, preview, undo.
-/// - Row 1 changes with [CanvasMode] and (in edit) selection state.
-/// - Row 2 is the shared [FillColorPalette] strip.
+/// - Row 0: Draw/Edit toggle, fit-screen, undo.
+/// - Row 1: mode-specific context (draw close / edit shape tools).
+/// - Row 2: [FillColorPalette] strip (always reserves height).
 class EditorToolbar extends ConsumerWidget {
   const EditorToolbar({super.key});
 
@@ -56,18 +51,15 @@ class EditorToolbar extends ConsumerWidget {
   }
 }
 
-/// Row 0: mode switch, underlay, fit-screen, preview, undo.
+/// Row 0: Draw/Edit toggle, fit-screen, undo.
 class _CommonRow extends ConsumerWidget {
   const _CommonRow();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final mode = ref.watch(canvasModeProvider);
-    final hasUnderlay = ref.watch(underlayProvider.select((state) => state.imagePath != null));
-    final underlayController = ref.watch(underlayLayoutProvider);
     ref.watch(canvasProvider);
     final canUndo = ref.read(canvasProvider.notifier).canUndo;
-    final isPreview = ref.watch(isPreviewModeProvider);
 
     void selectMode(CanvasMode newMode) {
       ref.read(canvasModeProvider.notifier).state = newMode;
@@ -112,58 +104,10 @@ class _CommonRow extends ConsumerWidget {
                 ),
               ),
             ),
-            ValueListenableBuilder<UnderlayLayout>(
-              valueListenable: underlayController,
-              builder: (context, layout, _) {
-                return Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      tooltip: layout.visible ? 'Hide underlay' : 'Show underlay',
-                      onPressed: hasUnderlay
-                          ? () => underlayController.setVisible(!layout.visible)
-                          : null,
-                      icon: Icon(layout.visible ? Icons.visibility : Icons.visibility_off),
-                    ),
-                    IconButton(
-                      tooltip: 'Underlay opacity: ${(layout.opacity * 100).round()}%',
-                      onPressed: hasUnderlay ? underlayController.cycleOpacity : null,
-                      icon: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(Icons.opacity, size: 18),
-                          Text(
-                            '${(layout.opacity * 100).round()}%',
-                            style: Theme.of(context).textTheme.labelSmall,
-                          ),
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      key: const Key('underlay-clear-button'),
-                      tooltip: 'Remove underlay',
-                      onPressed: hasUnderlay
-                          ? () => ref.read(underlayProvider.notifier).setImagePath(null)
-                          : null,
-                      icon: const Icon(Icons.hide_image_outlined),
-                    ),
-                  ],
-                );
-              },
-            ),
             IconButton(
               tooltip: 'Fit screen',
               onPressed: ref.read(viewportProvider).reset,
               icon: const Icon(Icons.fit_screen),
-            ),
-            IconButton(
-              key: const Key('preview-mode-button'),
-              tooltip: isPreview ? 'Exit preview' : 'Preview',
-              onPressed: () {
-                ref.read(isPreviewModeProvider.notifier).state = !isPreview;
-              },
-              icon: Icon(isPreview ? Icons.visibility_off : Icons.visibility),
             ),
             IconButton(
               tooltip: 'Undo',

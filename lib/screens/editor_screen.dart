@@ -8,11 +8,13 @@ import '../providers/canvas_provider.dart';
 import '../providers/canvas_size_provider.dart';
 import '../providers/export_provider.dart';
 import '../providers/gallery_provider.dart';
+import '../providers/preview_mode_provider.dart';
 import '../providers/tessellation_provider.dart';
 import '../providers/underlay_layout_provider.dart';
 import '../providers/underlay_provider.dart';
 import '../widgets/canvas/polygon_canvas.dart';
 import '../widgets/toolbar/editor_toolbar.dart';
+import '../widgets/toolbar/underlay_menu_button.dart';
 
 /// Canvas background colors for each [Brightness] choice offered by
 /// [canvasBackgroundProvider]. Deliberately separate from the app's own
@@ -29,6 +31,8 @@ const Color _darkCanvasBackground = Color(0xFF212121); // Colors.grey.shade900
 /// dispatch" plumbing.
 enum _ExportAction { gallery, share }
 
+enum _EditorMoreAction { toggleCanvasTheme, clearAll }
+
 class EditorScreen extends ConsumerWidget {
   const EditorScreen({super.key});
 
@@ -38,8 +42,8 @@ class EditorScreen extends ConsumerWidget {
     final isEmpty = artwork.polygons.isEmpty && artwork.draftVertexIds.isEmpty;
     final canvasBrightness = ref.watch(canvasBackgroundProvider);
     final isCanvasDark = canvasBrightness == Brightness.dark;
-    final underlayImagePath = ref.watch(underlayProvider.select((state) => state.imagePath));
     final isTessellating = ref.watch(isTessellatingProvider);
+    final isPreview = ref.watch(isPreviewModeProvider);
     // Activates auto-save (Phase Hγ) for the lifetime of this screen — see
     // that provider's own doc for why watching it once here is enough.
     ref.watch(autoSaveServiceProvider);
@@ -129,23 +133,16 @@ class EditorScreen extends ConsumerWidget {
           ),
         ),
         actions: [
+          const UnderlayMenuButton(),
           IconButton(
-            tooltip: underlayImagePath == null ? 'Add underlay' : 'Change underlay',
-            onPressed: () => ref.read(underlayProvider.notifier).pickImage(),
-            icon: Icon(underlayImagePath == null ? Icons.image_outlined : Icons.image),
-          ),
-          IconButton(
-            tooltip: isCanvasDark ? 'Light canvas' : 'Dark canvas',
+            key: const Key('preview-mode-button'),
+            tooltip: isPreview ? 'Exit preview' : 'Preview artwork',
             onPressed: () {
-              ref.read(canvasBackgroundProvider.notifier).state =
-                  isCanvasDark ? Brightness.light : Brightness.dark;
+              ref.read(isPreviewModeProvider.notifier).state = !isPreview;
             },
-            icon: Icon(isCanvasDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined),
-          ),
-          IconButton(
-            tooltip: 'Clear all',
-            onPressed: isEmpty ? null : () => ref.read(canvasProvider.notifier).clearAll(),
-            icon: const Icon(Icons.delete_outline),
+            icon: Icon(
+              isPreview ? Icons.check_box_outlined : Icons.check_box_outline_blank,
+            ),
           ),
           PopupMenuButton<_ExportAction>(
             key: const Key('export-menu-button'),
@@ -172,6 +169,41 @@ class EditorScreen extends ConsumerWidget {
                 key: Key('export-menu-share'),
                 value: _ExportAction.share,
                 child: ListTile(leading: Icon(Icons.share_outlined), title: Text('Share')),
+              ),
+            ],
+          ),
+          PopupMenuButton<_EditorMoreAction>(
+            key: const Key('editor-more-menu-button'),
+            tooltip: 'More',
+            icon: const Icon(Icons.more_vert),
+            onSelected: (action) {
+              switch (action) {
+                case _EditorMoreAction.toggleCanvasTheme:
+                  ref.read(canvasBackgroundProvider.notifier).state =
+                      isCanvasDark ? Brightness.light : Brightness.dark;
+                case _EditorMoreAction.clearAll:
+                  ref.read(canvasProvider.notifier).clearAll();
+              }
+            },
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                value: _EditorMoreAction.toggleCanvasTheme,
+                child: ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(
+                    isCanvasDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
+                  ),
+                  title: Text(isCanvasDark ? 'Light canvas' : 'Dark canvas'),
+                ),
+              ),
+              PopupMenuItem(
+                value: _EditorMoreAction.clearAll,
+                enabled: !isEmpty,
+                child: const ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.delete_outline),
+                  title: Text('Clear all'),
+                ),
               ),
             ],
           ),
