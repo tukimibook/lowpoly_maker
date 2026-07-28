@@ -40,7 +40,7 @@ void main() {
           child: const PolygonArtApp(),
         ),
       );
-      await tester.tap(find.text('新規作成'));
+      await tester.tap(find.text('New Artwork'));
       await tester.pumpAndSettle();
       return container;
     }
@@ -80,7 +80,7 @@ void main() {
         await tester.pump();
         await tester.tapAt(canvasTopLeft + const Offset(100, 160));
         await tester.pump();
-        await tester.tap(_iconButtonByTooltip('多角形を閉じる'));
+        await tester.tap(_iconButtonByTooltip('Close shape'));
         await tester.pump();
 
         final penBefore = container.read(selectedFillColorProvider);
@@ -89,13 +89,13 @@ void main() {
           penBefore,
         );
 
-        await tester.tap(find.byTooltip('編集モード'));
+        await tester.tap(find.byTooltip('Edit'));
         await tester.pump();
 
         // Unselected: palette hidden.
         expect(find.byKey(const Key('fill-color-palette')), findsNothing);
 
-        await tester.tap(_iconButtonByTooltip('図形を切り替え'));
+        await tester.tap(_iconButtonByTooltip('Cycle Shape'));
         await tester.pump();
         expect(container.read(polygonCycleIndexProvider), 0);
         expect(find.byKey(const Key('fill-color-palette')), findsOneWidget);

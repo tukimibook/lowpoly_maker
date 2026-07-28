@@ -30,7 +30,7 @@ Future<ProviderContainer> _pumpEditor(WidgetTester tester) async {
       child: const PolygonArtApp(),
     ),
   );
-  await tester.tap(find.text('新規作成'));
+  await tester.tap(find.text('New Artwork'));
   await tester.pumpAndSettle();
   return container;
 }
@@ -44,7 +44,7 @@ Future<void> _closeTriangleAt(
     await tester.tapAt(canvasTopLeft + point);
     await tester.pump();
   }
-  await tester.tap(_iconButtonByTooltip('多角形を閉じる'));
+  await tester.tap(_iconButtonByTooltip('Close shape'));
   await tester.pump();
 }
 
@@ -68,7 +68,7 @@ void main() {
           Offset(250, 150),
         ]);
 
-        await tester.tap(find.byTooltip('編集モード'));
+        await tester.tap(find.byTooltip('Edit'));
         await tester.pump();
 
         final artwork = container.read(canvasProvider);
@@ -108,7 +108,7 @@ void main() {
           Offset(250, 150),
         ]);
 
-        await tester.tap(find.byTooltip('編集モード'));
+        await tester.tap(find.byTooltip('Edit'));
         await tester.pump();
 
         final artwork = container.read(canvasProvider);
@@ -151,7 +151,7 @@ void main() {
         Offset(100, 150),
       ]);
 
-      await tester.tap(find.byTooltip('編集モード'));
+      await tester.tap(find.byTooltip('Edit'));
       await tester.pump();
 
       final vertexId = container.read(canvasProvider).polygons.single.vertexIds.first;
@@ -163,7 +163,8 @@ void main() {
       await tester.pump();
       expect(container.read(weldArmedProvider), isTrue);
 
-      await tester.tap(_iconButtonByTooltip('選択を解除'));
+      // Clear-selection button removed — same helper the old button called.
+      clearEditSelectionUi(container.read, resetWholeShapeCycles: false);
       await tester.pump();
 
       expect(container.read(selectedVertexProvider), isNull);
@@ -181,7 +182,7 @@ void main() {
         Offset(100, 150),
       ]);
 
-      await tester.tap(find.byTooltip('編集モード'));
+      await tester.tap(find.byTooltip('Edit'));
       await tester.pump();
 
       final vertexId = container.read(canvasProvider).polygons.single.vertexIds.first;
@@ -193,7 +194,7 @@ void main() {
       await tester.pump();
       expect(container.read(weldArmedProvider), isTrue);
 
-      await tester.tap(find.byTooltip('描画モード'));
+      await tester.tap(find.byTooltip('Draw'));
       await tester.pump();
 
       expect(container.read(weldArmedProvider), isFalse);
@@ -203,7 +204,7 @@ void main() {
     testWidgets('weld button is absent when no vertex is selected', (tester) async {
       await _pumpEditor(tester);
 
-      await tester.tap(find.byTooltip('編集モード'));
+      await tester.tap(find.byTooltip('Edit'));
       await tester.pump();
 
       expect(_weldButton(), findsNothing);
@@ -221,7 +222,7 @@ void main() {
           Offset(100, 150),
         ]);
 
-        await tester.tap(find.byTooltip('編集モード'));
+        await tester.tap(find.byTooltip('Edit'));
         await tester.pump();
 
         final polygon = container.read(canvasProvider).polygons.single;
@@ -258,7 +259,7 @@ void main() {
           Offset(100, 150),
         ]);
 
-        await tester.tap(find.byTooltip('編集モード'));
+        await tester.tap(find.byTooltip('Edit'));
         await tester.pump();
 
         final vertexId = container.read(canvasProvider).polygons.single.vertexIds.first;
@@ -293,7 +294,7 @@ void main() {
           Offset(100, 150),
         ]);
 
-        await tester.tap(find.byTooltip('編集モード'));
+        await tester.tap(find.byTooltip('Edit'));
         await tester.pump();
 
         final vertexId = container.read(canvasProvider).polygons.single.vertexIds.first;

@@ -42,7 +42,8 @@ enum ClosePolygonResult {
 
 /// User-facing copy when [ClosePolygonResult.rejectedUnsafeClosingEdge].
 const String kClosePolygonRejectedMessage =
-    '図形を閉じられません（線が交差・貫通しています）';
+    'Cannot close shape (edges cross or pierce)';
+
 
 /// Tap distance (in world/logical pixels *at zoom scale 1*) within which
 /// tapping near an existing polygon's vertex snaps onto it, reusing that
@@ -107,12 +108,14 @@ const int kUndoStackLimit = 100;
 /// Preset fill colors offered in Phase 1. A full color picker / palette
 /// manager is introduced in a later phase.
 const List<Color> kDefaultPolygonPalette = [
-  Color(0xFFEF5350),
-  Color(0xFF42A5F5),
-  Color(0xFF66BB6A),
-  Color(0xFFFFCA28),
-  Color(0xFFAB47BC),
-  Color(0xFF26A69A),
+  Color(0xFFC4785A),
+  Color(0xFFD4A574),
+  Color(0xFFC4A35A),
+  Color(0xFF8B9E7C),
+  Color(0xFF5F7355),
+  Color(0xFF6B7C85),
+  Color(0xFFA65D4E),
+  Color(0xFF9A8B7A),
 ];
 
 /// Currently selected fill color for the next polygon to be closed.
@@ -146,7 +149,7 @@ class CanvasNotifier extends StateNotifier<Artwork> {
       super(Artwork.empty(id: _uuid.v4()));
 
   static const Color defaultStrokeColor = Color(0xFF212121);
-  static const double defaultStrokeWidth = 2.5;
+  static const double defaultStrokeWidth = 1.5;
 
   /// Backing search structure for [findPolygonVertexNear]/[findVertexNear].
   /// Defaults to the plain O(n) linear scan ([LinearVertexHitTest]);

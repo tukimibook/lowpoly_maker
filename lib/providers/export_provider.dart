@@ -85,7 +85,7 @@ class ExportController extends StateNotifier<ExportState> {
       // extension-suffixed name here would produce a double-extensioned
       // file (e.g. `My Art.png.png`) on the device's gallery.
       await _galleryTarget.saveImageBytes(bytes, name: _baseFileNameFor(artwork));
-      return 'ギャラリーに保存しました';
+      return 'Saved to gallery';
     });
   }
 
@@ -116,7 +116,7 @@ class ExportController extends StateNotifier<ExportState> {
       if (bytes == null) {
         state = state.copyWith(
           isExporting: false,
-          errorMessage: 'キャンバスの準備ができていません。もう一度お試しください。',
+          errorMessage: 'Canvas is not ready. Please try again.',
         );
         return false;
       }
@@ -153,7 +153,7 @@ class ExportController extends StateNotifier<ExportState> {
   /// still never exposes a raw stack trace to the artist.
   String _describeError(Object error) {
     if (error is GalException) return error.type.message;
-    return '保存に失敗しました: $error';
+    return 'Export failed: $error';
   }
 }
 

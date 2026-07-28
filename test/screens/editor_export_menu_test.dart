@@ -41,7 +41,7 @@ Future<void> _drawOneTriangle(WidgetTester tester) async {
   await tester.pump();
   await tester.tapAt(canvasTopLeft + const Offset(100, 150));
   await tester.pump();
-  await tester.tap(_iconButtonByTooltip('多角形を閉じる'));
+  await tester.tap(_iconButtonByTooltip('Close shape'));
   await tester.pumpAndSettle();
 }
 
@@ -105,7 +105,7 @@ void main() {
     await tester.pumpWidget(
       UncontrolledProviderScope(container: container, child: const PolygonArtApp()),
     );
-    await tester.tap(find.text('新規作成'));
+    await tester.tap(find.text('New Artwork'));
     await tester.pumpAndSettle();
     return container;
   }
@@ -137,7 +137,7 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(galleryTarget.callCount, 1);
-        expect(find.text('ギャラリーに保存しました'), findsOneWidget);
+        expect(find.text('Saved to gallery'), findsOneWidget);
       },
     );
 

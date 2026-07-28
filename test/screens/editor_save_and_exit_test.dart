@@ -90,7 +90,7 @@ Future<void> _drawOneTriangle(WidgetTester tester) async {
   await tester.pump();
   await tester.tapAt(canvasTopLeft + const Offset(100, 150));
   await tester.pump();
-  await tester.tap(_iconButtonByTooltip('多角形を閉じる'));
+  await tester.tap(_iconButtonByTooltip('Close shape'));
   await tester.pumpAndSettle();
 }
 
@@ -110,7 +110,7 @@ void main() {
     // Reaches `EditorScreen` via `HomeScreen`'s direct shortcut (no
     // `GalleryScreen` beneath it in the stack yet) — the path most likely
     // to be broken by a naive `Navigator.pop()`-based "戻る" button.
-    await tester.tap(find.text('新規作成'));
+    await tester.tap(find.text('New Artwork'));
     await tester.pumpAndSettle();
     return repository;
   }

@@ -8,6 +8,7 @@ import '../../models/underlay_layout.dart';
 import '../../providers/canvas_provider.dart';
 import '../../providers/detach_cycle_provider.dart';
 import '../../providers/polygon_edit_target_provider.dart';
+import '../../providers/preview_mode_provider.dart';
 import '../../providers/selected_vertex_provider.dart';
 import '../../providers/tessellation_provider.dart';
 import '../../providers/underlay_layout_provider.dart';
@@ -21,14 +22,14 @@ const double _kRowHeight = 64;
 /// Height of the conditional fill-color palette strip (Row 2).
 const double _kPaletteRowHeight = 52;
 
-/// Bottom toolbar: common mode row, a mode-specific context row, and an
-/// optional fill-color palette strip.
+/// Bottom toolbar: common mode row, a mode-specific context row, and a
+/// fill-color palette strip (always reserves height; content when drawing or
+/// when an edit-mode polygon is targeted with no vertex selected).
 ///
 /// - Row 0 is identical in every mode: draw/eraser/edit, underlay toggles,
-///   fit-screen, undo.
+///   fit-screen, preview, undo.
 /// - Row 1 changes with [CanvasMode] and (in edit) selection state.
-/// - Row 2 is the shared [FillColorPalette], shown only while drawing or
-///   while an edit-mode polygon is targeted with no vertex selected.
+/// - Row 2 is the shared [FillColorPalette] strip.
 class EditorToolbar extends ConsumerWidget {
   const EditorToolbar({super.key});
 
@@ -55,7 +56,7 @@ class EditorToolbar extends ConsumerWidget {
   }
 }
 
-/// Row 0: mode switch, underlay, fit-screen, undo.
+/// Row 0: mode switch, underlay, fit-screen, preview, undo.
 class _CommonRow extends ConsumerWidget {
   const _CommonRow();
 
@@ -66,9 +67,11 @@ class _CommonRow extends ConsumerWidget {
     final underlayController = ref.watch(underlayLayoutProvider);
     ref.watch(canvasProvider);
     final canUndo = ref.read(canvasProvider.notifier).canUndo;
+    final isPreview = ref.watch(isPreviewModeProvider);
 
     void selectMode(CanvasMode newMode) {
       ref.read(canvasModeProvider.notifier).state = newMode;
+      ref.read(isPreviewModeProvider.notifier).state = false;
       clearGesturePreviews(ref.read);
       if (newMode != CanvasMode.edit) {
         clearEditSelectionUi(ref.read);
@@ -91,17 +94,17 @@ class _CommonRow extends ConsumerWidget {
                     ButtonSegment(
                       value: CanvasMode.draw,
                       icon: Icon(Icons.draw_outlined),
-                      tooltip: '描画モード',
+                      tooltip: 'Draw',
                     ),
                     ButtonSegment(
                       value: CanvasMode.eraser,
                       icon: Icon(Icons.backspace_outlined),
-                      tooltip: '消しゴムモード',
+                      tooltip: 'Eraser',
                     ),
                     ButtonSegment(
                       value: CanvasMode.edit,
                       icon: Icon(Icons.open_with),
-                      tooltip: '編集モード',
+                      tooltip: 'Edit',
                     ),
                   ],
                   selected: {mode},
@@ -117,14 +120,14 @@ class _CommonRow extends ConsumerWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     IconButton(
-                      tooltip: layout.visible ? '下絵を非表示' : '下絵を表示',
+                      tooltip: layout.visible ? 'Hide underlay' : 'Show underlay',
                       onPressed: hasUnderlay
                           ? () => underlayController.setVisible(!layout.visible)
                           : null,
                       icon: Icon(layout.visible ? Icons.visibility : Icons.visibility_off),
                     ),
                     IconButton(
-                      tooltip: '下絵の不透明度: ${(layout.opacity * 100).round()}%',
+                      tooltip: 'Underlay opacity: ${(layout.opacity * 100).round()}%',
                       onPressed: hasUnderlay ? underlayController.cycleOpacity : null,
                       icon: Column(
                         mainAxisSize: MainAxisSize.min,
@@ -140,7 +143,7 @@ class _CommonRow extends ConsumerWidget {
                     ),
                     IconButton(
                       key: const Key('underlay-clear-button'),
-                      tooltip: '下絵を削除',
+                      tooltip: 'Remove underlay',
                       onPressed: hasUnderlay
                           ? () => ref.read(underlayProvider.notifier).setImagePath(null)
                           : null,
@@ -151,12 +154,20 @@ class _CommonRow extends ConsumerWidget {
               },
             ),
             IconButton(
-              tooltip: '全体表示に戻す',
+              tooltip: 'Fit screen',
               onPressed: ref.read(viewportProvider).reset,
               icon: const Icon(Icons.fit_screen),
             ),
             IconButton(
-              tooltip: '元に戻す',
+              key: const Key('preview-mode-button'),
+              tooltip: isPreview ? 'Exit preview' : 'Preview',
+              onPressed: () {
+                ref.read(isPreviewModeProvider.notifier).state = !isPreview;
+              },
+              icon: Icon(isPreview ? Icons.visibility_off : Icons.visibility),
+            ),
+            IconButton(
+              tooltip: 'Undo',
               onPressed: canUndo ? ref.read(canvasProvider.notifier).undo : null,
               icon: const Icon(Icons.undo),
             ),
@@ -196,12 +207,12 @@ class _DrawModeContextRow extends ConsumerWidget {
                 ButtonSegment(
                   value: DrawMode.tap,
                   icon: Icon(Icons.touch_app_outlined),
-                  tooltip: 'タップモード',
+                  tooltip: 'Tap',
                 ),
                 ButtonSegment(
                   value: DrawMode.trace,
                   icon: Icon(Icons.gesture),
-                  tooltip: 'なぞりモード',
+                  tooltip: 'Trace',
                 ),
               ],
               selected: {drawMode},
@@ -210,7 +221,7 @@ class _DrawModeContextRow extends ConsumerWidget {
             ),
             const Spacer(),
             IconButton(
-              tooltip: '多角形を閉じる',
+              tooltip: 'Close shape',
               iconSize: 32,
               onPressed: canClose
                   ? () {
@@ -249,7 +260,7 @@ class _EraserModeRow extends StatelessWidget {
       height: _kRowHeight,
       child: Center(
         child: Tooltip(
-          message: '頂点をタップして削除',
+          message: 'Tap a vertex to erase',
           child: Icon(Icons.delete_outline, size: 28, color: color),
         ),
       ),
@@ -259,12 +270,12 @@ class _EraserModeRow extends StatelessWidget {
 
 /// Row 1, edit mode: one shared skeleton for every selection state.
 ///
-/// - Left (fixed): 「図形を切り替え」 — always present so buried polygons
+/// - Left (fixed): Cycle Shape — always present so buried polygons
 ///   remain reachable via cycling (Z-order rescue).
 /// - Center ([Expanded] + horizontal scroll): hint / edge tools / vertex
 ///   tools depending on selection.
-/// - Right (fixed): 「⋯」 while a polygon is targeted with no vertex, or
-///   「選択を解除」 while a vertex is selected.
+/// - Right (fixed): More (⋯) while a polygon is targeted with no vertex;
+///   empty while a vertex is selected.
 class _EditModeContextRow extends ConsumerWidget {
   const _EditModeContextRow();
 
@@ -357,7 +368,7 @@ class _EditModeContextRow extends ConsumerWidget {
       middleChildren = [
         IconButton(
           key: const Key('delete-selected-vertex-button'),
-          tooltip: '頂点を削除',
+          tooltip: 'Delete Vertex',
           iconSize: 28,
           color: colorScheme.error,
           onPressed: deleteSelectedVertex,
@@ -388,7 +399,7 @@ class _EditModeContextRow extends ConsumerWidget {
           _DetachControls(selectedVertexId: vertexId)
         else
           Tooltip(
-            message: 'タップで選択、長押しドラッグで移動',
+            message: 'Tap to select, long-press drag to move',
             child: Icon(
               Icons.touch_app_outlined,
               size: 28,
@@ -399,13 +410,13 @@ class _EditModeContextRow extends ConsumerWidget {
     } else if (hasPolygon) {
       middleChildren = [
         IconButton(
-          tooltip: '辺を切り替え',
+          tooltip: 'Cycle Edge',
           iconSize: 28,
           onPressed: cycleEdge,
           icon: const Icon(Icons.skip_next),
         ),
         IconButton(
-          tooltip: 'ここに頂点を追加',
+          tooltip: 'Add Vertex',
           iconSize: 28,
           onPressed: targetEdge == null ? null : addVertexAtEdge,
           icon: const Icon(Icons.add_circle_outline),
@@ -414,7 +425,7 @@ class _EditModeContextRow extends ConsumerWidget {
     } else {
       middleChildren = [
         Text(
-          '図形をタップして選択',
+          'Tap a shape to select',
           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                 color: colorScheme.onSurfaceVariant,
               ),
@@ -429,7 +440,7 @@ class _EditModeContextRow extends ConsumerWidget {
         child: Row(
           children: [
             IconButton(
-              tooltip: '図形を切り替え',
+              tooltip: 'Cycle Shape',
               iconSize: 28,
               onPressed: artwork.polygons.isEmpty ? null : cyclePolygon,
               icon: const Icon(Icons.category_outlined),
@@ -445,7 +456,7 @@ class _EditModeContextRow extends ConsumerWidget {
             if (hasPolygon)
               PopupMenuButton<_PolygonMoreAction>(
                 key: const Key('polygon-more-menu-button'),
-                tooltip: 'その他',
+                tooltip: 'More',
                 icon: const Icon(Icons.more_horiz),
                 onSelected: (action) {
                   switch (action) {
@@ -461,7 +472,7 @@ class _EditModeContextRow extends ConsumerWidget {
                     child: ListTile(
                       contentPadding: EdgeInsets.zero,
                       leading: Icon(Icons.delete_outline),
-                      title: Text('図形を削除'),
+                      title: Text('Delete Shape'),
                     ),
                   ),
                   PopupMenuItem(
@@ -471,19 +482,10 @@ class _EditModeContextRow extends ConsumerWidget {
                     child: const ListTile(
                       contentPadding: EdgeInsets.zero,
                       leading: Icon(Icons.change_history),
-                      title: Text('この図形を分割（テッセレーション）'),
+                      title: Text('Tessellate'),
                     ),
                   ),
                 ],
-              ),
-            if (hasVertex)
-              IconButton(
-                tooltip: '選択を解除',
-                iconSize: 28,
-                onPressed: () {
-                  clearEditSelectionUi(ref.read, resetWholeShapeCycles: false);
-                },
-                icon: const Icon(Icons.close),
               ),
           ],
         ),
@@ -535,14 +537,14 @@ class _DetachControls extends ConsumerWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         IconButton(
-          tooltip: '切り離す多角形を切り替え',
+          tooltip: 'Cycle detach target',
           iconSize: 32,
           onPressed: cycleTarget,
           icon: const Icon(Icons.autorenew),
         ),
         const SizedBox(width: 8),
         IconButton(
-          tooltip: '選択中の多角形から切り離す',
+          tooltip: 'Detach',
           iconSize: 32,
           onPressed: target == null ? null : executeDetach,
           icon: const Icon(Icons.content_cut),
@@ -553,7 +555,7 @@ class _DetachControls extends ConsumerWidget {
 }
 
 /// Row 2: fill palette when draw mode, or edit with a polygon target and
-/// no vertex selected. Hidden otherwise.
+/// no vertex selected. Always reserves [_kPaletteRowHeight].
 class _PaletteRow extends ConsumerWidget {
   const _PaletteRow();
 
@@ -577,32 +579,30 @@ class _PaletteRow extends ConsumerWidget {
         selectedVertexId == null &&
         targetPolygon != null;
 
-    if (!showDrawPalette && !showEditPalette) {
-      return const SizedBox.shrink();
-    }
-
     final highlighted = showDrawPalette
         ? penColor
-        : targetPolygon!.fillColor;
+        : targetPolygon?.fillColor;
 
     return SizedBox(
       height: _kPaletteRowHeight,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-        child: FillColorPalette(
-          key: const Key('fill-color-palette'),
-          colors: kDefaultPolygonPalette,
-          highlightedColor: highlighted,
-          onColorSelected: (color) {
-            if (showDrawPalette) {
-              ref.read(selectedFillColorProvider.notifier).state = color;
-              return;
-            }
-            final id = targetPolygonId;
-            if (id == null) return;
-            ref.read(canvasProvider.notifier).changePolygonColor(id, color);
-          },
-        ),
+        child: (!showDrawPalette && !showEditPalette)
+            ? const SizedBox.expand()
+            : FillColorPalette(
+                key: const Key('fill-color-palette'),
+                colors: kDefaultPolygonPalette,
+                highlightedColor: highlighted,
+                onColorSelected: (color) {
+                  if (showDrawPalette) {
+                    ref.read(selectedFillColorProvider.notifier).state = color;
+                    return;
+                  }
+                  final id = targetPolygonId;
+                  if (id == null) return;
+                  ref.read(canvasProvider.notifier).changePolygonColor(id, color);
+                },
+              ),
       ),
     );
   }
@@ -611,10 +611,10 @@ class _PaletteRow extends ConsumerWidget {
 String _describeTessellationRejection(TessellationRejectReason reason) {
   switch (reason) {
     case TessellationRejectReason.tooFewVertices:
-      return '頂点が少なすぎるため分割できません';
+      return 'Too few vertices to tessellate';
     case TessellationRejectReason.selfIntersecting:
-      return '図形が交差しているため分割できません';
+      return 'Shape is self-intersecting';
     case TessellationRejectReason.computeFailed:
-      return '分割処理に失敗しました。もう一度お試しください';
+      return 'Tessellation failed. Please try again.';
   }
 }

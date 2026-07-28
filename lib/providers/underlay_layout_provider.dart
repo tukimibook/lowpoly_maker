@@ -9,7 +9,7 @@ import '../models/underlay_layout.dart';
 /// plan_phase_H_alpha.md`) with a single icon-only toggle in the toolbar's
 /// common row, so the control stays language-independent (a numeral + `%`
 /// is a universal symbol, not a translated word).
-const List<double> kUnderlayOpacitySteps = [0.1, 0.3, 0.5, 0.7, 1.0];
+const List<double> kUnderlayOpacitySteps = [0.0, 0.25, 0.5, 0.75, 1.0];
 
 /// Tracks the current [UnderlayLayout] for the (single, v1) underlay photo.
 ///

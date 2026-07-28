@@ -28,7 +28,7 @@ class FillColorPalette extends StatelessWidget {
         final color = colors[index];
         final isSelected = color == highlightedColor;
         return Tooltip(
-          message: '塗り色を選択',
+          message: 'Fill color',
           child: GestureDetector(
             onTap: () => onColorSelected(color),
             child: AnimatedContainer(

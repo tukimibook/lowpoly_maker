@@ -32,7 +32,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.text('新規作成'));
+      await tester.tap(find.text('New Artwork'));
       await tester.pumpAndSettle();
       expect(find.byType(EditorScreen), findsOneWidget);
       return container;
@@ -44,7 +44,7 @@ void main() {
       await tester.tap(find.byKey(const Key('artwork-title')));
       await tester.pumpAndSettle();
 
-      expect(find.text('作品名を変更'), findsOneWidget);
+      expect(find.text('Rename artwork'), findsOneWidget);
       expect(find.byKey(const Key('artwork-rename-field')), findsOneWidget);
     });
 
@@ -56,7 +56,7 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.enterText(find.byKey(const Key('artwork-rename-field')), '私の作品');
-      await tester.tap(find.text('保存'));
+      await tester.tap(find.text('Save'));
       await tester.pumpAndSettle();
       // Title change schedules a debounced auto-save — cancel so the test
       // binding does not see a pending Timer after the tree is disposed.
@@ -73,7 +73,7 @@ void main() {
       await tester.tap(find.byKey(const Key('artwork-title')));
       await tester.pumpAndSettle();
       await tester.enterText(find.byKey(const Key('artwork-rename-field')), '捨てる名前');
-      await tester.tap(find.text('キャンセル'));
+      await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
 
       expect(container.read(canvasProvider).title, kDefaultArtworkTitle);

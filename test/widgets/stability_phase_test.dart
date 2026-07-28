@@ -34,7 +34,7 @@ Future<ProviderContainer> _pumpEditor(WidgetTester tester) async {
       child: const PolygonArtApp(),
     ),
   );
-  await tester.tap(find.text('新規作成'));
+  await tester.tap(find.text('New Artwork'));
   await tester.pumpAndSettle();
   return container;
 }
@@ -48,7 +48,7 @@ Future<void> _closeTriangleAt(
     await tester.tapAt(canvasTopLeft + point);
     await tester.pump();
   }
-  await tester.tap(_iconButtonByTooltip('多角形を閉じる'));
+  await tester.tap(_iconButtonByTooltip('Close shape'));
   await tester.pump();
 }
 
@@ -117,7 +117,7 @@ void main() {
         );
         expect(container.read(polygonDragPreviewProvider).value, isNotNull);
 
-        await tester.tap(find.byTooltip('消しゴムモード'));
+        await tester.tap(find.byTooltip('Eraser'));
         await tester.pump();
 
         expect(container.read(polygonDragPreviewProvider).value, isNull);
@@ -139,9 +139,9 @@ void main() {
           Offset(100, 150),
         ]);
 
-        await tester.tap(find.byTooltip('編集モード'));
+        await tester.tap(find.byTooltip('Edit'));
         await tester.pump();
-        await tester.tap(_iconButtonByTooltip('図形を切り替え'));
+        await tester.tap(_iconButtonByTooltip('Cycle Shape'));
         await tester.pump();
         expect(container.read(polygonCycleIndexProvider), 0);
 
@@ -188,7 +188,7 @@ void main() {
         final vertexPos =
             container.read(canvasProvider).vertices[vertexId]!.position;
 
-        await tester.tap(find.byTooltip('消しゴムモード'));
+        await tester.tap(find.byTooltip('Eraser'));
         await tester.pump();
 
         final finger1 = await tester.startGesture(canvasTopLeft + vertexPos);
@@ -227,7 +227,7 @@ void main() {
       final vertexPos =
           container.read(canvasProvider).vertices[vertexId]!.position;
 
-      await tester.tap(find.byTooltip('消しゴムモード'));
+      await tester.tap(find.byTooltip('Eraser'));
       await tester.pump();
       await tester.tapAt(canvasTopLeft + vertexPos);
       await tester.pump();

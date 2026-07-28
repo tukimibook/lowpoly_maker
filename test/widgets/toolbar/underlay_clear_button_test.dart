@@ -30,7 +30,7 @@ void main() {
 
       final button = tester.widget<IconButton>(_clearButton());
       expect(button.onPressed, isNull);
-      expect(button.tooltip, '下絵を削除');
+      expect(button.tooltip, 'Remove underlay');
     });
 
     testWidgets('is enabled after an underlay path is set, and clears it on tap', (tester) async {

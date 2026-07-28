@@ -79,7 +79,7 @@ class _RecordingShareTarget implements ShareSheetTarget {
   }
 }
 
-Artwork _artwork({String title = '無題の作品', String id = 'artwork-1'}) {
+Artwork _artwork({String title = 'Untitled', String id = 'artwork-1'}) {
   return Artwork.empty(id: id, title: title);
 }
 
@@ -117,7 +117,7 @@ void main() {
       expect(galleryTarget.savedName, 'My Art');
       expect(controller.state.isExporting, isFalse);
       expect(controller.state.errorMessage, isNull);
-      expect(controller.state.successMessage, 'ギャラリーに保存しました');
+      expect(controller.state.successMessage, 'Saved to gallery');
     });
 
     test('sanitizes filesystem-unsafe characters out of the artwork title', () async {

@@ -71,7 +71,7 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        await tester.tap(find.text('新規作成'));
+        await tester.tap(find.text('New Artwork'));
         await tester.pumpAndSettle();
 
         expect(find.byType(EditorScreen), findsOneWidget);

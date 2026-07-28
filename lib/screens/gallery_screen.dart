@@ -37,7 +37,7 @@ class GalleryScreen extends ConsumerWidget {
     if (!context.mounted) return;
     if (!opened) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('作品を読み込めませんでした')),
+        const SnackBar(content: Text('Could not open artwork')),
       );
       return;
     }
@@ -49,16 +49,16 @@ class GalleryScreen extends ConsumerWidget {
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          title: const Text('作品を削除しますか？'),
-          content: Text('「${summary.title}」を削除します。この操作は取り消せません。'),
+          title: const Text('Delete artwork?'),
+          content: Text('Delete "${summary.title}"? This cannot be undone.'),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('キャンセル'),
+              child: const Text('Cancel'),
             ),
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('削除'),
+              child: const Text('Delete'),
             ),
           ],
         );
@@ -73,10 +73,10 @@ class GalleryScreen extends ConsumerWidget {
     final indexAsync = ref.watch(artworkIndexProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('作品一覧')),
+      appBar: AppBar(title: const Text('Gallery')),
       floatingActionButton: FloatingActionButton(
         key: const Key('gallery-new-fab'),
-        tooltip: '新規作成',
+        tooltip: 'New Artwork',
         onPressed: () => _handleNew(context, ref),
         child: const Icon(Icons.add),
       ),
@@ -109,7 +109,7 @@ class GalleryScreen extends ConsumerWidget {
         },
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, stackTrace) => Center(
-          child: Text('作品一覧を読み込めませんでした: $error'),
+          child: Text('Could not load gallery: $error'),
         ),
       ),
     );
@@ -133,10 +133,10 @@ class _EmptyGallery extends StatelessWidget {
               color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
             const SizedBox(height: 16),
-            const Text('作品がまだありません', textAlign: TextAlign.center),
+            const Text('No artworks yet', textAlign: TextAlign.center),
             const SizedBox(height: 8),
             Text(
-              '右下の「＋」から新しい作品を作成しましょう',
+              'Tap + to create a new artwork',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -192,7 +192,7 @@ class _ArtworkTile extends StatelessWidget {
                   ),
                   IconButton(
                     key: Key('gallery-delete-${summary.id}'),
-                    tooltip: '削除',
+                    tooltip: 'Delete',
                     visualDensity: VisualDensity.compact,
                     icon: const Icon(Icons.delete_outline, size: 20),
                     onPressed: onDelete,

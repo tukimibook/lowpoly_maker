@@ -88,22 +88,22 @@ class EditorScreen extends ConsumerWidget {
         context: context,
         builder: (dialogContext) {
           return AlertDialog(
-            title: const Text('作品名を変更'),
+            title: const Text('Rename artwork'),
             content: TextField(
               key: const Key('artwork-rename-field'),
               controller: controller,
               autofocus: true,
-              decoration: const InputDecoration(hintText: '作品名'),
+              decoration: const InputDecoration(hintText: 'Title'),
               onSubmitted: (value) => Navigator.of(dialogContext).pop(value),
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(dialogContext).pop(),
-                child: const Text('キャンセル'),
+                child: const Text('Cancel'),
               ),
               TextButton(
                 onPressed: () => Navigator.of(dialogContext).pop(controller.text),
-                child: const Text('保存'),
+                child: const Text('Save'),
               ),
             ],
           );
@@ -118,6 +118,8 @@ class EditorScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
+        automaticallyImplyLeading: false,
+        leading: const _SaveAndExitButton(),
         title: InkWell(
           key: const Key('artwork-title'),
           onTap: handleRename,
@@ -129,12 +131,12 @@ class EditorScreen extends ConsumerWidget {
         ),
         actions: [
           IconButton(
-            tooltip: underlayImagePath == null ? '下絵を選択' : '下絵を変更',
+            tooltip: underlayImagePath == null ? 'Add underlay' : 'Change underlay',
             onPressed: () => ref.read(underlayProvider.notifier).pickImage(),
             icon: Icon(underlayImagePath == null ? Icons.image_outlined : Icons.image),
           ),
           IconButton(
-            tooltip: isCanvasDark ? 'キャンバスをライトに切り替え' : 'キャンバスをダークに切り替え',
+            tooltip: isCanvasDark ? 'Light canvas' : 'Dark canvas',
             onPressed: () {
               ref.read(canvasBackgroundProvider.notifier).state =
                   isCanvasDark ? Brightness.light : Brightness.dark;
@@ -142,13 +144,13 @@ class EditorScreen extends ConsumerWidget {
             icon: Icon(isCanvasDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined),
           ),
           IconButton(
-            tooltip: 'すべて消去',
+            tooltip: 'Clear all',
             onPressed: isEmpty ? null : () => ref.read(canvasProvider.notifier).clearAll(),
             icon: const Icon(Icons.delete_outline),
           ),
           PopupMenuButton<_ExportAction>(
             key: const Key('export-menu-button'),
-            tooltip: 'PNGを書き出す',
+            tooltip: 'Export PNG',
             enabled: !isEmpty && !isExporting,
             onSelected: handleExport,
             icon: isExporting
@@ -164,43 +166,38 @@ class EditorScreen extends ConsumerWidget {
                 value: _ExportAction.gallery,
                 child: ListTile(
                   leading: Icon(Icons.save_alt_outlined),
-                  title: Text('ギャラリーに保存'),
+                  title: Text('Save to gallery'),
                 ),
               ),
               PopupMenuItem(
                 key: Key('export-menu-share'),
                 value: _ExportAction.share,
-                child: ListTile(leading: Icon(Icons.share_outlined), title: Text('共有')),
+                child: ListTile(leading: Icon(Icons.share_outlined), title: Text('Share')),
               ),
             ],
           ),
-          const _SaveAndExitButton(),
         ],
       ),
-      // `Stack` overlay instead of `Scaffold.bottomNavigationBar` (2026-07-16
-      // — see `.cursor/plans/plan_phase_H_alpha.md`): `PolygonCanvas` fills
-      // the entire body, at a size that no longer depends on the toolbar's
-      // height at all, so switching between draw/eraser/edit — whose
-      // toolbar rows used to differ in height — can never again trigger
-      // the underlay's fit-to-canvas recompute (`underlayFitCoordinatorProvider`
-      // listens for `canvasSizeProvider`'s value to change) and make the
-      // underlay visibly jump. `EditorToolbar` floats on top, at the
-      // bottom, as a normal `Positioned` overlay.
-      body: Stack(
+      // Column + Expanded so [PolygonCanvas] sizes to the usable area above
+      // the fixed-height toolbar (centering / fit-to-canvas stay correct).
+      // Toolbar height is constant (3 rows), so underlay fit no longer jumps
+      // when switching modes — the historical reason for a full-bleed Stack.
+      body: Column(
         children: [
-          Positioned.fill(
-            child: ColoredBox(
-              color: isCanvasDark ? _darkCanvasBackground : _lightCanvasBackground,
-              child: const PolygonCanvas(),
+          Expanded(
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: ColoredBox(
+                    color: isCanvasDark ? _darkCanvasBackground : _lightCanvasBackground,
+                    child: const PolygonCanvas(),
+                  ),
+                ),
+                if (isTessellating) const Positioned.fill(child: _TessellationBlockingOverlay()),
+              ],
             ),
           ),
-          const Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: _ToolbarBarrier(child: EditorToolbar()),
-          ),
-          if (isTessellating) const Positioned.fill(child: _TessellationBlockingOverlay()),
+          const _ToolbarBarrier(child: EditorToolbar()),
         ],
       ),
     );
@@ -262,7 +259,7 @@ class _SaveAndExitButtonState extends ConsumerState<_SaveAndExitButton> {
   Widget build(BuildContext context) {
     return IconButton(
       key: const Key('save-and-exit-button'),
-      tooltip: '保存して作品一覧へ戻る',
+      tooltip: 'Home',
       onPressed: _isSaving ? null : _handleSaveAndExit,
       icon: _isSaving
           ? const SizedBox(
@@ -270,17 +267,16 @@ class _SaveAndExitButtonState extends ConsumerState<_SaveAndExitButton> {
               height: 20,
               child: CircularProgressIndicator(strokeWidth: 2),
             )
-          : const Icon(Icons.check_circle_outline),
+          : const Icon(Icons.home_outlined),
     );
   }
 }
 
 /// Shown while `TessellationController.tessellate` (plan #17) has a
-/// `compute()` call in flight. Placed as the topmost `Stack` child (above
-/// both [PolygonCanvas] and `_ToolbarBarrier`) so its [AbsorbPointer]
-/// claims every touch before either can see it — same "topmost layer wins
-/// hit-testing" principle as `_ToolbarBarrier` itself — preventing any
-/// artwork mutation while the background triangulation is still running.
+/// `compute()` call in flight. Placed above [PolygonCanvas] inside the
+/// editor body's [Expanded] so its [AbsorbPointer] claims every touch
+/// before the canvas can see it — preventing artwork mutation while the
+/// background triangulation is still running.
 class _TessellationBlockingOverlay extends StatelessWidget {
   const _TessellationBlockingOverlay();
 
@@ -295,7 +291,7 @@ class _TessellationBlockingOverlay extends StatelessWidget {
             children: [
               CircularProgressIndicator(),
               SizedBox(height: 12),
-              Text('分割しています…', style: TextStyle(color: Colors.white)),
+              Text('Tessellating…', style: TextStyle(color: Colors.white)),
             ],
           ),
         ),
@@ -304,19 +300,8 @@ class _TessellationBlockingOverlay extends StatelessWidget {
   }
 }
 
-/// Wraps [EditorToolbar] so every tap landing anywhere within its bounds —
-/// including the gaps between icons/rows, not just the icons themselves —
-/// is claimed here and never reaches [PolygonCanvas] underneath in the
-/// `Stack` (`HitTestBehavior.opaque` makes this render object's own
-/// `hitTest` succeed unconditionally for any position inside it, which is
-/// exactly what makes `RenderStack` stop testing the sibling behind it —
-/// see `.cursor/plans/plan_phase_H_alpha.md`, 2026-07-16 検討メモ).
-///
-/// This does *not* interfere with the toolbar's own buttons: hit-testing
-/// always tests descendants first regardless of `behavior`, so every
-/// `IconButton`/`SegmentedButton` inside still receives its own taps
-/// normally. No `onTap`/other callback is needed here — `behavior` alone
-/// governs whether this render object counts as "hit".
+/// Wraps [EditorToolbar] so taps in the gaps between controls are absorbed
+/// and never reach the canvas above in the [Column].
 class _ToolbarBarrier extends StatelessWidget {
   const _ToolbarBarrier({required this.child});
 

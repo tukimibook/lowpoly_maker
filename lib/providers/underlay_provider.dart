@@ -72,7 +72,7 @@ class UnderlayController extends StateNotifier<UnderlayState> {
       if (path == null) return;
       state = state.copyWith(imagePath: path, errorMessage: null);
     } catch (error) {
-      state = state.copyWith(errorMessage: '画像を読み込めませんでした: $error');
+      state = state.copyWith(errorMessage: 'Could not load image: $error');
     }
   }
 

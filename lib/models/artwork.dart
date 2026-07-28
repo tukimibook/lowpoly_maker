@@ -15,7 +15,7 @@ const int kArtworkSchemaVersion = 1;
 /// Default [Artwork.title] for a brand-new, never-renamed piece — also the
 /// sentinel [ArtworkDocumentBlank.isBlank] uses so a title-only edit is
 /// treated as worth persisting (rename-ready; empty-canvas auto-save skip).
-const String kDefaultArtworkTitle = '無題の作品';
+const String kDefaultArtworkTitle = 'Untitled';
 
 /// The full state of a single artwork being edited.
 ///

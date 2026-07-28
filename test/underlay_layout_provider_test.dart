@@ -50,31 +50,31 @@ void main() {
     group('cycleOpacity', () {
       test('advances through the documented steps in order, wrapping at the end', () {
         final controller = ProviderContainer().read(underlayLayoutProvider);
-        expect(kUnderlayOpacitySteps, [0.1, 0.3, 0.5, 0.7, 1.0]);
+        expect(kUnderlayOpacitySteps, [0.0, 0.25, 0.5, 0.75, 1.0]);
 
         // Starts fully opaque (UnderlayLayout.initial's default) — the
         // last step — so the very first cycle wraps back to the first.
         expect(controller.value.opacity, 1.0);
 
         controller.cycleOpacity();
-        expect(controller.value.opacity, 0.1);
+        expect(controller.value.opacity, 0.0);
         controller.cycleOpacity();
-        expect(controller.value.opacity, 0.3);
+        expect(controller.value.opacity, 0.25);
         controller.cycleOpacity();
         expect(controller.value.opacity, 0.5);
         controller.cycleOpacity();
-        expect(controller.value.opacity, 0.7);
+        expect(controller.value.opacity, 0.75);
         controller.cycleOpacity();
         expect(controller.value.opacity, 1.0);
       });
 
       test('snaps to the nearest step before advancing, for an off-step value', () {
         final controller = ProviderContainer().read(underlayLayoutProvider);
-        controller.setOpacity(0.42); // nearest step is 0.5 -> advances to 0.7
+        controller.setOpacity(0.42); // nearest step is 0.5 -> advances to 0.75
 
         controller.cycleOpacity();
 
-        expect(controller.value.opacity, 0.7);
+        expect(controller.value.opacity, 0.75);
       });
 
       test('only touches opacity, leaving offset/scale/visible untouched', () {
@@ -88,7 +88,7 @@ void main() {
         expect(controller.value.offset, const Offset(3, 4));
         expect(controller.value.scale, 1.5);
         expect(controller.value.visible, isFalse);
-        expect(controller.value.opacity, 0.1);
+        expect(controller.value.opacity, 0.0);
       });
     });
   });

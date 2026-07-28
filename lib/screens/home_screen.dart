@@ -26,13 +26,13 @@ class HomeScreen extends ConsumerWidget {
               ),
               const SizedBox(height: 24),
               Text(
-                'ポリゴンお絵描き',
+                'Polygon Art',
                 style: Theme.of(context).textTheme.headlineSmall,
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 8),
               Text(
-                '点を打って、ポリゴンアートを作成しましょう',
+                'Tap points to create polygon art',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
@@ -48,7 +48,7 @@ class HomeScreen extends ConsumerWidget {
                   Navigator.of(context).pushNamed(PolygonArtApp.editorRoute);
                 },
                 icon: const Icon(Icons.add),
-                label: const Text('新規作成'),
+                label: const Text('New Artwork'),
               ),
               const SizedBox(height: 12),
               OutlinedButton.icon(
@@ -56,7 +56,7 @@ class HomeScreen extends ConsumerWidget {
                   Navigator.of(context).pushNamed(PolygonArtApp.galleryRoute);
                 },
                 icon: const Icon(Icons.photo_library_outlined),
-                label: const Text('作品一覧'),
+                label: const Text('Gallery'),
               ),
             ],
           ),

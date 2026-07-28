@@ -30,6 +30,7 @@ class PolygonPainter extends CustomPainter {
     required this.targetEdge,
     required this.canvasBrightness,
     required this.tracePreview,
+    this.isPreviewMode = false,
   }) : super(
          repaint: Listenable.merge([
            viewport,
@@ -80,6 +81,9 @@ class PolygonPainter extends CustomPainter {
   /// (Phase F, `.cursor/plans/plan_phase_F.md`).
   final TraceStrokePreviewController tracePreview;
 
+  /// When true, only polygon fills are painted (no strokes or edit chrome).
+  final bool isPreviewMode;
+
   static const double _vertexRadius = 5;
   static const double _continuationHandleRadius = 4;
 
@@ -102,6 +106,12 @@ class PolygonPainter extends CustomPainter {
     for (final polygon in artwork.polygons) {
       _paintPolygon(canvas, polygon);
     }
+
+    if (isPreviewMode) {
+      canvas.restore();
+      return;
+    }
+
     _paintTargetEdge(canvas);
 
     if (mode == CanvasMode.edit) {
@@ -159,6 +169,8 @@ class PolygonPainter extends CustomPainter {
       ..color = polygon.fillColor.withAlpha(alpha)
       ..style = PaintingStyle.fill;
     canvas.drawPath(path, fillPaint);
+
+    if (isPreviewMode) return;
 
     final strokePaint = Paint()
       ..color = polygon.strokeColor
@@ -356,6 +368,7 @@ class PolygonPainter extends CustomPainter {
         oldDelegate.highlightedPolygonId != highlightedPolygonId ||
         oldDelegate.targetEdge != targetEdge ||
         oldDelegate.canvasBrightness != canvasBrightness ||
-        oldDelegate.tracePreview != tracePreview;
+        oldDelegate.tracePreview != tracePreview ||
+        oldDelegate.isPreviewMode != isPreviewMode;
   }
 }

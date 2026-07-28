@@ -14,6 +14,7 @@ import '../../providers/detach_cycle_provider.dart';
 import '../../providers/drag_preview_provider.dart';
 import '../../providers/polygon_drag_preview_provider.dart';
 import '../../providers/polygon_edit_target_provider.dart';
+import '../../providers/preview_mode_provider.dart';
 import '../../providers/selected_vertex_provider.dart';
 import '../../providers/trace_gesture_provider.dart';
 import '../../providers/trace_stroke_preview_provider.dart';
@@ -64,6 +65,7 @@ class PolygonCanvas extends ConsumerWidget {
     final tracePreview = ref.watch(traceStrokePreviewProvider);
     final traceGesture = ref.watch(traceGestureProvider);
     final canvasBrightness = ref.watch(canvasBackgroundProvider);
+    final isPreviewMode = ref.watch(isPreviewModeProvider);
     final detachCycleIndex = ref.watch(detachCycleIndexProvider);
     final polygonCycleIndex = ref.watch(polygonCycleIndexProvider);
     final edgeCycleIndex = ref.watch(edgeCycleIndexProvider);
@@ -451,6 +453,7 @@ class PolygonCanvas extends ConsumerWidget {
                     targetEdge: targetEdge,
                     canvasBrightness: canvasBrightness,
                     tracePreview: tracePreview,
+                    isPreviewMode: isPreviewMode,
                   ),
                 ),
               ),

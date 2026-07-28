@@ -14,22 +14,14 @@ import 'package:polygon_art_app/providers/canvas_provider.dart';
 import 'package:polygon_art_app/repositories/artwork_repository.dart';
 import 'package:polygon_art_app/screens/gallery_screen.dart';
 
-// Every Japanese UI string this file needs to match against is spelled out
-// as an explicit `\u{...}` escape (rather than a literal character) so this
-// source file stays plain ASCII end to end -- sidesteps any editor/tool
-// transport step in this environment mangling multi-byte UTF-8 into "?"
-// bytes, which is exactly what happened here earlier. Each constant's
-// comment gives its meaning/romanization for readability.
-const String _testArtworkTitle =
-    '\u{30c6}\u{30b9}\u{30c8}\u{4f5c}\u{54c1}'; // "test sakuhin" - test artwork
-const String _defaultArtworkTitle =
-    '\u{7121}\u{984c}\u{306e}\u{4f5c}\u{54c1}'; // "mudai no sakuhin" - untitled artwork
-const String _emptyGalleryMessage =
-    '\u{4f5c}\u{54c1}\u{304c}\u{307e}\u{3060}\u{3042}\u{308a}\u{307e}\u{305b}\u{3093}'; // no artworks yet
-const String _deleteConfirmQuestion =
-    '\u{4f5c}\u{54c1}\u{3092}\u{524a}\u{9664}\u{3057}\u{307e}\u{3059}\u{304b}\u{ff1f}'; // delete this artwork?
-const String _deleteButtonLabel = '\u{524a}\u{9664}'; // delete
-const String _cancelButtonLabel = '\u{30ad}\u{30e3}\u{30f3}\u{30bb}\u{30eb}'; // cancel
+// UI strings matched by this file (English after the global UI pass).
+const String _testArtworkTitle = 'Test Artwork';
+const String _defaultArtworkTitle = 'Untitled';
+const String _emptyGalleryMessage = 'No artworks yet';
+const String _deleteConfirmQuestion = 'Delete artwork?';
+const String _deleteButtonLabel = 'Delete';
+const String _cancelButtonLabel = 'Cancel';
+
 
 /// A widget-test-only [ArtworkRepository]: identical file layout/behavior,
 /// but its JSON encode/decode runs inline rather than through

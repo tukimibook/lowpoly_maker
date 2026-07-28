@@ -43,8 +43,8 @@ void main() {
       const ProviderScope(child: PolygonArtApp()),
     );
 
-    expect(find.text('Polygon Art'), findsOneWidget);
-    expect(find.text('新規作成'), findsOneWidget);
+    expect(find.text('Polygon Art'), findsWidgets);
+    expect(find.text('New Artwork'), findsOneWidget);
   });
 
   testWidgets('Tapping new artwork navigates to editor', (WidgetTester tester) async {
@@ -52,14 +52,14 @@ void main() {
       const ProviderScope(child: PolygonArtApp()),
     );
 
-    await tester.tap(find.text('新規作成'));
+    await tester.tap(find.text('New Artwork'));
     await tester.pumpAndSettle();
 
-    expect(find.text('無題の作品'), findsOneWidget);
+    expect(find.text('Untitled'), findsOneWidget);
     // The "閉じる" button lost its visible text label in the 2026-07-16
     // icon-only toolbar redesign (see `.cursor/plans/plan_phase_H_alpha.md`)
     // — its accessible name now lives solely in its Tooltip.
-    expect(_iconButtonByTooltip('多角形を閉じる'), findsOneWidget);
+    expect(_iconButtonByTooltip('Close shape'), findsOneWidget);
   });
 
   testWidgets('Tapping the canvas three times enables closing a polygon', (
@@ -68,10 +68,10 @@ void main() {
     await tester.pumpWidget(
       const ProviderScope(child: PolygonArtApp()),
     );
-    await tester.tap(find.text('新規作成'));
+    await tester.tap(find.text('New Artwork'));
     await tester.pumpAndSettle();
 
-    final closeButtonFinder = _iconButtonByTooltip('多角形を閉じる');
+    final closeButtonFinder = _iconButtonByTooltip('Close shape');
     expect(tester.widget<IconButton>(closeButtonFinder).onPressed, isNull);
 
     final canvasCenter = tester.getCenter(_canvasCustomPaintFinder());
@@ -98,7 +98,7 @@ void main() {
           child: const PolygonArtApp(),
         ),
       );
-      await tester.tap(find.text('新規作成'));
+      await tester.tap(find.text('New Artwork'));
       await tester.pumpAndSettle();
 
       expect(container.read(canvasBackgroundProvider), Brightness.light);
@@ -125,7 +125,7 @@ void main() {
           child: const PolygonArtApp(),
         ),
       );
-      await tester.tap(find.text('新規作成'));
+      await tester.tap(find.text('New Artwork'));
       await tester.pumpAndSettle();
 
       final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
@@ -161,7 +161,7 @@ void main() {
           child: const PolygonArtApp(),
         ),
       );
-      await tester.tap(find.text('新規作成'));
+      await tester.tap(find.text('New Artwork'));
       await tester.pumpAndSettle();
 
       final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
@@ -171,7 +171,7 @@ void main() {
       await tester.pump();
       await tester.tapAt(canvasTopLeft + const Offset(100, 150));
       await tester.pump();
-      await tester.tap(_iconButtonByTooltip('多角形を閉じる'));
+      await tester.tap(_iconButtonByTooltip('Close shape'));
       await tester.pump();
 
       final polygon = container.read(canvasProvider).polygons.single;
@@ -226,7 +226,7 @@ void main() {
               child: const PolygonArtApp(),
             ),
           );
-          await tester.tap(find.text('新規作成'));
+          await tester.tap(find.text('New Artwork'));
           await tester.pumpAndSettle();
 
           final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
@@ -239,7 +239,7 @@ void main() {
           await tester.pump();
           await tester.tapAt(canvasTopLeft + const Offset(100, 150));
           await tester.pump();
-          await tester.tap(_iconButtonByTooltip('多角形を閉じる'));
+          await tester.tap(_iconButtonByTooltip('Close shape'));
           await tester.pump();
 
           // Purple: its first tap snaps onto the same spot as green's
@@ -248,7 +248,7 @@ void main() {
           // that used to make the bug reproduce (the vertex still held by
           // the "later" polygon — purple's original — used to win the
           // coincidence tie over the freshly detached copy).
-          await tester.tap(find.byTooltip('描画モード'));
+          await tester.tap(find.byTooltip('Draw'));
           await tester.pump();
           await tester.tapAt(canvasTopLeft + sharedSpot);
           await tester.pump();
@@ -256,7 +256,7 @@ void main() {
           await tester.pump();
           await tester.tapAt(canvasTopLeft + const Offset(200, 150));
           await tester.pump();
-          await tester.tap(_iconButtonByTooltip('多角形を閉じる'));
+          await tester.tap(_iconButtonByTooltip('Close shape'));
           await tester.pump();
 
           final greenId = container.read(canvasProvider).polygons[0].id;
@@ -267,7 +267,7 @@ void main() {
             contains(sharedId),
           );
 
-          await tester.tap(find.byTooltip('編集モード'));
+          await tester.tap(find.byTooltip('Edit'));
           await tester.pump();
           await tester.tapAt(canvasTopLeft + sharedSpot);
           await tester.pump();
@@ -275,7 +275,7 @@ void main() {
 
           // No cycling needed: the detach target defaults to the first
           // referencing polygon, which is green (drawn first).
-          await tester.tap(_iconButtonByTooltip('選択中の多角形から切り離す'));
+          await tester.tap(_iconButtonByTooltip('Detach'));
           await tester.pump();
 
           final copyId = container.read(selectedVertexProvider);
@@ -323,7 +323,7 @@ void main() {
           child: const PolygonArtApp(),
         ),
       );
-      await tester.tap(find.text('新規作成'));
+      await tester.tap(find.text('New Artwork'));
       await tester.pumpAndSettle();
 
       final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
@@ -333,10 +333,10 @@ void main() {
       await tester.pump();
       await tester.tapAt(canvasTopLeft + const Offset(100, 150));
       await tester.pump();
-      await tester.tap(_iconButtonByTooltip('多角形を閉じる'));
+      await tester.tap(_iconButtonByTooltip('Close shape'));
       await tester.pump();
 
-      await tester.tap(find.byTooltip('編集モード'));
+      await tester.tap(find.byTooltip('Edit'));
       await tester.pump();
 
       return container;
@@ -352,11 +352,11 @@ void main() {
       (tester) async {
         await pumpEditorWithTriangle(tester);
 
-        expect(find.text('図形をタップして選択'), findsOneWidget);
-        expect(_iconButtonByTooltip('図形を切り替え'), findsOneWidget);
+        expect(find.text('Tap a shape to select'), findsOneWidget);
+        expect(_iconButtonByTooltip('Cycle Shape'), findsOneWidget);
         // Edge tools / more menu appear only after a polygon is targeted.
-        expect(_iconButtonByTooltip('辺を切り替え'), findsNothing);
-        expect(_iconButtonByTooltip('ここに頂点を追加'), findsNothing);
+        expect(_iconButtonByTooltip('Cycle Edge'), findsNothing);
+        expect(_iconButtonByTooltip('Add Vertex'), findsNothing);
         expect(find.byKey(const Key('polygon-more-menu-button')), findsNothing);
         expect(currentPainter(tester).highlightedPolygonId, isNull);
       },
@@ -366,11 +366,11 @@ void main() {
       final container = await pumpEditorWithTriangle(tester);
       final polygonId = container.read(canvasProvider).polygons.single.id;
 
-      await tester.tap(_iconButtonByTooltip('図形を切り替え'));
+      await tester.tap(_iconButtonByTooltip('Cycle Shape'));
       await tester.pump();
 
       expect(currentPainter(tester).highlightedPolygonId, polygonId);
-      expect(_iconButtonByTooltip('辺を切り替え'), findsOneWidget);
+      expect(_iconButtonByTooltip('Cycle Edge'), findsOneWidget);
       expect(find.byKey(const Key('fill-color-palette')), findsOneWidget);
     });
 
@@ -381,11 +381,11 @@ void main() {
         final container = await pumpEditorWithTriangle(tester);
         final before = container.read(canvasProvider).polygons.single.vertexIds;
 
-        await tester.tap(_iconButtonByTooltip('図形を切り替え'));
+        await tester.tap(_iconButtonByTooltip('Cycle Shape'));
         await tester.pump();
-        await tester.tap(_iconButtonByTooltip('辺を切り替え'));
+        await tester.tap(_iconButtonByTooltip('Cycle Edge'));
         await tester.pump();
-        await tester.tap(_iconButtonByTooltip('ここに頂点を追加'));
+        await tester.tap(_iconButtonByTooltip('Add Vertex'));
         await tester.pump();
 
         final after = container.read(canvasProvider).polygons.single.vertexIds;
@@ -398,10 +398,10 @@ void main() {
 
         // The whole-shape edge tools are gone now that a vertex is selected,
         // but 図形を切り替え stays pinned for Z-order rescue.
-        expect(_iconButtonByTooltip('図形を切り替え'), findsOneWidget);
-        expect(_iconButtonByTooltip('辺を切り替え'), findsNothing);
-        expect(_iconButtonByTooltip('ここに頂点を追加'), findsNothing);
-        expect(_iconButtonByTooltip('頂点を削除'), findsOneWidget);
+        expect(_iconButtonByTooltip('Cycle Shape'), findsOneWidget);
+        expect(_iconButtonByTooltip('Cycle Edge'), findsNothing);
+        expect(_iconButtonByTooltip('Add Vertex'), findsNothing);
+        expect(_iconButtonByTooltip('Delete Vertex'), findsOneWidget);
         expect(find.byKey(const Key('fill-color-palette')), findsNothing);
       },
     );
@@ -409,11 +409,11 @@ void main() {
     testWidgets('図形を削除 removes the targeted polygon', (tester) async {
       final container = await pumpEditorWithTriangle(tester);
 
-      await tester.tap(_iconButtonByTooltip('図形を切り替え'));
+      await tester.tap(_iconButtonByTooltip('Cycle Shape'));
       await tester.pump();
       await tester.tap(find.byKey(const Key('polygon-more-menu-button')));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('図形を削除'));
+      await tester.tap(find.text('Delete Shape'));
       await tester.pumpAndSettle();
 
       expect(container.read(canvasProvider).polygons, isEmpty);
@@ -429,7 +429,7 @@ void main() {
             id: container.read(canvasProvider).vertices[id]!.position,
         };
 
-        await tester.tap(_iconButtonByTooltip('図形を切り替え'));
+        await tester.tap(_iconButtonByTooltip('Cycle Shape'));
         await tester.pump();
 
         // A single move, well past Flutter's own scale-vs-tap/long-press
@@ -475,7 +475,7 @@ void main() {
             id: container.read(canvasProvider).vertices[id]!.position,
         };
 
-        await tester.tap(_iconButtonByTooltip('図形を切り替え'));
+        await tester.tap(_iconButtonByTooltip('Cycle Shape'));
         await tester.pump();
 
         final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
@@ -526,7 +526,7 @@ void main() {
           findsNothing,
         );
 
-        await tester.tap(_iconButtonByTooltip('図形を切り替え'));
+        await tester.tap(_iconButtonByTooltip('Cycle Shape'));
         await tester.pump();
 
         await tester.tap(find.byKey(const Key('polygon-more-menu-button')));
@@ -547,7 +547,7 @@ void main() {
         final stateBefore = container.read(canvasProvider);
         final originalPolygonId = stateBefore.polygons.single.id;
 
-        await tester.tap(_iconButtonByTooltip('図形を切り替え'));
+        await tester.tap(_iconButtonByTooltip('Cycle Shape'));
         await tester.pump();
 
         await tester.tap(find.byKey(const Key('polygon-more-menu-button')));
@@ -588,7 +588,7 @@ void main() {
         expect(container.read(canvasProvider), stateBefore);
 
         // Cycle counters were reset — back to the unselected hint row.
-        expect(find.text('図形をタップして選択'), findsOneWidget);
+        expect(find.text('Tap a shape to select'), findsOneWidget);
         expect(find.byKey(const Key('polygon-more-menu-button')), findsNothing);
       },
     );
@@ -605,18 +605,18 @@ void main() {
           child: const PolygonArtApp(),
         ),
       );
-      await tester.tap(find.text('新規作成'));
+      await tester.tap(find.text('New Artwork'));
       await tester.pumpAndSettle();
       return container;
     }
 
     Future<void> closeCurrentDraft(WidgetTester tester) async {
-      await tester.tap(_iconButtonByTooltip('多角形を閉じる'));
+      await tester.tap(_iconButtonByTooltip('Close shape'));
       await tester.pump();
     }
 
     Future<void> enterEditMode(WidgetTester tester) async {
-      await tester.tap(find.byTooltip('編集モード'));
+      await tester.tap(find.byTooltip('Edit'));
       await tester.pump();
     }
 
@@ -671,7 +671,7 @@ void main() {
         // Front triangle fully inside the first (drawn second = on top).
         // Vertices stay > kVertexHitRadius from the back triangle's corners
         // so they don't snap/weld; a nested ring also closes safely.
-        await tester.tap(find.byTooltip('描画モード'));
+        await tester.tap(find.byTooltip('Draw'));
         await tester.pump();
         await tester.tapAt(canvasTopLeft + const Offset(70, 60));
         await tester.pump();
@@ -727,8 +727,8 @@ void main() {
         expect(container.read(selectedVertexProvider), vertexA);
         expect(container.read(polygonCycleIndexProvider), -1);
         // Cycle control remains available even while a vertex is selected.
-        expect(_iconButtonByTooltip('図形を切り替え'), findsOneWidget);
-        expect(_iconButtonByTooltip('頂点を削除'), findsOneWidget);
+        expect(_iconButtonByTooltip('Cycle Shape'), findsOneWidget);
+        expect(_iconButtonByTooltip('Delete Vertex'), findsOneWidget);
       },
     );
 
@@ -777,7 +777,7 @@ void main() {
             child: const PolygonArtApp(),
           ),
         );
-        await tester.tap(find.text('新規作成'));
+        await tester.tap(find.text('New Artwork'));
         await tester.pumpAndSettle();
 
         final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
@@ -787,10 +787,10 @@ void main() {
         await tester.pump();
         await tester.tapAt(canvasTopLeft + const Offset(100, 150));
         await tester.pump();
-        await tester.tap(_iconButtonByTooltip('多角形を閉じる'));
+        await tester.tap(_iconButtonByTooltip('Close shape'));
         await tester.pump();
 
-        await tester.tap(find.byTooltip('編集モード'));
+        await tester.tap(find.byTooltip('Edit'));
         await tester.pump();
 
         return container;
@@ -865,8 +865,7 @@ void main() {
       );
 
       testWidgets(
-        '選択を解除 clears the selection, resets the detach cycle, and '
-        'brings back the whole-shape target row',
+        'tapping blank canvas clears vertex selection and restores shape tools',
         (tester) async {
           final container = await pumpEditorWithTriangle(tester);
           final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
@@ -877,25 +876,25 @@ void main() {
           await tester.tapAt(canvasTopLeft + vertexAPos);
           await tester.pump();
           expect(container.read(selectedVertexProvider), vertexAId);
-          expect(_iconButtonByTooltip('図形を切り替え'), findsOneWidget);
-          expect(_iconButtonByTooltip('頂点を削除'), findsOneWidget);
-          expect(_iconButtonByTooltip('選択を解除'), findsOneWidget);
+          expect(_iconButtonByTooltip('Cycle Shape'), findsOneWidget);
+          expect(_iconButtonByTooltip('Delete Vertex'), findsOneWidget);
+          expect(_iconButtonByTooltip('Clear selection'), findsNothing);
 
           container.read(detachCycleIndexProvider.notifier).state = 3;
 
-          await tester.tap(_iconButtonByTooltip('選択を解除'));
+          // Clear-selection button was removed; blank canvas clears selection.
+          await tester.tapAt(canvasTopLeft + const Offset(320, 320));
           await tester.pump();
 
           expect(container.read(selectedVertexProvider), isNull);
           expect(container.read(detachCycleIndexProvider), 0);
-          expect(_iconButtonByTooltip('図形を切り替え'), findsOneWidget);
-          expect(_iconButtonByTooltip('頂点を削除'), findsNothing);
+          expect(_iconButtonByTooltip('Cycle Shape'), findsOneWidget);
+          expect(_iconButtonByTooltip('Delete Vertex'), findsNothing);
         },
       );
 
       testWidgets(
-        '選択を解除 is also present alongside the ♻️/✂️ pair when the '
-        'selected vertex is shared between two polygons',
+        'shared-vertex row shows detach controls without a clear-selection button',
         (tester) async {
           final container = await pumpEditorWithTriangle(tester);
           final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
@@ -907,7 +906,7 @@ void main() {
               .vertices[container.read(canvasProvider).polygons.single.vertexIds[1]]!
               .position;
 
-          await tester.tap(find.byTooltip('描画モード'));
+          await tester.tap(find.byTooltip('Draw'));
           await tester.pump();
           await tester.tapAt(canvasTopLeft + sharedSpot);
           await tester.pump();
@@ -915,19 +914,19 @@ void main() {
           await tester.pump();
           await tester.tapAt(canvasTopLeft + const Offset(200, 150));
           await tester.pump();
-          await tester.tap(_iconButtonByTooltip('多角形を閉じる'));
+          await tester.tap(_iconButtonByTooltip('Close shape'));
           await tester.pump();
 
-          await tester.tap(find.byTooltip('編集モード'));
+          await tester.tap(find.byTooltip('Edit'));
           await tester.pump();
           await tester.tapAt(canvasTopLeft + sharedSpot);
           await tester.pump();
 
-          expect(_iconButtonByTooltip('図形を切り替え'), findsOneWidget);
-          expect(_iconButtonByTooltip('頂点を削除'), findsOneWidget);
-          expect(_iconButtonByTooltip('切り離す多角形を切り替え'), findsOneWidget);
-          expect(_iconButtonByTooltip('選択中の多角形から切り離す'), findsOneWidget);
-          expect(_iconButtonByTooltip('選択を解除'), findsOneWidget);
+          expect(_iconButtonByTooltip('Cycle Shape'), findsOneWidget);
+          expect(_iconButtonByTooltip('Delete Vertex'), findsOneWidget);
+          expect(_iconButtonByTooltip('Cycle detach target'), findsOneWidget);
+          expect(_iconButtonByTooltip('Detach'), findsOneWidget);
+          expect(_iconButtonByTooltip('Clear selection'), findsNothing);
         },
       );
     },
@@ -944,7 +943,7 @@ void main() {
           child: const PolygonArtApp(),
         ),
       );
-      await tester.tap(find.text('新規作成'));
+      await tester.tap(find.text('New Artwork'));
       await tester.pumpAndSettle();
       return container;
     }
@@ -1105,7 +1104,7 @@ void main() {
         );
         await tester.pump();
 
-        await tester.tap(_iconButtonByTooltip('全体表示に戻す'));
+        await tester.tap(_iconButtonByTooltip('Fit screen'));
         await tester.pump();
 
         expect(
@@ -1166,9 +1165,9 @@ void main() {
           child: const PolygonArtApp(),
         ),
       );
-      await tester.tap(find.text('新規作成'));
+      await tester.tap(find.text('New Artwork'));
       await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('なぞりモード'));
+      await tester.tap(find.byTooltip('Trace'));
       await tester.pump();
       expect(container.read(drawModeProvider), DrawMode.trace);
 
@@ -1351,7 +1350,7 @@ void main() {
         expect(container.read(traceStrokePreviewProvider).path, isNotNull);
         expect(container.read(traceGestureProvider).isAwaitingDisambiguation, isTrue);
 
-        await tester.tap(find.byTooltip('消しゴムモード'));
+        await tester.tap(find.byTooltip('Eraser'));
         await tester.pump();
 
         expect(container.read(traceStrokePreviewProvider).path, isNull);
