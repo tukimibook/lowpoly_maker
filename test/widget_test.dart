@@ -865,7 +865,8 @@ void main() {
       );
 
       testWidgets(
-        'tapping blank canvas clears vertex selection and restores shape tools',
+        'Clear selection clears the selection, resets the detach cycle, and '
+        'brings back the whole-shape target row',
         (tester) async {
           final container = await pumpEditorWithTriangle(tester);
           final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
@@ -878,12 +879,11 @@ void main() {
           expect(container.read(selectedVertexProvider), vertexAId);
           expect(_iconButtonByTooltip('Cycle Shape'), findsOneWidget);
           expect(_iconButtonByTooltip('Delete Vertex'), findsOneWidget);
-          expect(_iconButtonByTooltip('Clear selection'), findsNothing);
+          expect(_iconButtonByTooltip('Clear selection'), findsOneWidget);
 
           container.read(detachCycleIndexProvider.notifier).state = 3;
 
-          // Clear-selection button was removed; blank canvas clears selection.
-          await tester.tapAt(canvasTopLeft + const Offset(320, 320));
+          await tester.tap(_iconButtonByTooltip('Clear selection'));
           await tester.pump();
 
           expect(container.read(selectedVertexProvider), isNull);
@@ -894,7 +894,7 @@ void main() {
       );
 
       testWidgets(
-        'shared-vertex row shows detach controls without a clear-selection button',
+        'shared-vertex row shows detach controls and clear-selection',
         (tester) async {
           final container = await pumpEditorWithTriangle(tester);
           final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
@@ -926,7 +926,7 @@ void main() {
           expect(_iconButtonByTooltip('Delete Vertex'), findsOneWidget);
           expect(_iconButtonByTooltip('Cycle detach target'), findsOneWidget);
           expect(_iconButtonByTooltip('Detach'), findsOneWidget);
-          expect(_iconButtonByTooltip('Clear selection'), findsNothing);
+          expect(_iconButtonByTooltip('Clear selection'), findsOneWidget);
         },
       );
     },
@@ -1350,7 +1350,7 @@ void main() {
         expect(container.read(traceStrokePreviewProvider).path, isNotNull);
         expect(container.read(traceGestureProvider).isAwaitingDisambiguation, isTrue);
 
-        await tester.tap(find.byTooltip('Eraser'));
+        await tester.tap(find.byTooltip('Edit'));
         await tester.pump();
 
         expect(container.read(traceStrokePreviewProvider).path, isNull);

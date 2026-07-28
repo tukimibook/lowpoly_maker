@@ -97,17 +97,16 @@ class _CommonRow extends ConsumerWidget {
                       tooltip: 'Draw',
                     ),
                     ButtonSegment(
-                      value: CanvasMode.eraser,
-                      icon: Icon(Icons.backspace_outlined),
-                      tooltip: 'Eraser',
-                    ),
-                    ButtonSegment(
                       value: CanvasMode.edit,
                       icon: Icon(Icons.open_with),
                       tooltip: 'Edit',
                     ),
                   ],
-                  selected: {mode},
+                  // Eraser is no longer offered in the UI; if session state
+                  // still holds it (tests / leftover), show Draw as selected.
+                  selected: {
+                    mode == CanvasMode.edit ? CanvasMode.edit : CanvasMode.draw,
+                  },
                   showSelectedIcon: false,
                   onSelectionChanged: (selection) => selectMode(selection.first),
                 ),
@@ -486,6 +485,15 @@ class _EditModeContextRow extends ConsumerWidget {
                     ),
                   ),
                 ],
+              ),
+            if (hasVertex)
+              IconButton(
+                tooltip: 'Clear selection',
+                iconSize: 28,
+                onPressed: () {
+                  clearEditSelectionUi(ref.read, resetWholeShapeCycles: false);
+                },
+                icon: const Icon(Icons.close),
               ),
           ],
         ),

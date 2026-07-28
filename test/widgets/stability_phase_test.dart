@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:polygon_art_app/app.dart';
+import 'package:polygon_art_app/models/canvas_mode.dart';
 import 'package:polygon_art_app/providers/canvas_provider.dart';
 import 'package:polygon_art_app/providers/detach_cycle_provider.dart';
 import 'package:polygon_art_app/providers/drag_preview_provider.dart';
@@ -117,7 +118,7 @@ void main() {
         );
         expect(container.read(polygonDragPreviewProvider).value, isNotNull);
 
-        await tester.tap(find.byTooltip('Eraser'));
+        await tester.tap(find.byTooltip('Edit'));
         await tester.pump();
 
         expect(container.read(polygonDragPreviewProvider).value, isNull);
@@ -188,7 +189,8 @@ void main() {
         final vertexPos =
             container.read(canvasProvider).vertices[vertexId]!.position;
 
-        await tester.tap(find.byTooltip('Eraser'));
+        // Eraser is no longer in the mode toggle; enter it programmatically.
+        container.read(canvasModeProvider.notifier).state = CanvasMode.eraser;
         await tester.pump();
 
         final finger1 = await tester.startGesture(canvasTopLeft + vertexPos);
@@ -227,7 +229,7 @@ void main() {
       final vertexPos =
           container.read(canvasProvider).vertices[vertexId]!.position;
 
-      await tester.tap(find.byTooltip('Eraser'));
+      container.read(canvasModeProvider.notifier).state = CanvasMode.eraser;
       await tester.pump();
       await tester.tapAt(canvasTopLeft + vertexPos);
       await tester.pump();

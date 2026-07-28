@@ -163,8 +163,7 @@ void main() {
       await tester.pump();
       expect(container.read(weldArmedProvider), isTrue);
 
-      // Clear-selection button removed — same helper the old button called.
-      clearEditSelectionUi(container.read, resetWholeShapeCycles: false);
+      await tester.tap(_iconButtonByTooltip('Clear selection'));
       await tester.pump();
 
       expect(container.read(selectedVertexProvider), isNull);

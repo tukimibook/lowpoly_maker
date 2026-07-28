@@ -12,7 +12,7 @@ import 'package:polygon_art_app/models/artwork_index.dart';
 import 'package:polygon_art_app/providers/artwork_repository_provider.dart';
 import 'package:polygon_art_app/repositories/artwork_repository.dart';
 import 'package:polygon_art_app/screens/editor_screen.dart';
-import 'package:polygon_art_app/screens/gallery_screen.dart';
+import 'package:polygon_art_app/screens/home_screen.dart';
 import 'package:polygon_art_app/widgets/canvas/polygon_painter.dart';
 
 /// A widget-test-only [ArtworkRepository] — see the identically-named class
@@ -117,8 +117,8 @@ void main() {
 
   group('EditorScreen save-and-exit button', () {
     testWidgets(
-      'forces an immediate save (no debounce wait) and returns to a fresh '
-      'GalleryScreen, discarding the entire navigation stack',
+      'forces an immediate save (no debounce wait) and returns to HomeScreen, '
+      'popping back to the first route',
       (tester) async {
         final repository = _TestArtworkRepository(MemoryFileSystem());
         await pumpEditorFromHome(tester, repository: repository);
@@ -136,7 +136,7 @@ void main() {
         });
         await tester.pumpAndSettle();
 
-        expect(find.byType(GalleryScreen), findsOneWidget);
+        expect(find.byType(HomeScreen), findsOneWidget);
         expect(find.byType(EditorScreen), findsNothing);
         expect(repository.saveArtworkCallCount, 1);
 
@@ -182,7 +182,7 @@ void main() {
         });
         await tester.pumpAndSettle();
 
-        expect(find.byType(GalleryScreen), findsOneWidget);
+        expect(find.byType(HomeScreen), findsOneWidget);
         expect(repository.saveArtworkCallCount, 1);
       },
     );
@@ -200,7 +200,7 @@ void main() {
         });
         await tester.pumpAndSettle();
 
-        expect(find.byType(GalleryScreen), findsOneWidget);
+        expect(find.byType(HomeScreen), findsOneWidget);
         expect(repository.saveArtworkCallCount, 0);
         expect((await repository.readIndex()).artworks, isEmpty);
       },

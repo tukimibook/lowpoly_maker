@@ -108,14 +108,14 @@ const int kUndoStackLimit = 100;
 /// Preset fill colors offered in Phase 1. A full color picker / palette
 /// manager is introduced in a later phase.
 const List<Color> kDefaultPolygonPalette = [
-  Color(0xFFC4785A),
-  Color(0xFFD4A574),
-  Color(0xFFC4A35A),
-  Color(0xFF8B9E7C),
-  Color(0xFF5F7355),
-  Color(0xFF6B7C85),
-  Color(0xFFA65D4E),
-  Color(0xFF9A8B7A),
+  Color(0xFF783F33),
+  Color(0xFF8C6239),
+  Color(0xFF4A533E),
+  Color(0xFF2D4255),
+  Color(0xFF5E5A55),
+  Color(0xFF3B2F2F),
+  Color(0xFF7A6A53),
+  Color(0xFF4C6271),
 ];
 
 /// Currently selected fill color for the next polygon to be closed.

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../app.dart';
 import '../models/artwork_document.dart';
 import '../providers/auto_save_provider.dart';
 import '../providers/canvas_background_provider.dart';
@@ -246,10 +245,9 @@ class _SaveAndExitButtonState extends ConsumerState<_SaveAndExitButton> {
       // moment it's shown.
       ref.invalidate(artworkIndexProvider);
       if (!mounted) return;
-      Navigator.of(context).pushNamedAndRemoveUntil(
-        PolygonArtApp.galleryRoute,
-        (route) => false,
-      );
+      // Return to the root HomeScreen regardless of whether the editor was
+      // opened from Home or via Gallery → Editor.
+      Navigator.of(context).popUntil((route) => route.isFirst);
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
