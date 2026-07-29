@@ -267,6 +267,11 @@ class CanvasNotifier extends StateNotifier<Artwork> {
     double doubleTapMaxDistance = kDoubleTapMaxDistance,
     double lineAbsorptionTolerance = kLineAbsorptionTolerance,
   }) {
+    // Clear any prior close outcome so UI (e.g. commitDrawDrag's SnackBar)
+    // only reacts to a close attempted during *this* tap — a sticky
+    // rejectedUnsafeClosingEdge previously re-toasted on every later point.
+    lastClosePolygonResult = null;
+
     final now = DateTime.now();
     if (_isPseudoDoubleTap(position, now, maxDistance: doubleTapMaxDistance) &&
         _tryCloseAtVertex(
@@ -1130,6 +1135,8 @@ class CanvasNotifier extends StateNotifier<Artwork> {
   ///
   /// The most recent result is also mirrored on [lastClosePolygonResult] so
   /// gesture handlers that close through [handleDrawTap] can read it afterward.
+  /// Cleared at the start of each [handleDrawTap] so a rejected close does
+  /// not keep toasting on later, non-close taps.
   ClosePolygonResult? lastClosePolygonResult;
 
   ClosePolygonResult closePolygon(
