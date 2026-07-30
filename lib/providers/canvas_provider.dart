@@ -1,5 +1,6 @@
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
@@ -104,6 +105,13 @@ const double kDoubleTapMaxDistance = 20.0;
 /// Redo and cross-session persistence of this history are out of scope
 /// here (see Phase H+). → 検討メモ（2026-07-13 追記続き2）参照。
 const int kUndoStackLimit = 100;
+
+/// Draft vertices that must not be magnet-snap targets.
+/// The in-progress shape's start remains eligible so self-close can weld.
+/// Note: After a start snap ([S,...,S]), the start ID enters the skip(1) exclusion,
+/// which may allow snapping to other nearby vertices if drawn further without closing.
+Set<String> draftVertexSnapExclusions(List<String> draftVertexIds) =>
+    draftVertexIds.skip(1).toSet();
 
 /// Preset fill colors offered in Phase 1. A full color picker / palette
 /// manager is introduced in a later phase.
@@ -273,13 +281,35 @@ class CanvasNotifier extends StateNotifier<Artwork> {
     lastClosePolygonResult = null;
 
     final now = DateTime.now();
-    if (_isPseudoDoubleTap(position, now, maxDistance: doubleTapMaxDistance) &&
+    final isPseudo = _isPseudoDoubleTap(
+      position,
+      now,
+      maxDistance: doubleTapMaxDistance,
+    );
+    // #region agent log
+    debugPrint(
+      '[DRAW_TAP_DEBUG] handleDrawTap entry '
+      'hyp=B,C,D,E session=874304 '
+      'pos=(${position.dx.toStringAsFixed(1)},${position.dy.toStringAsFixed(1)}) '
+      'draftLen=${state.draftVertexIds.length} hitRadius=$hitRadius '
+      'isPseudoDoubleTap=$isPseudo '
+      'lastTapInserted=$_lastTapInsertedCount',
+    );
+    // #endregion
+    if (isPseudo &&
         _tryCloseAtVertex(
           position,
           fillColor,
           hitRadius: hitRadius,
           lineAbsorptionTolerance: lineAbsorptionTolerance,
         )) {
+      // #region agent log
+      debugPrint(
+        '[DRAW_TAP_DEBUG] handleDrawTap consumed_as_close '
+        'hyp=B session=874304 draftLenAfter=${state.draftVertexIds.length} '
+        'closeResult=$lastClosePolygonResult',
+      );
+      // #endregion
       return null;
     }
 
@@ -294,6 +324,14 @@ class CanvasNotifier extends StateNotifier<Artwork> {
     _lastTapInsertedCount = state.draftVertexIds.length - countBefore;
     _lastTapAt = now;
     _lastTapPosition = position;
+    // #region agent log
+    debugPrint(
+      '[DRAW_TAP_DEBUG] handleDrawTap single_path_done '
+      'hyp=C,D,E session=874304 '
+      'inserted=$_lastTapInsertedCount '
+      'draftLenAfter=${state.draftVertexIds.length}',
+    );
+    // #endregion
     return result;
   }
 
@@ -302,28 +340,23 @@ class CanvasNotifier extends StateNotifier<Artwork> {
   /// proper loop. Returns true when it closed; false (so the caller treats
   /// the tap as an ordinary point) otherwise.
   ///
-  /// Two valid targets:
-  /// - **another polygon's vertex** → connect-close. The first tap of the
-  ///   double-tap already welded the draft's end onto it via the single-tap
-  ///   path, so by now that vertex *is* the draft's end (and, being part of
-  ///   the draft, is excluded from [findPolygonVertexNear]). It is therefore
-  ///   detected directly: the tap sits on the draft's end and that end is a
-  ///   corner of a confirmed polygon. The shape simply closes (following the
-  ///   shared edge inside [closePolygon] when start and end share a polygon)
-  ///   — unless doing so right now would silently cut a straight, unwelded
-  ///   edge between two unrelated existing polygons (see
-  ///   [_wouldCloseWithUnweldedGap]); in that case this returns false so the
-  ///   tap is kept as an ordinary point instead of surprising the artist
-  ///   with a seam they didn't ask for. The toolbar's explicit "close"
-  ///   button (calling [closePolygon] directly) always still works.
-  /// - **the draft's own start** → self-close into a loop. Drawing-time
-  ///   snapping excludes the draft's own points, so the first tap of the
-  ///   double-tap dropped a throwaway point next to the start; it is removed
-  ///   first so the shape closes as a clean loop of the points actually
-  ///   drawn. (Removing just the first tap's own contribution — with no
-  ///   re-search — avoids the old bug where a close could snap back toward
-  ///   the start.) Closing onto the draft's own start is never a "gap" —
-  ///   there's nothing else to weld to — so no such check applies here.
+  /// Two valid targets (never mid-draft vertices or unrelated corners):
+  /// - **the draft's end, when it is already a confirmed polygon vertex**
+  ///   → connect-close (the first tap of the double-tap welded the end
+  ///   onto that corner via the single-tap path).
+  /// - **the draft's own start** → self-close into a loop (throwaway first
+  ///   tap of the pair is stripped first).
+  ///
+  /// When *both* are within [hitRadius], the nearer tap-to-vertex distance
+  /// wins — connect-close is no longer unconditionally preferred over
+  /// self-close (dense shared-boundary drawings previously closed onto a
+  /// nearby welded end even when the artist was aiming at the start).
+  /// Equal distances prefer the start (self-close).
+  ///
+  /// Connect-close still refuses [_wouldCloseWithUnweldedGap]; if that
+  /// blocks and the start is also in range, self-close is tried next.
+  /// The toolbar's explicit "close" button (calling [closePolygon]
+  /// directly) is unchanged.
   bool _tryCloseAtVertex(
     Offset position,
     Color fillColor, {
@@ -333,27 +366,62 @@ class CanvasNotifier extends StateNotifier<Artwork> {
     final draftIds = state.draftVertexIds;
     if (draftIds.isEmpty) return false;
 
+    final endIndex = draftIds.length - 1;
     final endPosition = state.vertices[draftIds.last]!.position;
-    if ((position - endPosition).distance <= hitRadius &&
-        _isConfirmedPolygonVertex(draftIds.last)) {
+    final endDistance = (position - endPosition).distance;
+    final endEligible =
+        endDistance <= hitRadius && _isConfirmedPolygonVertex(draftIds.last);
+
+    final startPosition = state.vertices[draftIds.first]!.position;
+    final startDistance = (position - startPosition).distance;
+    final startEligible = startDistance <= hitRadius;
+
+    // Prefer the nearer eligible candidate; on a tie, prefer self-close.
+    final preferStart = startEligible &&
+        (!endEligible || startDistance <= endDistance);
+    final preferEnd = endEligible && !preferStart;
+
+    // #region agent log
+    debugPrint(
+      '[DRAW_TAP_DEBUG] _tryCloseAtVertex candidates '
+      'hyp=B session=874304 endIdx=$endIndex endDist=$endDistance '
+      'endEligible=$endEligible startDist=$startDistance '
+      'startEligible=$startEligible preferStart=$preferStart preferEnd=$preferEnd',
+    );
+    // #endregion
+
+    if (preferEnd) {
       if (draftIds.length < kMinPolygonVertices) return false;
       if (_wouldCloseWithUnweldedGap(
         draftIds.first,
         draftIds.last,
         lineAbsorptionTolerance: lineAbsorptionTolerance,
       )) {
-        return false;
+        // End was nearer but connect-close is unsafe — fall back to
+        // self-close when the start is also in range.
+        if (!startEligible) return false;
+      } else {
+        // #region agent log
+        debugPrint(
+          '[DRAW_TAP_DEBUG] _tryCloseAtVertex connect_close '
+          'hyp=B session=874304',
+        );
+        // #endregion
+        closePolygon(fillColor, lineAbsorptionTolerance: lineAbsorptionTolerance);
+        return true;
       }
-      // Consume the double-tap whether close succeeds or is rejected as an
-      // unsafe skewer — either way the artist meant "close", not "add point".
-      closePolygon(fillColor, lineAbsorptionTolerance: lineAbsorptionTolerance);
-      return true;
     }
 
-    final startPosition = state.vertices[draftIds.first]!.position;
-    if ((position - startPosition).distance <= hitRadius) {
+    if (preferStart || (endEligible && startEligible)) {
+      // preferStart, or end-was-preferred but gap-blocked with start eligible.
       final strayCount = _lastTapInsertedCount;
       if (draftIds.length - strayCount < kMinPolygonVertices) return false;
+      // #region agent log
+      debugPrint(
+        '[DRAW_TAP_DEBUG] _tryCloseAtVertex self_close '
+        'hyp=B session=874304 strayCount=$strayCount',
+      );
+      // #endregion
       for (var i = 0; i < strayCount; i++) {
         _removeLastDraftVertex();
       }
@@ -361,6 +429,12 @@ class CanvasNotifier extends StateNotifier<Artwork> {
       return true;
     }
 
+    // #region agent log
+    debugPrint(
+      '[DRAW_TAP_DEBUG] _tryCloseAtVertex no_close '
+      'hyp=B session=874304',
+    );
+    // #endregion
     return false;
   }
 
@@ -382,6 +456,19 @@ class CanvasNotifier extends StateNotifier<Artwork> {
 
     final hit = findPolygonVertexNear(position, hitRadius: hitRadius);
     if (hit != null) {
+      final hitPos = state.vertices[hit.vertexId]!.position;
+      final hitDist = (position - hitPos).distance;
+      final alreadyAtEnd =
+          draftIds.isNotEmpty && draftIds.last == hit.vertexId;
+      // #region agent log
+      debugPrint(
+        '[DRAW_TAP_DEBUG] _handleSingleDrawTap snap '
+        'hyp=C,D session=874304 hitId=${hit.vertexId} '
+        'hitDist=$hitDist hitRadius=$hitRadius '
+        'alreadyAtEnd=$alreadyAtEnd draftLen=${draftIds.length} '
+        'polyId=${hit.polygon.id}',
+      );
+      // #endregion
       if (draftIds.isEmpty) {
         startDraftFromExistingVertex(hit.vertexId);
         return hit.polygon.fillColor;
@@ -395,6 +482,21 @@ class CanvasNotifier extends StateNotifier<Artwork> {
       snapDraftEndToExistingVertex(hit.vertexId);
       return null;
     }
+
+    // #region agent log
+    // Miss within hitRadius — report nearest confirmed vertex distance
+    // (diagnostic only; does not change placement).
+    final nearAny = findPolygonVertexNear(position, hitRadius: hitRadius * 8);
+    final nearDist = nearAny == null
+        ? null
+        : (position - state.vertices[nearAny.vertexId]!.position).distance;
+    debugPrint(
+      '[DRAW_TAP_DEBUG] _handleSingleDrawTap miss_freehand '
+      'hyp=C,E session=874304 hitRadius=$hitRadius '
+      'nearestBeyond=${nearAny?.vertexId} nearestDist=$nearDist '
+      'draftLen=${draftIds.length}',
+    );
+    // #endregion
 
     if (draftIds.isNotEmpty) {
       _insertAbsorbedVertices(
@@ -468,7 +570,7 @@ class CanvasNotifier extends StateNotifier<Artwork> {
     for (final point in points) {
       final hit = _findPolygonVertexNearIn(
         vertices,
-        draftIds.toSet(),
+        draftVertexSnapExclusions(draftIds),
         point,
         hitRadius: hitRadius,
       );
@@ -561,16 +663,16 @@ class CanvasNotifier extends StateNotifier<Artwork> {
   /// Finds the nearest vertex belonging to any *confirmed* polygon within
   /// [kVertexHitRadius] of [position], if any.
   ///
-  /// [Artwork.polygons] are searched, but any vertex ID already part of the
-  /// in-progress draft (`Artwork.draftVertexIds`) is always excluded, even
-  /// if it also happens to belong to a confirmed polygon — which happens
-  /// whenever the draft was started from (or has since snapped onto) an
-  /// existing vertex, since that same vertex lives on in both places at
-  /// once in the shared [Artwork.vertices] pool. This guarantees the shape
-  /// in progress can never snap onto one of its own points,
-  /// confirmed-polygon-owned or not, while it's still being drawn. Closing
-  /// (see [handleDrawTap]) then simply finishes the shape on whatever the
-  /// last tap already placed — it never runs its own separate snap search.
+  /// [Artwork.polygons] are searched. Mid-draft vertex IDs
+  /// ([draftVertexSnapExclusions] — everything after the draft's start) are
+  /// excluded even when they also belong to a confirmed polygon, so the
+  /// in-progress shape does not remagnet onto its own intermediate welds.
+  /// The draft's **start** stays eligible: when it is a shared confirmed
+  /// corner, tapping it can weld the draft closed for a subsequent
+  /// self-close (see [handleDrawTap] / [_tryCloseAtVertex]). Freehand-only
+  /// starts are not candidates here (they are not on any confirmed
+  /// polygon). Closing itself never runs a separate snap search — it
+  /// finishes on whatever the last tap already placed.
   ///
   /// This is the one place in the notifier that cares about *which
   /// polygon* a matched vertex belongs to (needed to pick up that
@@ -587,7 +689,7 @@ class CanvasNotifier extends StateNotifier<Artwork> {
   }) {
     return _findPolygonVertexNearIn(
       state.vertices,
-      state.draftVertexIds.toSet(),
+      draftVertexSnapExclusions(state.draftVertexIds),
       position,
       hitRadius: hitRadius,
     );
@@ -630,7 +732,8 @@ class CanvasNotifier extends StateNotifier<Artwork> {
   /// within [hitRadius] of [position], if any.
   ///
   /// Unlike [findPolygonVertexNear] (draw-mode magnet snap onto *confirmed*
-  /// corners only, excluding the draft), this is the edit-mode hit-test:
+  /// corners, with mid-draft IDs excluded via [draftVertexSnapExclusions]),
+  /// this is the edit-mode hit-test:
   /// every corner the artist can see and might want to move is a candidate.
   /// The nearest-neighbor search itself is still delegated to
   /// [findNearestPoint].
@@ -1148,14 +1251,14 @@ class CanvasNotifier extends StateNotifier<Artwork> {
     if (draftIds.length < kMinPolygonVertices) {
       return lastClosePolygonResult = ClosePolygonResult.tooFewVertices;
     }
-    final vertexIds = [
+    final vertexIds = collapseConsecutiveRingIds([
       ...draftIds,
       ..._closingEdgeVertices(
         draftIds.first,
         draftIds.last,
         tolerance: lineAbsorptionTolerance,
       ),
-    ];
+    ]);
     if (!_isSafeClosedRing(vertexIds)) {
       return lastClosePolygonResult =
           ClosePolygonResult.rejectedUnsafeClosingEdge;

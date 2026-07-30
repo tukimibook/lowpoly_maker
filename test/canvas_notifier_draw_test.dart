@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:polygon_art_app/models/artwork.dart';
+import 'package:polygon_art_app/models/polygon_shape.dart';
+import 'package:polygon_art_app/models/vertex.dart';
 import 'package:polygon_art_app/providers/canvas_provider.dart';
 
 void main() {
@@ -227,10 +230,10 @@ void main() {
           fillColor: Colors.orange,
         );
 
-        // Double-tap right on the start. The first tap drops a throwaway point
-        // next to the start (own points are excluded from drawing-time snaps);
-        // the second recognizes the start as the close target, removes that
-        // throwaway point, and closes into a clean 3-point loop.
+        // Double-tap near the freehand start. A freehand-only start is not on
+        // a confirmed polygon, so the first tap cannot magnet-snap onto it and
+        // places a throwaway point; the second recognizes the start as the
+        // close target, removes that throwaway, and closes into a clean loop.
         notifier.handleDrawTap(const Offset(4, 4), fillColor: Colors.orange);
         notifier.handleDrawTap(const Offset(4, 4), fillColor: Colors.orange);
 
@@ -397,9 +400,125 @@ void main() {
         expect(notifier.state.draftVertexIds, hasLength(2));
       },
     );
+
+    test(
+      'shared draft start stays magnet-eligible: snap welds end to start, '
+      'self-close persists a ring without a trailing duplicate ID',
+      () {
+        final notifier = CanvasNotifier();
+        notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.green);
+        notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.green);
+        notifier.handleDrawTap(const Offset(50, 100), fillColor: Colors.green);
+        notifier.closePolygon(Colors.green);
+        final startId = notifier.state.polygons.single.vertexIds.first; // (0, 0)
+
+        notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.orange);
+        notifier.handleDrawTap(const Offset(200, 40), fillColor: Colors.orange);
+        notifier.handleDrawTap(const Offset(80, 180), fillColor: Colors.orange);
+
+        // Weld back onto the shared start (now eligible via skip(1) exclusions).
+        notifier.handleDrawTap(const Offset(2, 2), fillColor: Colors.orange);
+        expect(notifier.state.draftVertexIds.first, startId);
+        expect(notifier.state.draftVertexIds.last, startId);
+        expect(notifier.state.polygons, hasLength(1));
+
+        // Pseudo double-tap self-close: strip the throwaway weld tap, close.
+        notifier.handleDrawTap(const Offset(2, 2), fillColor: Colors.orange);
+
+        expect(notifier.state.draftVertexIds, isEmpty);
+        expect(notifier.state.polygons, hasLength(2));
+        final closed = notifier.state.polygons.last;
+        expect(closed.vertexIds.first, startId);
+        expect(closed.vertexIds.last, isNot(startId));
+        expect(closed.vertexIds.first, isNot(closed.vertexIds.last));
+        expect(closed.vertexIds.toSet().length, closed.vertexIds.length);
+      },
+    );
+
+    test(
+      'when start and a nearby confirmed neighbor are both in hitRadius, '
+      'the nearer start wins the magnet snap',
+      () {
+        final notifier = CanvasNotifier();
+        // Neighbor sits 15px from start — both inside default hitRadius 30.
+        notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.green);
+        notifier.handleDrawTap(const Offset(15, 0), fillColor: Colors.green);
+        notifier.handleDrawTap(const Offset(0, 80), fillColor: Colors.green);
+        notifier.closePolygon(Colors.green);
+        final startId = notifier.state.polygons.single.vertexIds[0];
+        final neighborId = notifier.state.polygons.single.vertexIds[1];
+
+        notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.orange);
+        notifier.handleDrawTap(const Offset(120, 40), fillColor: Colors.orange);
+        notifier.handleDrawTap(const Offset(40, 140), fillColor: Colors.orange);
+
+        notifier.handleDrawTap(const Offset(1, 1), fillColor: Colors.orange);
+        expect(notifier.state.draftVertexIds.last, startId);
+        expect(notifier.state.draftVertexIds.last, isNot(neighborId));
+      },
+    );
   });
 
   group('CanvasNotifier pseudo double-tap close', () {
+    test(
+      'when start and welded end are both in hitRadius, the nearer wins '
+      '(self-close if start is closer — not unconditional connect-close)',
+      () {
+        final notifier = CanvasNotifier();
+        // Pre-built: orange draft ends on purple "shared"; purple also has
+        // "trap" near the orange start. Double-tap near start welds onto
+        // trap first, then the close tap sees both start and trap in range.
+        notifier.loadArtwork(
+          Artwork(
+            id: 'art',
+            title: 't',
+            vertices: {
+              'start': const Vertex(id: 'start', position: Offset(80, 0)),
+              'mid': const Vertex(id: 'mid', position: Offset(120, 50)),
+              'shared': const Vertex(id: 'shared', position: Offset(0, 0)),
+              'trap': const Vertex(id: 'trap', position: Offset(70, 5)),
+              'p3': const Vertex(id: 'p3', position: Offset(0, 40)),
+            },
+            polygons: const [
+              PolygonShape(
+                id: 'purple',
+                vertexIds: ['shared', 'trap', 'p3'],
+                fillColor: Colors.purple,
+                strokeColor: Colors.black,
+                strokeWidth: 1,
+              ),
+            ],
+            draftVertexIds: const ['start', 'mid', 'shared'],
+          ),
+        );
+
+        // First tap of the pair: snaps onto trap (nearest confirmed corner).
+        notifier.handleDrawTap(
+          const Offset(75, 0),
+          fillColor: Colors.orange,
+          hitRadius: 40,
+          doubleTapMaxDistance: 30,
+        );
+        expect(notifier.state.draftVertexIds.last, 'trap');
+
+        // Second tap: startDist≈5, endDist(trap)≈7 — both eligible; start nearer.
+        notifier.handleDrawTap(
+          const Offset(75, 0),
+          fillColor: Colors.orange,
+          hitRadius: 40,
+          doubleTapMaxDistance: 30,
+        );
+
+        expect(notifier.state.draftVertexIds, isEmpty);
+        expect(notifier.state.polygons, hasLength(2));
+        final closed = notifier.state.polygons.last;
+        expect(closed.vertexIds.first, 'start');
+        // Self-close stripped the stray "trap" weld as draft end; absorption
+        // on the closing chord may still reintroduce nearby purple corners.
+        expect(closed.vertexIds.length, greaterThanOrEqualTo(3));
+      },
+    );
+
     test(
       "a double-tap onto another polygon's vertex closes by welding onto that exact vertex "
       "(bug C: never snaps back toward the draft's own start)",

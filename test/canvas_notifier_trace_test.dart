@@ -206,5 +206,30 @@ void main() {
         );
       },
     );
+
+    test(
+      'a later trace point can snap onto the draft\'s shared start '
+      '(start remains eligible under draftVertexSnapExclusions)',
+      () {
+        final notifier = CanvasNotifier();
+        notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.green);
+        notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.green);
+        notifier.handleDrawTap(const Offset(50, 100), fillColor: Colors.green);
+        notifier.closePolygon(Colors.green);
+        final startId = notifier.state.polygons.single.vertexIds.first;
+
+        notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.orange);
+        expect(notifier.state.draftVertexIds, [startId]);
+
+        notifier.commitTraceStroke(const [
+          Offset(80, 20),
+          Offset(40, 90),
+          Offset(1, 1), // back near shared start
+        ]);
+
+        expect(notifier.state.draftVertexIds.first, startId);
+        expect(notifier.state.draftVertexIds.last, startId);
+      },
+    );
   });
 }
