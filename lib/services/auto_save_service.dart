@@ -77,12 +77,23 @@ class AutoSaveService {
   /// hit storage to ask "does this file exist?".
   final Set<String> _persistedArtworkIds = {};
 
+  /// Stable [ArtworkDocument.createdAt] per artwork id — first successful
+  /// save (or [acknowledgePersistedArtwork]) wins; later saves reuse it so
+  /// auto-save never rewinds creation time.
+  final Map<String, DateTime> _createdAtById = {};
+
   /// Records that [id] already lives on disk / in the gallery index, without
   /// touching storage. Call after successfully opening an existing artwork
   /// so a later blank snapshot of that same id is still allowed to save
   /// (avoids leaving stale geometry on disk while memory is empty).
-  void acknowledgePersistedArtwork(String id) {
+  ///
+  /// When [createdAt] is supplied (from the loaded document), later saves
+  /// preserve that timestamp.
+  void acknowledgePersistedArtwork(String id, {DateTime? createdAt}) {
     _persistedArtworkIds.add(id);
+    if (createdAt != null) {
+      _createdAtById[id] = createdAt.toUtc();
+    }
   }
 
   /// Records [document] as the latest snapshot to save, (re)starting the
@@ -138,7 +149,11 @@ class AutoSaveService {
     }
 
     try {
-      await _repository.saveArtwork(document);
+      final createdAt = (_createdAtById[id] ?? document.createdAt).toUtc();
+      final updatedAt = DateTime.now().toUtc();
+      final toWrite = document.copyWith(createdAt: createdAt, updatedAt: updatedAt);
+
+      await _repository.saveArtwork(toWrite);
 
       final thumbnailBytes = await _safeCaptureThumbnail();
       if (thumbnailBytes != null) {
@@ -148,8 +163,8 @@ class AutoSaveService {
       final index = await _repository.readIndex();
       final summary = ArtworkSummary(
         id: id,
-        title: document.artwork.title,
-        updatedAt: DateTime.now(),
+        title: toWrite.artwork.title,
+        updatedAt: toWrite.updatedAt,
         thumbnailPath: _repository.thumbnailPathFor(id),
         documentPath: _repository.documentPathFor(id),
       );
@@ -160,6 +175,7 @@ class AutoSaveService {
       ];
       await _repository.writeIndex(ArtworkIndex(artworks: artworks));
       _persistedArtworkIds.add(id);
+      _createdAtById[id] = createdAt;
     } catch (error, stackTrace) {
       _onError(error, stackTrace);
     }

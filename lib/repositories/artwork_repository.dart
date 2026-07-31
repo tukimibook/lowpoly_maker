@@ -46,6 +46,11 @@ class ArtworkRepository {
   final FileSystem _fs;
   final String _root;
 
+  /// App documents directory this repository is rooted at — used by callers
+  /// composing `ArtworkDocument.fromSession` / resolving underlay relative
+  /// paths back to absolute filesystem paths.
+  String get documentsPath => _root;
+
   String get _indexPath => _fs.path.join(_root, 'index.json');
   String get _artworksDirPath => _fs.path.join(_root, 'artworks');
   String get _thumbnailsDirPath => _fs.path.join(_root, 'thumbnails');

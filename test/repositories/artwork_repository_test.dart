@@ -9,7 +9,7 @@ import 'package:polygon_art_app/models/artwork_document.dart';
 import 'package:polygon_art_app/models/artwork_index.dart';
 import 'package:polygon_art_app/models/artwork_summary.dart';
 import 'package:polygon_art_app/models/polygon_shape.dart';
-import 'package:polygon_art_app/models/underlay_layout.dart';
+import 'package:polygon_art_app/models/underlay_ref.dart';
 import 'package:polygon_art_app/models/vertex.dart';
 import 'package:polygon_art_app/repositories/artwork_repository.dart';
 
@@ -41,13 +41,13 @@ Artwork _sampleArtwork({String id = 'artwork-1'}) {
 
 ArtworkDocument _sampleDocument({
   String id = 'artwork-1',
-  String? underlayImagePath,
-  UnderlayLayout? underlayLayout,
+  UnderlayRef? underlay,
 }) {
   return ArtworkDocument(
     artwork: _sampleArtwork(id: id),
-    underlayImagePath: underlayImagePath,
-    underlayLayout: underlayLayout,
+    underlay: underlay,
+    createdAt: DateTime.utc(2026, 7, 20),
+    updatedAt: DateTime.utc(2026, 7, 21),
   );
 }
 
@@ -136,22 +136,22 @@ void main() {
       final restored = await repository.readArtwork(document.artwork.id);
 
       expect(restored!.artwork, document.artwork);
-      expect(restored.underlayImagePath, isNull);
-      expect(restored.underlayLayout, isNull);
+      expect(restored.underlay, isNull);
+      expect(restored.createdAt, document.createdAt);
+      expect(restored.updatedAt, document.updatedAt);
     });
 
     test('saveArtwork then readArtwork round-trips the underlay reference too', () async {
-      const layout = UnderlayLayout(offset: Offset(10, 20), scale: 0.5, opacity: 0.7);
-      final document = _sampleDocument(
-        underlayImagePath: '/documents/underlays/artwork-1.jpg',
-        underlayLayout: layout,
+      const underlay = UnderlayRef(
+        imageRelativePath: 'underlays/artwork-1.jpg',
+        layout: UnderlayLayoutPersist(offsetX: 10, offsetY: 20, scale: 0.5, opacity: 0.7),
       );
+      final document = _sampleDocument(underlay: underlay);
 
       await repository.saveArtwork(document);
       final restored = await repository.readArtwork(document.artwork.id);
 
-      expect(restored!.underlayImagePath, document.underlayImagePath);
-      expect(restored.underlayLayout, layout);
+      expect(restored!.underlay, underlay);
     });
 
     test('saveArtwork creates the artworks/ directory on first save', () async {

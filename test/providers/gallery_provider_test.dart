@@ -9,6 +9,7 @@ import 'package:polygon_art_app/models/artwork_summary.dart';
 import 'package:polygon_art_app/models/canvas_mode.dart';
 import 'package:polygon_art_app/models/draw_mode.dart';
 import 'package:polygon_art_app/models/underlay_layout.dart';
+import 'package:polygon_art_app/models/underlay_ref.dart';
 import 'package:polygon_art_app/providers/artwork_repository_provider.dart';
 import 'package:polygon_art_app/providers/canvas_provider.dart';
 import 'package:polygon_art_app/providers/detach_cycle_provider.dart';
@@ -136,8 +137,10 @@ void main() {
       const layout = UnderlayLayout(offset: Offset(3, 4), scale: 2.0, opacity: 0.4);
       final document = ArtworkDocument(
         artwork: _savedArtwork('saved-2'),
-        underlayImagePath: '/documents/underlays/saved-2.jpg',
-        underlayLayout: layout,
+        underlay: UnderlayRef(
+          imageRelativePath: 'underlays/saved-2.jpg',
+          layout: UnderlayLayoutPersist.fromLayout(layout),
+        ),
       );
       await repository.saveArtwork(document);
       final container = _containerWithRepository(repository);

@@ -58,7 +58,7 @@ void main() {
     });
   });
 
-  group('Artwork JSON (ArtworkDocument v1 schema)', () {
+  group('Artwork JSON (geometry portion of ArtworkDocument v1)', () {
     final artwork = Artwork(
       id: 'artwork-1',
       title: 'テスト作品',
@@ -79,8 +79,12 @@ void main() {
       draftVertexIds: const ['v4', 'v5'],
     );
 
-    test('toJson includes the current schemaVersion', () {
-      expect(artwork.toJson()['schemaVersion'], kArtworkSchemaVersion);
+    test('toJson is geometry/identity only — schemaVersion/timestamps live on ArtworkDocument', () {
+      final json = artwork.toJson();
+      expect(json.containsKey('schemaVersion'), isFalse);
+      expect(json.containsKey('createdAt'), isFalse);
+      expect(json.containsKey('updatedAt'), isFalse);
+      expect(json.containsKey('underlay'), isFalse);
     });
 
     test('toJson never includes canvasSize — it is not a field on Artwork any more', () {

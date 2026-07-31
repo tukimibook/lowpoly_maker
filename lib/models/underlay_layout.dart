@@ -97,10 +97,9 @@ class UnderlayLayout {
     return (worldPosition - offset) / scale;
   }
 
-  /// Serializes the placement fields intended for `ArtworkDocument`
-  /// persistence (Phase Hγ). [visible] is deliberately excluded: whether a
-  /// hidden underlay should stay hidden across a save/reload is an open
-  /// question for Hγ, not decided here.
+  /// Serializes the placement fields intended for session helpers / tests.
+  /// Document persistence uses `UnderlayLayoutPersist` (`underlay_ref.dart`)
+  /// instead. [visible] is deliberately excluded (session-only).
   Map<String, Object?> toMap() {
     return {'offsetX': offset.dx, 'offsetY': offset.dy, 'scale': scale, 'opacity': opacity};
   }

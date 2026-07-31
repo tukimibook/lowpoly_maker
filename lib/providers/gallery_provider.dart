@@ -65,11 +65,17 @@ class GalleryController {
 
     // Memory-only: tell auto-save this id already belongs in the gallery
     // before loadArtwork triggers scheduleSave — no per-save file.exists.
-    _ref.read(autoSaveServiceProvider)?.acknowledgePersistedArtwork(id);
+    _ref
+        .read(autoSaveServiceProvider)
+        ?.acknowledgePersistedArtwork(id, createdAt: document.createdAt);
 
     _ref.read(canvasProvider.notifier).loadArtwork(document.artwork);
-    _ref.read(underlayProvider.notifier).setImagePath(document.underlayImagePath);
-    _ref.read(underlayLayoutProvider).setLayout(document.underlayLayout ?? UnderlayLayout.initial);
+    _ref
+        .read(underlayProvider.notifier)
+        .setImagePath(document.resolvedUnderlayAbsolutePath(repository.documentsPath));
+    _ref
+        .read(underlayLayoutProvider)
+        .setLayout(document.underlay?.layout.toLayout() ?? UnderlayLayout.initial);
     _resetEditorSessionUi();
     return true;
   }

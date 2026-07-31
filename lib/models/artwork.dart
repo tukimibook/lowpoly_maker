@@ -6,11 +6,10 @@ import 'vertex.dart';
 
 part 'artwork.freezed.dart';
 
-/// Current `ArtworkDocument` JSON schema version produced by [Artwork.toJson]
-/// and understood by [Artwork.fromJson]. Bump this — together with a
-/// migration step wherever a document is loaded — whenever a breaking
-/// change is made to the persisted shape; never repurpose an existing field
-/// in place without one (Phase Hγ, U1 / `.cursor/plans/plan_phase_H_gamma.md`).
+/// Current `ArtworkDocument` JSON schema version. Owned by
+/// [ArtworkDocument] on disk; kept here so geometry and document code share
+/// one constant. Bump together with a migration step whenever a breaking
+/// change is made to the persisted shape (Phase Hγ).
 const int kArtworkSchemaVersion = 1;
 
 /// Default [Artwork.title] for a brand-new, never-renamed piece — also the
@@ -29,14 +28,11 @@ const String kDefaultArtworkTitle = 'Untitled';
 /// [Vertex] in [vertices] for it, referenced by every polygon that meets
 /// there.
 ///
-/// Deliberately holds **only** persisted geometry/document data — every
-/// field here is both a) part of [toJson]'s `ArtworkDocument` (Phase Hγ) and
-/// b) safe to snapshot verbatim in `CanvasNotifier`'s undo stack. Anything
-/// that is device/session-only (canvas size, viewport zoom/pan, underlay
-/// placement — see `CanvasSizeController`, `ViewportController`,
-/// `UnderlayLayoutController`) is deliberately kept in its own provider
-/// *outside* this model instead, so it can never leak into either the saved
-/// file or an undo snapshot.
+/// Deliberately holds **only** persisted geometry/identity data — every
+/// field here is safe to snapshot verbatim in `CanvasNotifier`'s undo
+/// stack. Document metadata (`schemaVersion`, `createdAt`, `updatedAt`) and
+/// underlay live on [ArtworkDocument], outside this model. Device/session-
+/// only state (canvas size, viewport zoom/pan) stays in its own providers.
 ///
 /// Ring ID rules (asymmetric): each confirmed [polygons] ring must have no
 /// duplicate vertex IDs (see [assertConfirmedRingIds]). [draftVertexIds] may
@@ -55,14 +51,13 @@ abstract class Artwork with _$Artwork {
     return Artwork(id: id, title: title);
   }
 
-  /// Deserializes the `ArtworkDocument` v1 schema produced by [toJson].
+  /// Deserializes the geometry/identity fields of an `ArtworkDocument` v1
+  /// payload (flat root). Ignores document-level keys such as
+  /// `schemaVersion` / timestamps / `underlay`.
   ///
   /// [draftVertexIds] is included (Hγ decision, 2026-07-20): an in-progress,
-  /// unclosed shape must survive an app kill + relaunch just like confirmed
-  /// polygons do, or auto-save/resume would silently discard whatever the
-  /// artist was mid-way through drawing. Callers are responsible for any
-  /// `schemaVersion` migration *before* calling this — it always reads the
-  /// current (v1) field layout.
+  /// unclosed shape must survive an app kill + relaunch. Callers migrate
+  /// `schemaVersion` *before* calling this when needed.
   factory Artwork.fromJson(Map<String, dynamic> json) {
     final verticesJson = json['vertices'] as Map<String, dynamic>;
     final polygonsJson = json['polygons'] as List<dynamic>;
@@ -87,20 +82,14 @@ abstract class Artwork with _$Artwork {
 
 /// [Artwork.toJson] — an extension rather than a method in the class body:
 /// freezed's generated `_Artwork` only *implements* [Artwork] (it doesn't
-/// `extend` it, to support freezed's sealed-union pattern in general), so a
-/// concrete method written directly in the `abstract class` above would
-/// compile but never actually run for real instances — an extension is the
-/// pattern freezed itself recommends for this.
+/// `extend` it), so a concrete method on the abstract class would compile
+/// but never run for real instances.
 extension ArtworkJson on Artwork {
-  /// Serializes this artwork's geometry into the `ArtworkDocument` v1
-  /// schema (Phase Hγ). Deliberately excludes anything that isn't geometry
-  /// — there is nothing to exclude on this model any more (`canvasSize` was
-  /// removed outright, see `CanvasSizeController`) — and never embeds
-  /// underlay placement (`UnderlayLayout`), which the save service
-  /// serializes and composes separately.
+  /// Serializes geometry/identity only. Document envelope fields
+  /// (`schemaVersion`, timestamps, underlay) are owned by
+  /// [ArtworkDocument.toJson].
   Map<String, dynamic> toJson() {
     return {
-      'schemaVersion': kArtworkSchemaVersion,
       'id': id,
       'title': title,
       'vertices': vertices.map((id, vertex) => MapEntry(id, vertex.toJson())),

@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:polygon_art_app/models/artwork.dart';
 import 'package:polygon_art_app/models/artwork_document.dart';
 import 'package:polygon_art_app/models/polygon_shape.dart';
+import 'package:polygon_art_app/models/underlay_ref.dart';
 import 'package:polygon_art_app/models/vertex.dart';
 import 'package:polygon_art_app/repositories/artwork_repository.dart';
 import 'package:polygon_art_app/services/auto_save_service.dart';
@@ -74,7 +75,10 @@ ArtworkDocument _documentWithTriangle({String id = 'artwork-1'}) {
 ArtworkDocument _documentWithUnderlay({String id = 'artwork-1'}) {
   return ArtworkDocument(
     artwork: Artwork.empty(id: id),
-    underlayImagePath: '/documents/underlays/$id.jpg',
+    underlay: UnderlayRef(
+      imageRelativePath: 'underlays/$id.jpg',
+      layout: UnderlayLayoutPersist.initial,
+    ),
   );
 }
 

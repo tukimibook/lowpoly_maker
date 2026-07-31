@@ -2,6 +2,8 @@ import 'dart:ui';
 
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import 'json_converters.dart';
+
 part 'vertex.freezed.dart';
 
 /// A single point stored in [Artwork.vertices], the shared vertex pool.
@@ -20,10 +22,7 @@ abstract class Vertex with _$Vertex {
   /// the map key that entry was stored under — not duplicated inside [json]
   /// itself (see [toJson]) — so callers must pass it through explicitly.
   factory Vertex.fromJson(String id, Map<String, dynamic> json) {
-    return Vertex(
-      id: id,
-      position: Offset((json['x'] as num).toDouble(), (json['y'] as num).toDouble()),
-    );
+    return Vertex(id: id, position: offsetJsonConverter.fromJson(json));
   }
 }
 
@@ -34,5 +33,5 @@ extension VertexJson on Vertex {
   /// Serializes only [position] — [id] is carried by this vertex's key in
   /// `Artwork.vertices`/`Artwork.toJson()`'s `vertices` map, so repeating it
   /// inside the value here would be redundant.
-  Map<String, dynamic> toJson() => {'x': position.dx, 'y': position.dy};
+  Map<String, dynamic> toJson() => offsetJsonConverter.toJson(position);
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/artwork_document.dart';
+import '../providers/artwork_repository_provider.dart';
 import '../providers/auto_save_provider.dart';
 import '../providers/canvas_background_provider.dart';
 import '../providers/canvas_provider.dart';
@@ -263,10 +264,12 @@ class _SaveAndExitButtonState extends ConsumerState<_SaveAndExitButton> {
     setState(() => _isSaving = true);
     try {
       final autoSaveService = ref.read(autoSaveServiceProvider);
-      if (autoSaveService != null) {
-        final document = ArtworkDocument(
+      final repository = ref.read(artworkRepositoryProvider).valueOrNull;
+      if (autoSaveService != null && repository != null) {
+        final document = ArtworkDocument.fromSession(
           artwork: ref.read(canvasProvider),
-          underlayImagePath: ref.read(underlayProvider).imagePath,
+          documentsPath: repository.documentsPath,
+          underlayAbsolutePath: ref.read(underlayProvider).imagePath,
           underlayLayout: ref.read(underlayLayoutProvider).value,
         );
         await autoSaveService.flush(document);

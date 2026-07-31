@@ -1,6 +1,8 @@
 import 'package:flutter/painting.dart' show Color;
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import 'json_converters.dart';
+
 part 'polygon_shape.freezed.dart';
 
 /// A closed polygon defined by an ordered list of vertex IDs.
@@ -29,8 +31,8 @@ abstract class PolygonShape with _$PolygonShape {
     return PolygonShape(
       id: json['id'] as String,
       vertexIds: (json['vertexIds'] as List<dynamic>).cast<String>(),
-      fillColor: Color(json['fillColor'] as int),
-      strokeColor: Color(json['strokeColor'] as int),
+      fillColor: colorJsonConverter.fromJson(json['fillColor'] as int),
+      strokeColor: colorJsonConverter.fromJson(json['strokeColor'] as int),
       strokeWidth: (json['strokeWidth'] as num).toDouble(),
     );
   }
@@ -40,14 +42,12 @@ abstract class PolygonShape with _$PolygonShape {
 /// `ArtworkJson`'s doc (`models/artwork.dart`) for why freezed classes need
 /// this pattern for custom instance methods.
 extension PolygonShapeJson on PolygonShape {
-  /// Serializes colors via [Color.toARGB32] (the non-deprecated replacement
-  /// for the old `Color.value` getter) as a single 32-bit ARGB int, matching
-  /// [PolygonShape.fromJson]'s [Color.new] constructor.
+  /// Serializes colors via [ColorJsonConverter] as 32-bit ARGB ints.
   Map<String, dynamic> toJson() => {
     'id': id,
     'vertexIds': vertexIds,
-    'fillColor': fillColor.toARGB32(),
-    'strokeColor': strokeColor.toARGB32(),
+    'fillColor': colorJsonConverter.toJson(fillColor),
+    'strokeColor': colorJsonConverter.toJson(strokeColor),
     'strokeWidth': strokeWidth,
   };
 }

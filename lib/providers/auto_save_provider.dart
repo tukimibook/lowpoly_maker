@@ -40,9 +40,10 @@ final autoSaveServiceProvider = Provider<AutoSaveService?>((ref) {
   );
 
   ArtworkDocument currentDocument() {
-    return ArtworkDocument(
+    return ArtworkDocument.fromSession(
       artwork: ref.read(canvasProvider),
-      underlayImagePath: ref.read(underlayProvider).imagePath,
+      documentsPath: repository.documentsPath,
+      underlayAbsolutePath: ref.read(underlayProvider).imagePath,
       underlayLayout: ref.read(underlayLayoutProvider).value,
     );
   }
