@@ -1,6 +1,5 @@
 import 'dart:ui';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
@@ -177,10 +176,6 @@ class CanvasNotifier extends StateNotifier<Artwork> {
   /// discard just the throwaway first tap of a double-tap when self-closing
   /// on the draft's own start (see [_tryCloseAtVertex]).
   int _lastTapInsertedCount = 0;
-
-  /// Dedupes [SNAP_DEBUG] spam while the finger moves without a snap change.
-  String? _lastSnapDebugSelected;
-  String? _lastSnapDebugExclusionsKey;
 
   /// Snapshots of [Artwork] before each user-visible mutation, newest last.
   /// Transient gesture state ([_lastTapAt], [dragPreviewProvider], etc.) is
@@ -641,28 +636,6 @@ class CanvasNotifier extends StateNotifier<Artwork> {
 
     _vertexHitTest.rebuild(candidates);
     final nearest = _vertexHitTest.nearest(position, maxDistance: hitRadius);
-
-    // #region agent log
-    final inRadius = <String>[
-      for (final c in candidates)
-        if ((position - c.$2).distance <= hitRadius) c.$1,
-    ];
-    final selected = nearest?.$1;
-    final exclusionsKey = excludedIds.join(',');
-    if (selected != _lastSnapDebugSelected ||
-        exclusionsKey != _lastSnapDebugExclusionsKey) {
-      _lastSnapDebugSelected = selected;
-      _lastSnapDebugExclusionsKey = exclusionsKey;
-      debugPrint(
-        '[SNAP_DEBUG] Touch: (${position.dx.toStringAsFixed(1)},'
-        '${position.dy.toStringAsFixed(1)}), '
-        'Exclusions: [${excludedIds.join(', ')}], '
-        'CandidatesInRadius: [${inRadius.join(', ')}], '
-        'Selected: ${selected ?? 'none'}',
-      );
-    }
-    // #endregion
-
     if (nearest == null) return null;
     return (polygon: owningPolygon[nearest.$1]!, vertexId: nearest.$1);
   }
@@ -1340,47 +1313,18 @@ class CanvasNotifier extends StateNotifier<Artwork> {
     required double tolerance,
   }) {
     final sharedBoundary = _sharedBoundaryClosure(startId, endId);
-    if (sharedBoundary.isNotEmpty) {
-      // #region agent log
-      final draftSet = state.draftVertexIds.toSet();
-      final draftStart =
-          state.draftVertexIds.isEmpty ? null : state.draftVertexIds.first;
-      debugPrint(
-        '[TRACE_DEBUG] _closingEdgeVertices via sharedBoundary '
-        'Target Path: [$endId -> $startId], '
-        'Excluded: [${draftSet.join(', ')}], '
-        'StartVertex(${draftStart ?? 'none'}) is blocked: '
-        '${draftStart != null && draftSet.contains(draftStart)}, '
-        'Result Path: [${sharedBoundary.join(' -> ')}]',
-      );
-      // #endregion
-      return sharedBoundary;
-    }
+    if (sharedBoundary.isNotEmpty) return sharedBoundary;
 
     final startPosition = state.vertices[startId]!.position;
     final endPosition = state.vertices[endId]!.position;
-    final draftSet = state.draftVertexIds.toSet();
-    final absorbed = findVerticesAlongSegment(
+    return findVerticesAlongSegment(
       endPosition,
       startPosition,
       vertices: state.vertices,
       polygons: state.polygons,
-      draftVertexIds: draftSet,
+      draftVertexIds: state.draftVertexIds.toSet(),
       tolerance: tolerance,
     );
-    // #region agent log
-    final draftStart =
-        state.draftVertexIds.isEmpty ? null : state.draftVertexIds.first;
-    debugPrint(
-      '[TRACE_DEBUG] _closingEdgeVertices via absorb '
-      'Target Path: [$endId -> $startId], '
-      'Excluded: [${draftSet.join(', ')}], '
-      'StartVertex(${draftStart ?? 'none'}) is blocked: '
-      '${draftStart != null && draftSet.contains(draftStart)}, '
-      'Result Path: [${absorbed.join(' -> ')}]',
-    );
-    // #endregion
-    return absorbed;
   }
 
   /// True when closing the draft from [startId] to [endId] right now, via
@@ -1410,51 +1354,27 @@ class CanvasNotifier extends StateNotifier<Artwork> {
         !_isConfirmedPolygonVertex(endId)) {
       return false;
     }
-    final draftSet = state.draftVertexIds.toSet();
-    final draftStart =
-        state.draftVertexIds.isEmpty ? null : state.draftVertexIds.first;
     final graph = buildPolygonEdgeGraph(state.polygons, state.vertices);
-    final boundaryPath = findShortestBoundaryPath(
-      endId,
-      startId,
-      graph: graph,
-      draftVertexIds: draftSet,
-    );
-    // #region agent log
-    debugPrint(
-      '[TRACE_DEBUG] _wouldCloseWithUnweldedGap boundaryProbe '
-      'Target Path: [$endId -> $startId], '
-      'Excluded: [${draftSet.join(', ')}], '
-      'StartVertex(${draftStart ?? 'none'}) is blocked: '
-      '${draftStart != null && draftSet.contains(draftStart)}, '
-      'Result Path: [${(boundaryPath ?? const <String>[]).join(' -> ')}]',
-    );
-    // #endregion
-    if (boundaryPath != null) {
+    if (findShortestBoundaryPath(
+          endId,
+          startId,
+          graph: graph,
+          draftVertexIds: state.draftVertexIds.toSet(),
+        ) !=
+        null) {
       return false;
     }
 
     final startPosition = state.vertices[startId]!.position;
     final endPosition = state.vertices[endId]!.position;
-    final absorbed = findVerticesAlongSegment(
+    return findVerticesAlongSegment(
       endPosition,
       startPosition,
       vertices: state.vertices,
       polygons: state.polygons,
-      draftVertexIds: draftSet,
+      draftVertexIds: state.draftVertexIds.toSet(),
       tolerance: lineAbsorptionTolerance,
-    );
-    // #region agent log
-    debugPrint(
-      '[TRACE_DEBUG] _wouldCloseWithUnweldedGap absorbProbe '
-      'Target Path: [$endId -> $startId], '
-      'Excluded: [${draftSet.join(', ')}], '
-      'StartVertex(${draftStart ?? 'none'}) is blocked: '
-      '${draftStart != null && draftSet.contains(draftStart)}, '
-      'Result Path: [${absorbed.join(' -> ')}]',
-    );
-    // #endregion
-    return absorbed.isEmpty;
+    ).isEmpty;
   }
 
   /// When [startId] and [endId] are connected by some chain of existing
@@ -1515,18 +1435,7 @@ class CanvasNotifier extends StateNotifier<Artwork> {
           graph: graph,
           draftVertexIds: draftIds,
         );
-    if (path == null || path.length <= 2) {
-      // #region agent log
-      debugPrint(
-        '[TRACE_DEBUG] _sharedBoundaryClosure '
-        'Target Path: [$endId -> $startId], '
-        'Excluded: [${draftIds.join(', ')}], '
-        'StartVertex($startId) is blocked: ${draftIds.contains(startId)}, '
-        'Result Path: []',
-      );
-      // #endregion
-      return const [];
-    }
+    if (path == null || path.length <= 2) return const [];
     final mids = path.sublist(1, path.length - 1);
     final alreadyInDraft = [
       for (final id in mids)
@@ -1537,23 +1446,10 @@ class CanvasNotifier extends StateNotifier<Artwork> {
         if (!draftIds.contains(id)) id,
     ];
     // Mixed walked + foreign mids → refuse the foreign shortcut splice.
-    final result =
-        alreadyInDraft.isNotEmpty && notInDraft.isNotEmpty
-            ? const <String>[]
-            : notInDraft;
-    // #region agent log
-    debugPrint(
-      '[TRACE_DEBUG] _sharedBoundaryClosure '
-      'Target Path: [$endId -> $startId], '
-      'Excluded: [${draftIds.join(', ')}], '
-      'StartVertex($startId) is blocked: ${draftIds.contains(startId)}, '
-      'RawPath: [${path.join(' -> ')}], '
-      'AlreadyInDraft: [${alreadyInDraft.join(', ')}], '
-      'NotInDraft: [${notInDraft.join(', ')}], '
-      'Result Path: [${result.join(' -> ')}]',
-    );
-    // #endregion
-    return result;
+    if (alreadyInDraft.isNotEmpty && notInDraft.isNotEmpty) {
+      return const [];
+    }
+    return notInDraft;
   }
 
   /// Removes the most recently placed draft vertex without recording an undo

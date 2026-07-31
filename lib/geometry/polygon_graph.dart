@@ -1,5 +1,4 @@
 import 'package:collection/collection.dart';
-import 'package:flutter/foundation.dart';
 
 import '../models/polygon_shape.dart';
 import '../models/vertex.dart';
@@ -59,30 +58,8 @@ List<String>? findShortestBoundaryPath(
   required Map<String, List<(String, double)>> graph,
   required Set<String> draftVertexIds,
 }) {
-  if (fromId == toId) {
-    // #region agent log
-    debugPrint(
-      '[TRACE_DEBUG] findShortestBoundaryPath '
-      'Target Path: [$fromId -> $toId], '
-      'Excluded: [${draftVertexIds.join(', ')}], '
-      'StartVertex($toId) is blocked: false (same endpoint), '
-      'Result Path: [$fromId]',
-    );
-    // #endregion
-    return [fromId];
-  }
-  if (!graph.containsKey(fromId) || !graph.containsKey(toId)) {
-    // #region agent log
-    debugPrint(
-      '[TRACE_DEBUG] findShortestBoundaryPath '
-      'Target Path: [$fromId -> $toId], '
-      'Excluded: [${draftVertexIds.join(', ')}], '
-      'StartVertex($toId) inExcluded: ${draftVertexIds.contains(toId)}, '
-      'Result Path: [] (missing graph endpoint)',
-    );
-    // #endregion
-    return null;
-  }
+  if (fromId == toId) return [fromId];
+  if (!graph.containsKey(fromId) || !graph.containsKey(toId)) return null;
 
   // Only freehand draft IDs (not present on the boundary graph) are blocked.
   // On-graph draft vertices must stay traversable so a boundary-tracing
@@ -115,50 +92,16 @@ List<String>? findShortestBoundaryPath(
     }
   }
 
-  if (!settled.contains(toId)) {
-    // #region agent log
-    debugPrint(
-      '[TRACE_DEBUG] findShortestBoundaryPath '
-      'Target Path: [$fromId -> $toId], '
-      'Excluded: [${draftVertexIds.join(', ')}], '
-      'BlockedHops: [${blockedHops.join(', ')}], '
-      'StartVertex($toId) is blocked: ${blockedHops.contains(toId)}, '
-      'Result Path: [] (unreachable)',
-    );
-    // #endregion
-    return null;
-  }
+  if (!settled.contains(toId)) return null;
   final path = <String>[toId];
   var node = toId;
   while (node != fromId) {
     final prev = previous[node];
-    if (prev == null) {
-      // #region agent log
-      debugPrint(
-        '[TRACE_DEBUG] findShortestBoundaryPath '
-        'Target Path: [$fromId -> $toId], '
-        'Excluded: [${draftVertexIds.join(', ')}], '
-        'Result Path: [] (broken chain)',
-      );
-      // #endregion
-      return null;
-    }
+    if (prev == null) return null;
     path.add(prev);
     node = prev;
   }
-  final result = path.reversed.toList();
-  // #region agent log
-  debugPrint(
-    '[TRACE_DEBUG] findShortestBoundaryPath '
-    'Target Path: [$fromId -> $toId], '
-    'Excluded: [${draftVertexIds.join(', ')}], '
-    'BlockedHops: [${blockedHops.join(', ')}], '
-    'StartVertex($toId) is blocked: ${blockedHops.contains(toId)}, '
-    'toIdInDraft: ${draftVertexIds.contains(toId)}, '
-    'Result Path: [${result.join(' -> ')}]',
-  );
-  // #endregion
-  return result;
+  return path.reversed.toList();
 }
 
 /// Shortest boundary path from [fromId] to [toId] that is forced through
