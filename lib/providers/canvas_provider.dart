@@ -178,6 +178,10 @@ class CanvasNotifier extends StateNotifier<Artwork> {
   /// on the draft's own start (see [_tryCloseAtVertex]).
   int _lastTapInsertedCount = 0;
 
+  /// Dedupes [SNAP_DEBUG] spam while the finger moves without a snap change.
+  String? _lastSnapDebugSelected;
+  String? _lastSnapDebugExclusionsKey;
+
   /// Snapshots of [Artwork] before each user-visible mutation, newest last.
   /// Transient gesture state ([_lastTapAt], [dragPreviewProvider], etc.) is
   /// never stored here — only committed artwork changes are undoable.
@@ -281,35 +285,13 @@ class CanvasNotifier extends StateNotifier<Artwork> {
     lastClosePolygonResult = null;
 
     final now = DateTime.now();
-    final isPseudo = _isPseudoDoubleTap(
-      position,
-      now,
-      maxDistance: doubleTapMaxDistance,
-    );
-    // #region agent log
-    debugPrint(
-      '[DRAW_TAP_DEBUG] handleDrawTap entry '
-      'hyp=B,C,D,E session=874304 '
-      'pos=(${position.dx.toStringAsFixed(1)},${position.dy.toStringAsFixed(1)}) '
-      'draftLen=${state.draftVertexIds.length} hitRadius=$hitRadius '
-      'isPseudoDoubleTap=$isPseudo '
-      'lastTapInserted=$_lastTapInsertedCount',
-    );
-    // #endregion
-    if (isPseudo &&
+    if (_isPseudoDoubleTap(position, now, maxDistance: doubleTapMaxDistance) &&
         _tryCloseAtVertex(
           position,
           fillColor,
           hitRadius: hitRadius,
           lineAbsorptionTolerance: lineAbsorptionTolerance,
         )) {
-      // #region agent log
-      debugPrint(
-        '[DRAW_TAP_DEBUG] handleDrawTap consumed_as_close '
-        'hyp=B session=874304 draftLenAfter=${state.draftVertexIds.length} '
-        'closeResult=$lastClosePolygonResult',
-      );
-      // #endregion
       return null;
     }
 
@@ -324,14 +306,6 @@ class CanvasNotifier extends StateNotifier<Artwork> {
     _lastTapInsertedCount = state.draftVertexIds.length - countBefore;
     _lastTapAt = now;
     _lastTapPosition = position;
-    // #region agent log
-    debugPrint(
-      '[DRAW_TAP_DEBUG] handleDrawTap single_path_done '
-      'hyp=C,D,E session=874304 '
-      'inserted=$_lastTapInsertedCount '
-      'draftLenAfter=${state.draftVertexIds.length}',
-    );
-    // #endregion
     return result;
   }
 
@@ -366,7 +340,6 @@ class CanvasNotifier extends StateNotifier<Artwork> {
     final draftIds = state.draftVertexIds;
     if (draftIds.isEmpty) return false;
 
-    final endIndex = draftIds.length - 1;
     final endPosition = state.vertices[draftIds.last]!.position;
     final endDistance = (position - endPosition).distance;
     final endEligible =
@@ -381,15 +354,6 @@ class CanvasNotifier extends StateNotifier<Artwork> {
         (!endEligible || startDistance <= endDistance);
     final preferEnd = endEligible && !preferStart;
 
-    // #region agent log
-    debugPrint(
-      '[DRAW_TAP_DEBUG] _tryCloseAtVertex candidates '
-      'hyp=B session=874304 endIdx=$endIndex endDist=$endDistance '
-      'endEligible=$endEligible startDist=$startDistance '
-      'startEligible=$startEligible preferStart=$preferStart preferEnd=$preferEnd',
-    );
-    // #endregion
-
     if (preferEnd) {
       if (draftIds.length < kMinPolygonVertices) return false;
       if (_wouldCloseWithUnweldedGap(
@@ -401,12 +365,6 @@ class CanvasNotifier extends StateNotifier<Artwork> {
         // self-close when the start is also in range.
         if (!startEligible) return false;
       } else {
-        // #region agent log
-        debugPrint(
-          '[DRAW_TAP_DEBUG] _tryCloseAtVertex connect_close '
-          'hyp=B session=874304',
-        );
-        // #endregion
         closePolygon(fillColor, lineAbsorptionTolerance: lineAbsorptionTolerance);
         return true;
       }
@@ -416,12 +374,6 @@ class CanvasNotifier extends StateNotifier<Artwork> {
       // preferStart, or end-was-preferred but gap-blocked with start eligible.
       final strayCount = _lastTapInsertedCount;
       if (draftIds.length - strayCount < kMinPolygonVertices) return false;
-      // #region agent log
-      debugPrint(
-        '[DRAW_TAP_DEBUG] _tryCloseAtVertex self_close '
-        'hyp=B session=874304 strayCount=$strayCount',
-      );
-      // #endregion
       for (var i = 0; i < strayCount; i++) {
         _removeLastDraftVertex();
       }
@@ -429,12 +381,6 @@ class CanvasNotifier extends StateNotifier<Artwork> {
       return true;
     }
 
-    // #region agent log
-    debugPrint(
-      '[DRAW_TAP_DEBUG] _tryCloseAtVertex no_close '
-      'hyp=B session=874304',
-    );
-    // #endregion
     return false;
   }
 
@@ -456,19 +402,6 @@ class CanvasNotifier extends StateNotifier<Artwork> {
 
     final hit = findPolygonVertexNear(position, hitRadius: hitRadius);
     if (hit != null) {
-      final hitPos = state.vertices[hit.vertexId]!.position;
-      final hitDist = (position - hitPos).distance;
-      final alreadyAtEnd =
-          draftIds.isNotEmpty && draftIds.last == hit.vertexId;
-      // #region agent log
-      debugPrint(
-        '[DRAW_TAP_DEBUG] _handleSingleDrawTap snap '
-        'hyp=C,D session=874304 hitId=${hit.vertexId} '
-        'hitDist=$hitDist hitRadius=$hitRadius '
-        'alreadyAtEnd=$alreadyAtEnd draftLen=${draftIds.length} '
-        'polyId=${hit.polygon.id}',
-      );
-      // #endregion
       if (draftIds.isEmpty) {
         startDraftFromExistingVertex(hit.vertexId);
         return hit.polygon.fillColor;
@@ -482,21 +415,6 @@ class CanvasNotifier extends StateNotifier<Artwork> {
       snapDraftEndToExistingVertex(hit.vertexId);
       return null;
     }
-
-    // #region agent log
-    // Miss within hitRadius — report nearest confirmed vertex distance
-    // (diagnostic only; does not change placement).
-    final nearAny = findPolygonVertexNear(position, hitRadius: hitRadius * 8);
-    final nearDist = nearAny == null
-        ? null
-        : (position - state.vertices[nearAny.vertexId]!.position).distance;
-    debugPrint(
-      '[DRAW_TAP_DEBUG] _handleSingleDrawTap miss_freehand '
-      'hyp=C,E session=874304 hitRadius=$hitRadius '
-      'nearestBeyond=${nearAny?.vertexId} nearestDist=$nearDist '
-      'draftLen=${draftIds.length}',
-    );
-    // #endregion
 
     if (draftIds.isNotEmpty) {
       _insertAbsorbedVertices(
@@ -723,6 +641,28 @@ class CanvasNotifier extends StateNotifier<Artwork> {
 
     _vertexHitTest.rebuild(candidates);
     final nearest = _vertexHitTest.nearest(position, maxDistance: hitRadius);
+
+    // #region agent log
+    final inRadius = <String>[
+      for (final c in candidates)
+        if ((position - c.$2).distance <= hitRadius) c.$1,
+    ];
+    final selected = nearest?.$1;
+    final exclusionsKey = excludedIds.join(',');
+    if (selected != _lastSnapDebugSelected ||
+        exclusionsKey != _lastSnapDebugExclusionsKey) {
+      _lastSnapDebugSelected = selected;
+      _lastSnapDebugExclusionsKey = exclusionsKey;
+      debugPrint(
+        '[SNAP_DEBUG] Touch: (${position.dx.toStringAsFixed(1)},'
+        '${position.dy.toStringAsFixed(1)}), '
+        'Exclusions: [${excludedIds.join(', ')}], '
+        'CandidatesInRadius: [${inRadius.join(', ')}], '
+        'Selected: ${selected ?? 'none'}',
+      );
+    }
+    // #endregion
+
     if (nearest == null) return null;
     return (polygon: owningPolygon[nearest.$1]!, vertexId: nearest.$1);
   }
@@ -1400,18 +1340,47 @@ class CanvasNotifier extends StateNotifier<Artwork> {
     required double tolerance,
   }) {
     final sharedBoundary = _sharedBoundaryClosure(startId, endId);
-    if (sharedBoundary.isNotEmpty) return sharedBoundary;
+    if (sharedBoundary.isNotEmpty) {
+      // #region agent log
+      final draftSet = state.draftVertexIds.toSet();
+      final draftStart =
+          state.draftVertexIds.isEmpty ? null : state.draftVertexIds.first;
+      debugPrint(
+        '[TRACE_DEBUG] _closingEdgeVertices via sharedBoundary '
+        'Target Path: [$endId -> $startId], '
+        'Excluded: [${draftSet.join(', ')}], '
+        'StartVertex(${draftStart ?? 'none'}) is blocked: '
+        '${draftStart != null && draftSet.contains(draftStart)}, '
+        'Result Path: [${sharedBoundary.join(' -> ')}]',
+      );
+      // #endregion
+      return sharedBoundary;
+    }
 
     final startPosition = state.vertices[startId]!.position;
     final endPosition = state.vertices[endId]!.position;
-    return findVerticesAlongSegment(
+    final draftSet = state.draftVertexIds.toSet();
+    final absorbed = findVerticesAlongSegment(
       endPosition,
       startPosition,
       vertices: state.vertices,
       polygons: state.polygons,
-      draftVertexIds: state.draftVertexIds.toSet(),
+      draftVertexIds: draftSet,
       tolerance: tolerance,
     );
+    // #region agent log
+    final draftStart =
+        state.draftVertexIds.isEmpty ? null : state.draftVertexIds.first;
+    debugPrint(
+      '[TRACE_DEBUG] _closingEdgeVertices via absorb '
+      'Target Path: [$endId -> $startId], '
+      'Excluded: [${draftSet.join(', ')}], '
+      'StartVertex(${draftStart ?? 'none'}) is blocked: '
+      '${draftStart != null && draftSet.contains(draftStart)}, '
+      'Result Path: [${absorbed.join(' -> ')}]',
+    );
+    // #endregion
+    return absorbed;
   }
 
   /// True when closing the draft from [startId] to [endId] right now, via
@@ -1441,27 +1410,51 @@ class CanvasNotifier extends StateNotifier<Artwork> {
         !_isConfirmedPolygonVertex(endId)) {
       return false;
     }
+    final draftSet = state.draftVertexIds.toSet();
+    final draftStart =
+        state.draftVertexIds.isEmpty ? null : state.draftVertexIds.first;
     final graph = buildPolygonEdgeGraph(state.polygons, state.vertices);
-    if (findShortestBoundaryPath(
-          endId,
-          startId,
-          graph: graph,
-          draftVertexIds: state.draftVertexIds.toSet(),
-        ) !=
-        null) {
+    final boundaryPath = findShortestBoundaryPath(
+      endId,
+      startId,
+      graph: graph,
+      draftVertexIds: draftSet,
+    );
+    // #region agent log
+    debugPrint(
+      '[TRACE_DEBUG] _wouldCloseWithUnweldedGap boundaryProbe '
+      'Target Path: [$endId -> $startId], '
+      'Excluded: [${draftSet.join(', ')}], '
+      'StartVertex(${draftStart ?? 'none'}) is blocked: '
+      '${draftStart != null && draftSet.contains(draftStart)}, '
+      'Result Path: [${(boundaryPath ?? const <String>[]).join(' -> ')}]',
+    );
+    // #endregion
+    if (boundaryPath != null) {
       return false;
     }
 
     final startPosition = state.vertices[startId]!.position;
     final endPosition = state.vertices[endId]!.position;
-    return findVerticesAlongSegment(
+    final absorbed = findVerticesAlongSegment(
       endPosition,
       startPosition,
       vertices: state.vertices,
       polygons: state.polygons,
-      draftVertexIds: state.draftVertexIds.toSet(),
+      draftVertexIds: draftSet,
       tolerance: lineAbsorptionTolerance,
-    ).isEmpty;
+    );
+    // #region agent log
+    debugPrint(
+      '[TRACE_DEBUG] _wouldCloseWithUnweldedGap absorbProbe '
+      'Target Path: [$endId -> $startId], '
+      'Excluded: [${draftSet.join(', ')}], '
+      'StartVertex(${draftStart ?? 'none'}) is blocked: '
+      '${draftStart != null && draftSet.contains(draftStart)}, '
+      'Result Path: [${absorbed.join(' -> ')}]',
+    );
+    // #endregion
+    return absorbed.isEmpty;
   }
 
   /// When [startId] and [endId] are connected by some chain of existing
@@ -1490,6 +1483,13 @@ class CanvasNotifier extends StateNotifier<Artwork> {
   /// follows that arc rather than the geometrically shorter opposite one.
   /// Missing waypoints or a failed via-waypoint search fall back to plain
   /// [findShortestBoundaryPath].
+  ///
+  /// If the raw path's midpoints mix draft-already-walked IDs with vertices
+  /// the stroke never touched, those leftovers are treated as a foreign
+  /// shortcut (which would append a detour spike on close) and this returns
+  /// an empty list so the draft closes last→first with no splice. A path
+  /// whose mids are entirely outside the draft is returned as-is (pure
+  /// boundary weld).
   List<String> _sharedBoundaryClosure(String startId, String endId) {
     final draftList = state.draftVertexIds;
     final draftIds = draftList.toSet();
@@ -1515,11 +1515,45 @@ class CanvasNotifier extends StateNotifier<Artwork> {
           graph: graph,
           draftVertexIds: draftIds,
         );
-    if (path == null || path.length <= 2) return const [];
-    return path
-        .sublist(1, path.length - 1)
-        .where((id) => !draftIds.contains(id))
-        .toList();
+    if (path == null || path.length <= 2) {
+      // #region agent log
+      debugPrint(
+        '[TRACE_DEBUG] _sharedBoundaryClosure '
+        'Target Path: [$endId -> $startId], '
+        'Excluded: [${draftIds.join(', ')}], '
+        'StartVertex($startId) is blocked: ${draftIds.contains(startId)}, '
+        'Result Path: []',
+      );
+      // #endregion
+      return const [];
+    }
+    final mids = path.sublist(1, path.length - 1);
+    final alreadyInDraft = [
+      for (final id in mids)
+        if (draftIds.contains(id)) id,
+    ];
+    final notInDraft = [
+      for (final id in mids)
+        if (!draftIds.contains(id)) id,
+    ];
+    // Mixed walked + foreign mids → refuse the foreign shortcut splice.
+    final result =
+        alreadyInDraft.isNotEmpty && notInDraft.isNotEmpty
+            ? const <String>[]
+            : notInDraft;
+    // #region agent log
+    debugPrint(
+      '[TRACE_DEBUG] _sharedBoundaryClosure '
+      'Target Path: [$endId -> $startId], '
+      'Excluded: [${draftIds.join(', ')}], '
+      'StartVertex($startId) is blocked: ${draftIds.contains(startId)}, '
+      'RawPath: [${path.join(' -> ')}], '
+      'AlreadyInDraft: [${alreadyInDraft.join(', ')}], '
+      'NotInDraft: [${notInDraft.join(', ')}], '
+      'Result Path: [${result.join(' -> ')}]',
+    );
+    // #endregion
+    return result;
   }
 
   /// Removes the most recently placed draft vertex without recording an undo

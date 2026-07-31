@@ -236,25 +236,7 @@ class PolygonCanvas extends ConsumerWidget {
     void commitDrawDrag() {
       final preview = dragPreview.value;
       dragPreview.value = null;
-      if (preview == null) {
-        // #region agent log
-        debugPrint(
-          '[DRAW_TAP_DEBUG] commitDrawDrag aborted_null_preview '
-          'hyp=A session=874304',
-        );
-        // #endregion
-        return;
-      }
-
-      // #region agent log
-      debugPrint(
-        '[DRAW_TAP_DEBUG] commitDrawDrag commit '
-        'hyp=A session=874304 '
-        'pos=(${preview.position.dx.toStringAsFixed(1)},'
-        '${preview.position.dy.toStringAsFixed(1)}) '
-        'previewSnap=${preview.snappedVertexId}',
-      );
-      // #endregion
+      if (preview == null) return;
 
       final fillColor = ref.read(selectedFillColorProvider);
       final matchedColor = notifier.handleDrawTap(
@@ -692,21 +674,9 @@ class PolygonCanvas extends ConsumerWidget {
             updateDrawPreview(details.localFocalPoint);
           },
           onScaleEnd: (details) {
-            final baseline = gestureBaseline.value;
-            final shouldCommit = endGestureSubCycle(details);
-            if (shouldCommit) {
+            if (endGestureSubCycle(details)) {
               commitDrawDrag();
             } else {
-              // #region agent log
-              debugPrint(
-                '[DRAW_TAP_DEBUG] onScaleEnd discard '
-                'hyp=A session=874304 '
-                'pointerCount=${details.pointerCount} '
-                'hadMulti=${baseline?.hadMultiFinger} '
-                'basePtrs=${baseline?.pointerCount} '
-                'hadPreview=${dragPreview.value != null}',
-              );
-              // #endregion
               // Not a genuine single-finger release — discard rather than
               // commit; see `endGestureSubCycle`'s doc.
               dragPreview.value = null;

@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:polygon_art_app/models/artwork.dart';
+import 'package:polygon_art_app/models/polygon_shape.dart';
+import 'package:polygon_art_app/models/vertex.dart';
 import 'package:polygon_art_app/providers/canvas_provider.dart';
 
 void main() {
@@ -318,6 +321,91 @@ void main() {
         // and d→a is the square's own edge (nothing to splice).
         expect(closed.vertexIds, [a, b, c, d]);
         expect(closed.vertexIds.toSet(), hasLength(4));
+      },
+    );
+
+    test(
+      'closing after tracing most of a boundary does not splice a foreign '
+      'untraced corner from a mixed shared-boundary path',
+      () {
+        final notifier = CanvasNotifier();
+        // Hexagon A. Draft walks v0→v1→v2 then ends on adjacent v5 (skipping
+        // the long way through v3/v4). Via-waypoint close can still build a
+        // raw path that relays through draft mids and inserts foreign v3/v4;
+        // those leftovers must not be spliced. last→first is the real edge
+        // v5→v0 (safe, no skewer).
+        notifier.loadArtwork(
+          Artwork(
+            id: 'art',
+            title: 't',
+            vertices: {
+              'v0': const Vertex(id: 'v0', position: Offset(0, 40)),
+              'v1': const Vertex(id: 'v1', position: Offset(30, 0)),
+              'v2': const Vertex(id: 'v2', position: Offset(70, 0)),
+              'v3': const Vertex(id: 'v3', position: Offset(100, 40)),
+              'v4': const Vertex(id: 'v4', position: Offset(70, 80)),
+              'v5': const Vertex(id: 'v5', position: Offset(30, 80)),
+            },
+            polygons: const [
+              PolygonShape(
+                id: 'A',
+                vertexIds: ['v0', 'v1', 'v2', 'v3', 'v4', 'v5'],
+                fillColor: Colors.green,
+                strokeColor: Colors.black,
+                strokeWidth: 1,
+              ),
+            ],
+            draftVertexIds: const ['v0', 'v1', 'v2', 'v5'],
+          ),
+        );
+
+        expect(notifier.closePolygon(Colors.orange), ClosePolygonResult.closed);
+        final closed = notifier.state.polygons.last;
+        expect(closed.vertexIds, isNot(contains('v3')));
+        expect(closed.vertexIds, isNot(contains('v4')));
+        expect(closed.vertexIds.first, 'v0');
+        expect(closed.vertexIds.last, 'v5');
+        expect(closed.vertexIds, ['v0', 'v1', 'v2', 'v5']);
+      },
+    );
+
+    test(
+      'closing across an unwalked shared boundary still welds mid corners '
+      '(pure not-in-draft path is unchanged)',
+      () {
+        final notifier = CanvasNotifier();
+        // Same pentagon scenario as the first shared-boundary test: draft
+        // never walked (100,0), so close must still splice that corner in.
+        notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.green);
+        notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.green);
+        notifier.handleDrawTap(const Offset(100, 100), fillColor: Colors.green);
+        notifier.handleDrawTap(const Offset(50, 150), fillColor: Colors.green);
+        notifier.handleDrawTap(const Offset(0, 100), fillColor: Colors.green);
+        notifier.closePolygon(Colors.green);
+        final aIds = notifier.state.polygons.single.vertexIds;
+        final aOrigin = aIds[0];
+        final aTopRight = aIds[1]; // (100, 0) — unwalked mid on short arc
+        final aRight = aIds[2];
+
+        notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.orange);
+        notifier.handleDrawTap(
+          const Offset(-100, 50),
+          fillColor: Colors.orange,
+        );
+        notifier.handleDrawTap(
+          const Offset(100, 100),
+          fillColor: Colors.orange,
+        );
+        notifier.closePolygon(Colors.orange);
+
+        final closed = notifier.state.polygons.last;
+        expect(closed.vertexIds, [
+          aOrigin,
+          closed.vertexIds[1],
+          aRight,
+          aTopRight,
+        ]);
+        expect(aIds, contains(aTopRight));
       },
     );
 

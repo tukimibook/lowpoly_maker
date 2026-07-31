@@ -1,5 +1,7 @@
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
+
 import '../models/polygon_shape.dart';
 import '../models/vertex.dart';
 
@@ -61,8 +63,33 @@ List<String> findVerticesAlongSegment(
 
   candidates.sort((a, b) => a.$1.compareTo(b.$1));
   final seen = <String>{};
-  return [
+  final result = [
     for (final candidate in candidates)
       if (seen.add(candidate.$2)) candidate.$2,
   ];
+
+  // #region agent log
+  final blockedOnSegment = <String>[];
+  for (final vertexId in draftVertexIds) {
+    final vertex = vertices[vertexId];
+    if (vertex == null) continue;
+    final toVertex = vertex.position - start;
+    final t =
+        (toVertex.dx * segment.dx + toVertex.dy * segment.dy) / lengthSquared;
+    if (t <= 0 || t >= 1) continue;
+    final projection = start + segment * t;
+    if ((vertex.position - projection).distance <= tolerance) {
+      blockedOnSegment.add(vertexId);
+    }
+  }
+  debugPrint(
+    '[TRACE_DEBUG] findVerticesAlongSegment '
+    'Target Path: segment, '
+    'Excluded: [${draftVertexIds.join(', ')}], '
+    'DraftVerticesBlockedOnSegment: [${blockedOnSegment.join(', ')}], '
+    'Result Path: [${result.join(' -> ')}]',
+  );
+  // #endregion
+
+  return result;
 }
