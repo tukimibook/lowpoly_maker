@@ -3,16 +3,13 @@ import 'dart:ui';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
-import '../geometry/boundary_intent.dart';
+import '../geometry/boundary_closure.dart';
+import '../geometry/closing_safety.dart';
 import '../geometry/edge_midpoint.dart';
 import '../geometry/line_absorption.dart';
 import '../geometry/nearest_point.dart';
-import '../geometry/point_in_polygon.dart';
-import '../geometry/polygon_containment.dart';
-import '../geometry/polygon_graph.dart';
 import '../geometry/polygon_hit_test.dart';
 import '../geometry/ring_collapse.dart';
-import '../geometry/self_intersection.dart';
 import '../geometry/vertex_hit_test.dart';
 import '../models/artwork.dart';
 import '../models/canvas_mode.dart';
@@ -262,7 +259,7 @@ class CanvasNotifier extends StateNotifier<Artwork> {
   /// [doubleTapMaxDistance] and [lineAbsorptionTolerance] follow the exact
   /// same screen-tolerance convention, for [_isPseudoDoubleTap] and the
   /// line-absorption search (see [_insertAbsorbedVertices]/
-  /// [_closingEdgeVertices]) respectively — Phase Hβ's screen-px
+  /// [closingEdgeVertices]) respectively — Phase Hβ's screen-px
   /// unification (`.cursor/plans/plan_phase_H_beta.md`, 着手前チェックリス
   /// ト #1): before this, both were compared directly against
   /// world-space distances, so they silently shrank/grew on screen once a
@@ -322,7 +319,7 @@ class CanvasNotifier extends StateNotifier<Artwork> {
   /// nearby welded end even when the artist was aiming at the start).
   /// Equal distances prefer the start (self-close).
   ///
-  /// Connect-close still refuses [_wouldCloseWithUnweldedGap]; if that
+  /// Connect-close still refuses [wouldCloseWithUnweldedGap]; if that
   /// blocks and the start is also in range, self-close is tried next.
   /// The toolbar's explicit "close" button (calling [closePolygon]
   /// directly) is unchanged.
@@ -351,18 +348,21 @@ class CanvasNotifier extends StateNotifier<Artwork> {
 
     if (preferEnd) {
       if (draftIds.length < kMinPolygonVertices) return false;
-      if (_wouldCloseWithUnweldedGap(
+      if (!wouldCloseWithUnweldedGap(
         draftIds.first,
         draftIds.last,
+        polygons: state.polygons,
+        vertices: state.vertices,
+        draftVertexIds: draftIds,
         lineAbsorptionTolerance: lineAbsorptionTolerance,
       )) {
-        // End was nearer but connect-close is unsafe — fall back to
-        // self-close when the start is also in range.
-        if (!startEligible) return false;
-      } else {
         closePolygon(fillColor, lineAbsorptionTolerance: lineAbsorptionTolerance);
         return true;
       }
+      // End was nearer but connect-close is unsafe — fall back to
+      // self-close when the start is also in range.
+      if (!startEligible) return false;
+      // fall through to self-close
     }
 
     if (preferStart || (endEligible && startEligible)) {
@@ -855,6 +855,9 @@ class CanvasNotifier extends StateNotifier<Artwork> {
           strokeWidth: polygon.strokeWidth,
         ),
     ];
+    for (final triangle in triangles) {
+      assertConfirmedRingIds(triangle.vertexIds);
+    }
 
     state = state.copyWith(
       polygons: [
@@ -1129,7 +1132,7 @@ class CanvasNotifier extends StateNotifier<Artwork> {
   ///
   /// The closing edge — from the draft's last point back to its first — is
   /// resolved by one rule that applies no matter which polygons (if any)
-  /// the two ends happen to belong to (see [_closingEdgeVertices]): follow
+  /// the two ends happen to belong to (see [closingEdgeVertices]): follow
   /// the shortest existing chain of polygon boundaries connecting them —
   /// whether that's one polygon's own two arcs or a route hopping across
   /// several polygons that happen to share welded vertices — when there is
@@ -1166,16 +1169,25 @@ class CanvasNotifier extends StateNotifier<Artwork> {
     }
     final vertexIds = collapseConsecutiveRingIds([
       ...draftIds,
-      ..._closingEdgeVertices(
+      ...closingEdgeVertices(
         draftIds.first,
         draftIds.last,
+        polygons: state.polygons,
+        vertices: state.vertices,
+        draftVertexIds: draftIds,
         tolerance: lineAbsorptionTolerance,
       ),
     ]);
-    if (!_isSafeClosedRing(vertexIds)) {
+    if (!isSafeClosedRing(
+      vertexIds,
+      vertices: state.vertices,
+      polygons: state.polygons,
+      minVertices: kMinPolygonVertices,
+    )) {
       return lastClosePolygonResult =
           ClosePolygonResult.rejectedUnsafeClosingEdge;
     }
+    assertConfirmedRingIds(vertexIds);
     _recordUndo();
     final polygon = PolygonShape(
       id: _uuid.v4(),
@@ -1189,267 +1201,6 @@ class CanvasNotifier extends StateNotifier<Artwork> {
       draftVertexIds: const [],
     );
     return lastClosePolygonResult = ClosePolygonResult.closed;
-  }
-
-  /// True when closing into [ringIds] would produce a geometrically safe
-  /// confirmed polygon: no self-intersection, and the implicit closing chord
-  /// (`last → first`) neither properly crosses an existing polygon edge nor
-  /// has its midpoint strictly inside an existing polygon (classic skewer).
-  ///
-  /// Only the closing chord is checked against existing geometry — freehand
-  /// draft edges were already accepted while drawing and must not block a
-  /// otherwise-valid boundary weld.
-  bool _isSafeClosedRing(List<String> ringIds) {
-    if (ringIds.length < kMinPolygonVertices) return false;
-    final points = <Offset>[];
-    for (final id in ringIds) {
-      final vertex = state.vertices[id];
-      if (vertex == null) return false;
-      points.add(vertex.position);
-    }
-    // Collapse consecutive coincident corners (e.g. an extra weld tap that
-    // minted a duplicate ID at the same spot) before the self-intersection
-    // check — zero-length edges otherwise look like crossings.
-    final simple = _collapseConsecutiveDuplicatePoints(points);
-    if (simple.length < kMinPolygonVertices) return false;
-    if (isSelfIntersectingRing(simple)) return false;
-
-    final closeA = points.last;
-    final closeB = points.first;
-    final closeMid = Offset(
-      (closeA.dx + closeB.dx) / 2,
-      (closeA.dy + closeB.dy) / 2,
-    );
-    // One-edge "ring" used with [ringsEdgesProperlyIntersect] so shared
-    // endpoints with existing polygon edges are skipped the same way.
-    final closingEdge = <Offset>[closeA, closeB];
-
-    final closeEndIds = {ringIds.last, ringIds.first};
-    for (final polygon in state.polygons) {
-      final ring = <Offset>[];
-      for (final id in polygon.vertexIds) {
-        final vertex = state.vertices[id];
-        if (vertex == null) return false;
-        ring.add(vertex.position);
-      }
-      // Classic skewer: both ends are corners of this polygon and the chord
-      // cuts through its interior. A fully contained inner polygon (hole)
-      // has endpoints that are *not* on the outer ring, so it stays allowed;
-      // a chord that pierces an unrelated shape is caught by the proper-
-      // intersection check below.
-      final endsOnThisPolygon =
-          closeEndIds.every(polygon.vertexIds.contains);
-      if (endsOnThisPolygon && _isStrictlyInsidePolygon(closeMid, ring)) {
-        return false;
-      }
-      if (ringsEdgesProperlyIntersect(closingEdge, ring)) return false;
-    }
-    return true;
-  }
-
-  List<Offset> _collapseConsecutiveDuplicatePoints(List<Offset> points) {
-    if (points.isEmpty) return const [];
-    final out = <Offset>[points.first];
-    for (var i = 1; i < points.length; i++) {
-      if (points[i] != out.last) out.add(points[i]);
-    }
-    if (out.length > 1 && out.first == out.last) out.removeLast();
-    return out;
-  }
-
-  /// [isPointInPolygon] with an explicit on-boundary → outside override so a
-  /// closing chord that reuses an existing edge is not mistaken for a skewer.
-  bool _isStrictlyInsidePolygon(Offset point, List<Offset> ring) {
-    if (_isOnRingBoundary(point, ring)) return false;
-    return isPointInPolygon(point, ring);
-  }
-
-  bool _isOnRingBoundary(Offset point, List<Offset> ring) {
-    const epsilon = 1e-6;
-    for (var i = 0; i < ring.length; i++) {
-      final a = ring[i];
-      final b = ring[(i + 1) % ring.length];
-      if (_distanceToSegment(point, a, b) <= epsilon) return true;
-    }
-    return false;
-  }
-
-  double _distanceToSegment(Offset p, Offset a, Offset b) {
-    final ab = b - a;
-    final lengthSq = ab.dx * ab.dx + ab.dy * ab.dy;
-    if (lengthSq == 0) return (p - a).distance;
-    var t = ((p.dx - a.dx) * ab.dx + (p.dy - a.dy) * ab.dy) / lengthSq;
-    if (t < 0) t = 0;
-    if (t > 1) t = 1;
-    final proj = Offset(a.dx + ab.dx * t, a.dy + ab.dy * t);
-    return (p - proj).distance;
-  }
-
-  /// Resolves what, if anything, belongs *between* the draft's last point
-  /// ([endId]) and its first ([startId]) when closing — the single rule
-  /// behind [closePolygon]:
-  /// - If there is any chain of existing polygons' own edges connecting
-  ///   them — whether that's the two arcs of one polygon they're both
-  ///   corners of, or a longer route hopping across several polygons that
-  ///   happen to share welded vertices along the way — follow the
-  ///   geometrically shortest such chain (see [_sharedBoundaryClosure])
-  ///   rather than cutting a straight edge. This lets an artist draw a
-  ///   free-hand arc from one shape's corner to another's and have the new
-  ///   shape tile seamlessly against everything already welded in
-  ///   between, not just the two endpoints it directly touches.
-  /// - Otherwise (no such chain exists) fall back to
-  ///   [findVerticesAlongSegment], exactly the same welding every
-  ///   other, explicitly-drawn segment already gets. Without this
-  ///   fallback, the implicit closing edge was the one segment in the
-  ///   whole drawing model that could silently cut straight across
-  ///   (instead of weld to) another shape's corner sitting in its path,
-  ///   leaving a gap the artist never asked for.
-  ///
-  /// The returned IDs are appended after the draft's last point, so the
-  /// closing path runs `last -> ...returned... -> first` either way.
-  List<String> _closingEdgeVertices(
-    String startId,
-    String endId, {
-    required double tolerance,
-  }) {
-    final sharedBoundary = _sharedBoundaryClosure(startId, endId);
-    if (sharedBoundary.isNotEmpty) return sharedBoundary;
-
-    final startPosition = state.vertices[startId]!.position;
-    final endPosition = state.vertices[endId]!.position;
-    return findVerticesAlongSegment(
-      endPosition,
-      startPosition,
-      vertices: state.vertices,
-      polygons: state.polygons,
-      draftVertexIds: state.draftVertexIds.toSet(),
-      tolerance: tolerance,
-    );
-  }
-
-  /// True when closing the draft from [startId] to [endId] right now, via
-  /// [_closingEdgeVertices], would silently cut a straight, unwelded edge
-  /// between two *different* existing polygons that share no boundary or
-  /// welded chain — i.e. would create a seam the artist likely didn't
-  /// intend, rather than follow a real shared boundary or weld onto
-  /// something sitting in between.
-  ///
-  /// Used by [_tryCloseAtVertex] to keep the implicit double-tap gesture
-  /// "safe": it should only ever close when the result is unsurprising —
-  /// a fresh loop back to the draft's own start, a shared or chained
-  /// boundary, or a weld onto a vertex sitting on the closing line. When
-  /// either end isn't a confirmed polygon vertex at all, there is nothing
-  /// to unexpectedly cut across, so this returns false. The toolbar's
-  /// explicit "close" button (which calls [closePolygon] directly,
-  /// bypassing this check) remains available to force a plain straight
-  /// edge when the artist deliberately wants one even though nothing
-  /// connects the two ends.
-  bool _wouldCloseWithUnweldedGap(
-    String startId,
-    String endId, {
-    required double lineAbsorptionTolerance,
-  }) {
-    if (startId == endId) return false;
-    if (!_isConfirmedPolygonVertex(startId) ||
-        !_isConfirmedPolygonVertex(endId)) {
-      return false;
-    }
-    final graph = buildPolygonEdgeGraph(state.polygons, state.vertices);
-    if (findShortestBoundaryPath(
-          endId,
-          startId,
-          graph: graph,
-          draftVertexIds: state.draftVertexIds.toSet(),
-        ) !=
-        null) {
-      return false;
-    }
-
-    final startPosition = state.vertices[startId]!.position;
-    final endPosition = state.vertices[endId]!.position;
-    return findVerticesAlongSegment(
-      endPosition,
-      startPosition,
-      vertices: state.vertices,
-      polygons: state.polygons,
-      draftVertexIds: state.draftVertexIds.toSet(),
-      tolerance: lineAbsorptionTolerance,
-    ).isEmpty;
-  }
-
-  /// When [startId] and [endId] are connected by some chain of existing
-  /// polygons' own edges (see [findShortestBoundaryPath]), returns the
-  /// vertices strictly between them along the geometrically shortest such
-  /// chain, so the draft can close by following it rather than cutting
-  /// straight back to its start.
-  ///
-  /// The returned IDs are appended after the draft's last point, so the
-  /// closing path runs `last -> boundary... -> first`. They are reused
-  /// vertex IDs (not copies), so every polygon along the chain genuinely
-  /// shares that edge in the [Artwork.vertices] pool ("weld").
-  ///
-  /// Returns an empty list when no such chain exists (or the two points are
-  /// the same, or directly adjacent with nothing in between);
-  /// [_closingEdgeVertices] then falls back to absorbing any existing
-  /// vertex that sits on the straight closing line instead of a shared
-  /// boundary.
-  ///
-  /// Mid-path IDs already present in the draft are omitted so a boundary-
-  /// tracing stroke that already walked those corners is not duplicated into
-  /// a self-intersecting loop.
-  ///
-  /// When the draft already snapped onto on-graph corners along one boundary
-  /// arc, those IDs become waypoints ([inferBoundaryWaypoints]) so closing
-  /// follows that arc rather than the geometrically shorter opposite one.
-  /// Missing waypoints or a failed via-waypoint search fall back to plain
-  /// [findShortestBoundaryPath].
-  ///
-  /// If the raw path's midpoints mix draft-already-walked IDs with vertices
-  /// the stroke never touched, those leftovers are treated as a foreign
-  /// shortcut (which would append a detour spike on close) and this returns
-  /// an empty list so the draft closes last→first with no splice. A path
-  /// whose mids are entirely outside the draft is returned as-is (pure
-  /// boundary weld).
-  List<String> _sharedBoundaryClosure(String startId, String endId) {
-    final draftList = state.draftVertexIds;
-    final draftIds = draftList.toSet();
-    final graph = buildPolygonEdgeGraph(state.polygons, state.vertices);
-    final waypoints = inferBoundaryWaypoints(
-      draftVertexIds: draftList,
-      graph: graph,
-      fromId: endId,
-      toId: startId,
-    );
-    final path = (waypoints.isEmpty
-            ? null
-            : findBoundaryPathViaWaypoints(
-                endId,
-                startId,
-                waypoints: waypoints,
-                graph: graph,
-                draftVertexIds: draftIds,
-              )) ??
-        findShortestBoundaryPath(
-          endId,
-          startId,
-          graph: graph,
-          draftVertexIds: draftIds,
-        );
-    if (path == null || path.length <= 2) return const [];
-    final mids = path.sublist(1, path.length - 1);
-    final alreadyInDraft = [
-      for (final id in mids)
-        if (draftIds.contains(id)) id,
-    ];
-    final notInDraft = [
-      for (final id in mids)
-        if (!draftIds.contains(id)) id,
-    ];
-    // Mixed walked + foreign mids → refuse the foreign shortcut splice.
-    if (alreadyInDraft.isNotEmpty && notInDraft.isNotEmpty) {
-      return const [];
-    }
-    return notInDraft;
   }
 
   /// Removes the most recently placed draft vertex without recording an undo
@@ -1500,6 +1251,9 @@ class CanvasNotifier extends StateNotifier<Artwork> {
   void loadArtwork(Artwork artwork) {
     _resetPendingTap();
     _undoStack.clear();
+    for (final polygon in artwork.polygons) {
+      assertConfirmedRingIds(polygon.vertexIds);
+    }
     state = artwork;
   }
 

@@ -1,5 +1,6 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import '../geometry/ring_collapse.dart';
 import 'polygon_shape.dart';
 import 'vertex.dart';
 
@@ -36,6 +37,10 @@ const String kDefaultArtworkTitle = 'Untitled';
 /// `UnderlayLayoutController`) is deliberately kept in its own provider
 /// *outside* this model instead, so it can never leak into either the saved
 /// file or an undo snapshot.
+///
+/// Ring ID rules (asymmetric): each confirmed [polygons] ring must have no
+/// duplicate vertex IDs (see [assertConfirmedRingIds]). [draftVertexIds] may
+/// contain duplicates — e.g. a self-close snap `[S, …, S]` is valid.
 @freezed
 abstract class Artwork with _$Artwork {
   const factory Artwork({
@@ -62,15 +67,19 @@ abstract class Artwork with _$Artwork {
     final verticesJson = json['vertices'] as Map<String, dynamic>;
     final polygonsJson = json['polygons'] as List<dynamic>;
     final draftVertexIdsJson = json['draftVertexIds'] as List<dynamic>? ?? const [];
+    final polygons = polygonsJson
+        .map((p) => PolygonShape.fromJson(p as Map<String, dynamic>))
+        .toList();
+    for (final polygon in polygons) {
+      assertConfirmedRingIds(polygon.vertexIds);
+    }
     return Artwork(
       id: json['id'] as String,
       title: json['title'] as String,
       vertices: verticesJson.map(
         (id, value) => MapEntry(id, Vertex.fromJson(id, value as Map<String, dynamic>)),
       ),
-      polygons: polygonsJson
-          .map((p) => PolygonShape.fromJson(p as Map<String, dynamic>))
-          .toList(),
+      polygons: polygons,
       draftVertexIds: draftVertexIdsJson.cast<String>(),
     );
   }

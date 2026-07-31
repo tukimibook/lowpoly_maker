@@ -37,3 +37,14 @@ List<String> collapseConsecutiveOpenIds(List<String> ids) {
 bool hasNonConsecutiveDuplicate(List<String> ids) {
   return ids.toSet().length != ids.length;
 }
+
+/// Debug-only invariant for a **confirmed** polygon ring: no duplicate IDs
+/// (consecutive or otherwise), and no explicit trailing wrap of the start
+/// (`[A, B, C, A]`). Call at close / load / tessellation commit sites.
+///
+/// Do **not** apply this to [Artwork.draftVertexIds] — drafts may legally
+/// contain duplicates such as a self-close snap `[S, …, S]`.
+void assertConfirmedRingIds(List<String> ids) {
+  assert(!hasNonConsecutiveDuplicate(ids));
+  assert(ids.length < 2 || ids.first != ids.last);
+}
