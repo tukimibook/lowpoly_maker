@@ -1,14 +1,14 @@
 # 未来フェーズ仕様・技術的負債・検討メモアーカイブ
 
-> **正本の位置づけ**: 全体像・確定した設計判断・品質方針・リリース要件は [ポリゴンアプリ再設計_e54196e6.plan.md](ポリゴンアプリ再設計_e54196e6.plan.md)（マスター）を参照。現在着手中のフェーズ（Hγ）の詳細・着手前チェックリストは [plan_phase_H_gamma.md](plan_phase_H_gamma.md) を参照。着手時の進捗・次ステップは同ファイル冒頭の **現在のステータス** を参照。完了済みフェーズ（A〜E+、G-spike、Hα、Hβ、F、G）の実装済み仕様と、過去（2026-07-10〜07-27）の検討メモは [plan_archive_history.md](plan_archive_history.md) を参照（2026-07-17、コンテキスト肥大化防止のため本ファイルから分離）。
+> **正本の位置づけ**: 全体像・確定した設計判断・品質方針・リリース要件は [ポリゴンアプリ再設計_e54196e6.plan.md](ポリゴンアプリ再設計_e54196e6.plan.md)（マスター）を参照。現在着手中のフェーズ（Select）の詳細・着手前チェックリストは [plan_phase_Select.md](plan_phase_Select.md) を参照。着手時の進捗・次ステップは同ファイル冒頭の **現在のステータス** を参照。完了済みフェーズ（A〜E+、G-spike、Hα、Hβ、F、G、Hγ）の実装済み仕様と、過去の検討メモは [plan_archive_history.md](plan_archive_history.md) を参照（2026-07-17、コンテキスト肥大化防止のため本ファイルから分離）。
 >
-> 本ファイルには **未着手フェーズ（Phase Select / Hδ / R）の詳細仕様**、**コード品質・技術的負債表**、**テスト方針**、**リスクと対策**を格納する。完了済みフェーズの仕様・過去の検討メモは本ファイルには置かない（[plan_archive_history.md](plan_archive_history.md) が正本）。Hγ の詳細も本ファイルには置かない（[plan_phase_H_gamma.md](plan_phase_H_gamma.md) が正本）。
+> 本ファイルには **未着手フェーズ（Hδ / R）の詳細仕様**、**コード品質・技術的負債表**、**テスト方針**、**リスクと対策**を格納する。完了済みフェーズの仕様・過去の検討メモは本ファイルには置かない（[plan_archive_history.md](plan_archive_history.md) が正本）。Select の詳細も本ファイルには置かない（[plan_phase_Select.md](plan_phase_Select.md) が正本）。
 >
-> **2026-07-27 改定**: 図形タップ選択（Hit-Testing）＋彩色基盤を **Phase Select** として Hγ 前／並行の重要マイルストーンへ前倒し（下記「未着手フェーズ仕様」）。
+> **2026-07-27 改定**: 図形タップ選択（Hit-Testing）＋彩色基盤を **Phase Select** として Hγ 前／並行の重要マイルストーンへ前倒し。**2026-08-03**: Hγ 完了、Select を現在着手中フェーズへ引き込み（[plan_phase_Select.md](plan_phase_Select.md)）。
 
 ## 完了済みフェーズ仕様
 
-> 完了済みフェーズ（A〜E+、G-spike、Hα、Hβ、F、G）の実装済み仕様は [plan_archive_history.md](plan_archive_history.md) の「完了済みフェーズ仕様（アーカイブ）」に隔離しました。現在着手中の詳細は [plan_phase_H_gamma.md](plan_phase_H_gamma.md) を参照してください。
+> 完了済みフェーズ（A〜E+、G-spike、Hα、Hβ、F、G、Hγ）の実装済み仕様・検討メモは [plan_archive_history.md](plan_archive_history.md) に隔離しました。現在着手中の詳細は [plan_phase_Select.md](plan_phase_Select.md) を参照してください。
 
 ## 未着手フェーズ仕様
 
@@ -38,35 +38,13 @@
 
 下絵（Hα）・ズーム（Hβ）を G より前に切り出し。保存・PNG は v1 必須。**図形タップ選択（Hit-Testing）と彩色の土台は、v1.1 待ちにせず Hγ の前または並行の重要マイルストーンへ前倒し**（2026-07-27、ユーザー要望・編集 UX／彩色アルゴリズムの前提として）。
 
-##### Phase Select: 図形タップ選択（Hit-Testing）＋彩色基盤（Hγ 前／並行・重要）
+##### Phase Select: 図形タップ選択（Hit-Testing）＋彩色基盤（現在着手中）
 
-> **位置づけ**: 従来は v1.1（スタイル／パレット周辺）に含めていた「任意の図形を直接タップして選ぶ」能力を、**保存（Hγ）の前または並行**で着手する。トグル巡回（`resolvePolygonTarget`）だけではテッセレーション後の多数三角形を扱う操作が破綻しやすい。彩色アルゴリズムや選択モード UI の土台にもなる。
+> **現在着手中のため本ファイルには詳細を置かない。詳細仕様は [plan_phase_Select.md](plan_phase_Select.md) を参照してください。**
 
-**Hit-Testing（当たり判定）**
+##### Phase Hγ: 保存・作品一覧（v1 必須）（完了）
 
-- タップのワールド座標に対し、確定ポリゴンの内部判定（既存の `isPointInPolygon` を再利用）。
-- **AABB 事前フィルタ**: まず各ポリゴンの軸平行バウンディングボックスで候補を絞り、通過したものだけ Point-in-Polygon（O(n) 全頂点走査の緩和。将来の空間インデックス差し替えは #10 の `VertexHitTest` 方針と整合）。
-- **Z-Order（重なり）**: 複数ポリゴンがヒットした場合は **描画上の最前面**（現行は `Artwork.polygons` の後ろほど手前、と実装／テストで固定する）を優先選択。
-- 頂点ヒット（既存の `findVertexNear` / 編集モード）との優先順位: 頂点ハンドル近傍は従来どおり頂点選択を優先し、空白に近い塗り領域タップで図形選択、など衝突ルールを仕様化してテスト固定。
-
-**選択階層の整理**
-
-- **第1層（図形）**: キャンバスを直接タップ → Hit-Testing で対象ポリゴン ID を確定（`polygonCycleIndexProvider` 相当のターゲットをタップ結果でセット／ハイライト）。
-- **第2層（辺）**: 図形が選ばれたあと、その内部の辺選択は **既存のトグル式**（`edgeCycleIndexProvider` / 「辺を切り替え」）を連携継続。辺トグルの候補集合は「今選ばれている図形の辺」に限定（現行 `_NoSelectionRow` と同じ解決関数を再利用）。
-- 図形未選択時の「図形を切り替え」トグルは残してよい（タップ不能な微小図形・アクセシビリティ用）が、**主操作はタップ選択**とする。
-
-**彩色基盤（最小）**
-
-- 選択中ポリゴンに対する塗り色変更の入口（既存パレット／`selectedFillColorProvider` との接続方針を決める）。本格グラデ・スポイトは引き続き v1.1。
-- 選択状態は session-only（永続化は Hγ の `ArtworkDocument` と混ぜない）。Undo は「色変更 1 操作 = 1 エントリ」など既存 D0 パターンに合わせる。
-
-**完了条件**: 重なり合う複数図形をタップで最前面優先選択できる。選択後に辺トグル・既存の図形削除／テッセレーション対象指定が同じターゲットを指す。AABB + PIP の単体テスト、Z-Order のウィジェット／ロジックテスト。
-
-**Hγ との関係**: Select 完了前に Hγ のみを単独完走してもよいが、**編集・彩色の実機 UX を優先するなら Select を Hγ の直前または短期並行**とする（保存スキーマ自体は Select に依存しない）。
-
-##### Phase Hγ: 保存・作品一覧（v1 必須）（現在着手中）
-
-> **現在着手中のため本ファイルには詳細を置かない。詳細仕様は [plan_phase_H_gamma.md](plan_phase_H_gamma.md) を参照してください。**
+> **完了済み（2026-08-03）。詳細仕様・完了記録・検討メモは [plan_archive_history.md](plan_archive_history.md) の「検討メモ（Hγ）」を参照してください。**
 
 ##### Phase Hδ: PNG エクスポート（v1 必須）
 
@@ -138,17 +116,9 @@ Phase A〜E 完了時点のコードレビュー（2件）を統合した、**�
 | 19 | **保存・取込の失敗系** | 破損 JSON、権限拒否、ディスク満杯、不正画像 → クラッシュせずユーザーに通知 | **Hγ / Phase R QA** |
 | 20 | **G 三角サイズ（maxEdge/minEdge）** | ~~spacing 単一~~ → **maxEdge + minEdge** で品質定義。v1 UI なし。~~world 値は計画時点未確定 → G 着手前に実機相談で確定~~ → **完了済み（2026-07-20）**。実機チューニング（iPhone14相当 390x844）の結果、`maxEdge: 150.0`／`minEdge: 25.0`（角度フィルター案は不採用、`minEdge` 妥協案を採用）を `kTessellationDefaultMaxEdge`/`kTessellationDefaultMinEdge`（`lib/services/tessellation_service.dart`）として確定 | **完了** |
 
-### 着手前チェックリスト（統合、Hγ を除く）
+### 着手前チェックリスト（統合、Select を除く）
 
-> **Hγ の着手前チェックリストは [plan_phase_H_gamma.md](plan_phase_H_gamma.md) を参照**（現在着手中フェーズのため分離）。Hα・Hβ・G-spike・F・G の着手前チェックリストは完了済み（[plan_archive_history.md](plan_archive_history.md) 参照）。
-
-**Phase Select（Hγ 前／並行・重要、2026-07-27 前倒し）**
-
-- [ ] Point-in-Polygon + AABB 事前フィルタの純関数（単体テスト）
-- [ ] Z-Order（最前面優先）の仕様固定とロジック／ウィジェットテスト
-- [ ] 頂点ヒット vs 図形塗りヒットの優先順位をテストで固定
-- [ ] タップ選択 → 既存辺トグル／図形削除／テッセレーション対象とのターゲット連携
-- [ ] 彩色の最小入口（選択図形の塗り変更 + Undo 1 エントリ）の方針確定
+> **Select の着手前チェックリストは [plan_phase_Select.md](plan_phase_Select.md) を参照**（現在着手中フェーズのため分離）。Hα・Hβ・G-spike・F・G・Hγ の着手前チェックリストは完了済み（[plan_archive_history.md](plan_archive_history.md) 参照）。
 
 **E+（完了済み）**
 
@@ -157,9 +127,14 @@ Phase A〜E 完了時点のコードレビュー（2件）を統合した、**�
 - [x] `clearDraft` / `clearAll` の Undo テスト（#15）
 - [x] `detachVertexFromDraft` テスト（#16）
 
-**Phase R 準備の並行推奨（Hγ と並行可）**
+**Phase Hγ（完了済み、2026-08-03）**
 
-> `ArtworkDocument` 分離・Undo スナップショット確認・`schemaVersion` 確定・統合 smoke 草案の4項目は [plan_phase_H_gamma.md](plan_phase_H_gamma.md) の着手前チェックリストへ移動済み。
+- [x] `ArtworkDocument` と表示レイアウトの分離実装（#9）
+- [x] Undo スナップショットが幾何のみであることの確認
+- [x] `schemaVersion` v1 スキーマ確定
+- [x] 下絵実体コピー＋相対パス、kill 後復元・破損 JSON スキップの実機検証
+
+**Phase R 準備の並行推奨（Select / Hδ と並行可）**
 
 - [ ] `applicationId`・署名（Phase R の一部を並行推奨）
 
@@ -195,7 +170,7 @@ Phase A〜E 完了時点のコードレビュー（2件）を統合した、**�
 
 > **G 該当項目は実装・テスト済み**（`compute()` ラッパー #17、テッセレーション出力で maxEdge 超え辺が残らないこと #20。詳細は [plan_archive_history.md](plan_archive_history.md) 参照）。F 該当項目も実装・テスト済み（同ファイル参照）。
 
-**中（Phase Select / Hγ 前後）**
+**中（Phase Select — 詳細は [plan_phase_Select.md](plan_phase_Select.md)）**
 
 - AABB + `isPointInPolygon` の図形ヒット（重なり時は最前面）
 - タップ選択と辺トグル／テッセレーション対象のターゲット一致
@@ -254,5 +229,5 @@ Phase A〜E 完了時点のコードレビュー（2件）を統合した、**�
 
 ## 検討メモ（過去アーカイブ）
 
-> 過去の実装履歴と検討メモは [plan_archive_history.md](plan_archive_history.md) に隔離しました。現在着手中の詳細は [plan_phase_H_gamma.md](plan_phase_H_gamma.md) を参照してください。
+> 過去の実装履歴と検討メモは [plan_archive_history.md](plan_archive_history.md) に隔離しました。現在着手中の詳細は [plan_phase_Select.md](plan_phase_Select.md) を参照してください。
 

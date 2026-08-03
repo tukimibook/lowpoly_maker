@@ -1,8 +1,8 @@
 # 完了済みフェーズ仕様・検討メモ アーカイブ
 
-> **正本の位置づけ**: 全体像・確定した設計判断・品質方針・リリース要件は [ポリゴンアプリ再設計_e54196e6.plan.md](ポリゴンアプリ再設計_e54196e6.plan.md)（マスター）を参照。未着手フェーズ（Hδ/R）の詳細仕様・技術的負債表・テスト方針・リスクと対策は [plan_future_phases.md](plan_future_phases.md) を参照。現在着手中のフェーズの詳細・直近の検討メモは [plan_phase_H_gamma.md](plan_phase_H_gamma.md) を参照。
+> **正本の位置づけ**: 全体像・確定した設計判断・品質方針・リリース要件は [ポリゴンアプリ再設計_e54196e6.plan.md](ポリゴンアプリ再設計_e54196e6.plan.md)（マスター）を参照。未着手フェーズ（Hδ/R）の詳細仕様・技術的負債表・テスト方針・リスクと対策は [plan_future_phases.md](plan_future_phases.md) を参照。現在着手中のフェーズの詳細・直近の検討メモは [plan_phase_Select.md](plan_phase_Select.md) を参照。
 >
-> **運用**: 本ファイルは「完了済みフェーズの実装済み仕様」と「過去の検討メモ」専用のアーカイブ（2026-07-17 新設。[plan_future_phases.md](plan_future_phases.md) が肥大化し、開発チャットでのコンテキスト消費を圧迫していたため分離した）。現在着手中フェーズ（`plan_phase_<フェーズ>.md`）が完了し次フェーズへ差し替わる際、その完了フェーズの「📍 現在のステータス」の完了記録と「検討メモ（直近）」の全内容を、本ファイル末尾へそのまま追記していく運用とする。（2026-07-20 追記: 現在着手中フェーズの正本は [plan_phase_H_gamma.md](plan_phase_H_gamma.md)。）
+> **運用**: 本ファイルは「完了済みフェーズの実装済み仕様」と「過去の検討メモ」専用のアーカイブ（2026-07-17 新設。[plan_future_phases.md](plan_future_phases.md) が肥大化し、開発チャットでのコンテキスト消費を圧迫していたため分離した）。現在着手中フェーズ（`plan_phase_<フェーズ>.md`）が完了し次フェーズへ差し替わる際、その完了フェーズの「📍 現在のステータス」の完了記録と「検討メモ（直近）」の全内容を、本ファイル末尾へそのまま追記していく運用とする。（2026-08-03 追記: 現在着手中フェーズの正本は [plan_phase_Select.md](plan_phase_Select.md)。）
 
 ## 完了済みフェーズ仕様（アーカイブ）
 
@@ -900,3 +900,49 @@ Phase G 完了後（Hγ 着手期間中）に実施した、テッセレーシ�
 3. **オーケストレーション**: `CanvasNotifier._sharedBoundaryClosure` で `inferBoundaryWaypoints` →（非空なら）`findBoundaryPathViaWaypoints` → 失敗／空なら **従来の `findShortestBoundaryPath` へフォールバック**。返却 mids の draft 既存 ID dedupe、および `closePolygon` 側の `_isSafeClosedRing` ゲートは維持。
 
 関連テスト: `test/geometry/boundary_intent_test.dart`（新規）、`test/geometry/polygon_graph_test.dart`（`findBoundaryPathViaWaypoints` の連結・切断・空 waypoints）。
+
+## 検討メモ（Hγ、2026-07-31〜08-03）
+
+> Phase Hγ 着手時点（旧 `plan_phase_H_gamma.md`）の「📍 現在のステータス（完了記録）」と「検討メモ（直近）」を、Phase Select への差し替え時に本節へ移動（運用ルール、2026-08-03）。
+
+### 📍 現在のステータス (2026-08-03) — Phase Hγ 完了記録
+
+- **完了フェーズ**: Phase A〜E+・G-spike・Hα・Hβ・F・G・**Hγ** がすべて完了。G のテッセレーションは 2026-07-25 に純 Dart poly2tri CDT + Steiner 精錬へエンジン刷新済み。2026-07-27 に Phase G 補完（軌跡ベース意図推定＋ウェイポイント制約付き経路探索）を完了。
+- **現在のフェーズ**: Phase Hγ（保存・作品一覧）**完了**。次フェーズは Phase Select（図形タップ選択＋彩色基盤）。
+- **計画改定（2026-07-27）**: 図形タップ選択（Hit-Testing）＋彩色基盤を **Phase Select** として Hγ の前または並行の重要マイルストーンへ前倒ししていた（詳細は当時 [plan_future_phases.md](plan_future_phases.md)、移行後は [plan_phase_Select.md](plan_phase_Select.md)）。
+- **Hγ 完了実績**:
+  - `Artwork` と `ArtworkDocument` のモデル分離完了（幾何／Undo と永続封筒の分離。`canvasSize` はセッション専用）。
+  - 下絵画像のドキュメント領域への実体コピー（`copyUnderlayImage`）と相対パス管理（`UnderlayRef.imageRelativePath`）の実装完了。コピー漏れによる kill 後消失・サムネ暗転上書きも修正済み。
+  - JSON への直列化および `Offset`/`Color` 用カスタムコンバータ（`json_converters.dart`）の実装完了。`schemaVersion: 1`、`createdAt`/`updatedAt`、非対称リング（確定は `assertConfirmedRingIds`、draft は重複許容）。
+  - AutoSave、エディタ、ギャラリーとの新スキーマ統合完了（1作品＝1 JSON + サムネ PNG + 索引、アトミック書き込み）。
+  - 【実機検証済】タスクキルからのデータ・下絵復元。
+  - 【実機検証済】破損した JSON ファイルの安全なスキップ（クラッシュしない）。
+
+### 2026-07-31: 仕様変更とバグ修正（共有境界クローズ時のV字迂回解消）
+
+図形クローズ時の操作性向上のため、これまで禁止されていた「ドラフト始点へのスナップ吸着（`[S, ..., S]` の状態）」を仕様として許可した。
+それに伴い、既存図形の境界をなぞった後に始点でクローズしようとすると、V字に迂回して外来頂点を巻き込んでしまうバグ（仕様の隙間）が発覚。
+
+*   **対応**: `_sharedBoundaryClosure` において、`fromId` と `toId` が「下書き頂点」と「既存頂点」で混在している場合、経路探索をキャンセルして `[]` を返す（直線フォールバックへ落とす）局所的な正規化ロジックを追加した。
+*   **結果**: 共有辺をなぞった直後でも意図通りに綺麗に図形が閉じられるようになった。
+
+### 2026-07-31: Phase Hγ 着手前アーキテクチャ整備（リファクタリング完了）
+
+Phase Hγ（保存機能）および前倒しされた Phase Select（内外判定）の着手前要件として、肥大化していた描画ロジックの責務分離と健全性確保を完了した。
+
+*   **対象**: `lib/providers/canvas_provider.dart` および関連ジオメトリ
+*   **結果**: ファイル行数を 1568行 → 約1211行 に削減。自動テスト全500件通過、実機検証クリア。
+*   **実施事実**:
+    1.  **純関数の抽出と責務分離**: 状態（`state`）に依存しない幾何計算および境界クローズ処理をトップレベル純関数として抽出し、`lib/geometry/` 配下へ分離（新規ファイル: `ring_boundary.dart`, `closing_safety.dart`, `boundary_closure.dart`）。
+    2.  **不変条件（ルール）の明示**: 確定ポリゴンの頂点配列に対する非重複ルールの検証（`assertConfirmedRingIds`）を実装。`closePolygon`, `Artwork.fromJson`, `loadArtwork`, `commitTessellationResult` の4経路にフェイルセーフとして適用（Draft状態は重複許容として適用外とした）。
+    3.  **認知負荷の低減**: `_tryCloseAtVertex` における複雑な条件分岐を、ロジックを変えずに早期リターン（Early Return）と明示的なフォールスルーによって平坦化。
+*   **意義**: 確定データ（重複なし）とDraftデータ（重複許容）の非対称な仕様がコード上で明示・保証されたことで、Phase HγでのJSONスキーマ設計および保存・復元処理におけるデータ破損リスクが排除された。
+
+### 2026-08-03: Phase Hγ 完了、Phase Select へ移行（ドキュメント整理）
+
+Phase Hγ の実装・実機検証がすべて完了。次フェーズ（Select: 図形タップ選択＋彩色基盤）着手にあたり、ドキュメント構成を整理した。
+
+- 本ファイル（`plan_archive_history.md`）に、完了した Phase Hγ の「📍 現在のステータス（完了記録）」と「検討メモ（直近）」を、旧 `plan_phase_H_gamma.md` から移動。
+- `plan_phase_H_gamma.md` を `plan_phase_Select.md` にリネームし、内容を Phase Select 専用に再構築（詳細仕様・着手前チェックリストを `plan_future_phases.md` から移行）。
+- `plan_future_phases.md` は未着手フェーズ（Hδ/R）の詳細・技術的負債表・テスト方針・リスクと対策の正本として残置し、移動元の跡地にはリンク案内のみを残した。Hγ は完了案内に更新。
+- [ポリゴンアプリ再設計_e54196e6.plan.md](ポリゴンアプリ再設計_e54196e6.plan.md)（マスター）のファイル分割案内・frontmatter todos（Hγ 完了反映、現在フェーズを Select に更新）も追随。
