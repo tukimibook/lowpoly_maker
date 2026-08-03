@@ -39,6 +39,7 @@ class AutoSaveService {
     required ArtworkRepository repository,
     this.debounce = const Duration(seconds: 2),
     this.captureThumbnail,
+    this.allowThumbnailCapture,
     void Function(Object error, StackTrace stackTrace)? onError,
   }) : _repository = repository, // ignore: prefer_initializing_formals
        _onError = onError ?? _defaultOnError;
@@ -56,6 +57,12 @@ class AutoSaveService {
   /// the editor isn't currently mounted). A capture failure never blocks
   /// or fails the document save itself — see [_saveNow].
   final Future<Uint8List?> Function()? captureThumbnail;
+
+  /// When non-null, consulted before capturing a thumbnail. Return `false`
+  /// to skip capture + overwrite (e.g. document has an underlay but its
+  /// decode is still loading or failed — writing a dark canvas would trash
+  /// a previously good gallery thumb). `null` means always allow.
+  final bool Function(ArtworkDocument document)? allowThumbnailCapture;
 
   final void Function(Object error, StackTrace stackTrace) _onError;
 
@@ -155,9 +162,12 @@ class AutoSaveService {
 
       await _repository.saveArtwork(toWrite);
 
-      final thumbnailBytes = await _safeCaptureThumbnail();
-      if (thumbnailBytes != null) {
-        await _repository.saveThumbnail(id, thumbnailBytes);
+      final allowThumb = allowThumbnailCapture?.call(toWrite) ?? true;
+      if (allowThumb) {
+        final thumbnailBytes = await _safeCaptureThumbnail();
+        if (thumbnailBytes != null) {
+          await _repository.saveThumbnail(id, thumbnailBytes);
+        }
       }
 
       final index = await _repository.readIndex();

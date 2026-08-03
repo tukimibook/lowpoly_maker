@@ -1,7 +1,11 @@
+import 'package:file/memory.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:polygon_art_app/providers/artwork_repository_provider.dart';
+import 'package:polygon_art_app/providers/canvas_provider.dart';
 import 'package:polygon_art_app/providers/underlay_provider.dart';
+import 'package:polygon_art_app/repositories/artwork_repository.dart';
 import 'package:polygon_art_app/services/underlay_picker.dart';
 
 /// A fake [UnderlayPicker] that never touches a real platform channel.
@@ -20,38 +24,72 @@ class _FakeUnderlayPicker extends UnderlayPicker {
   }
 }
 
+ProviderContainer _container({
+  required MemoryFileSystem fs,
+  required ArtworkRepository repository,
+  required _FakeUnderlayPicker picker,
+}) {
+  return ProviderContainer(
+    overrides: [
+      underlayPickerProvider.overrideWithValue(picker),
+      artworkRepositoryProvider.overrideWith((ref) async => repository),
+    ],
+  );
+}
+
+Future<void> _writeSource(MemoryFileSystem fs, String path, [List<int> bytes = const [1, 2, 3]]) async {
+  await fs.file(path).create(recursive: true);
+  await fs.file(path).writeAsBytes(bytes);
+}
+
 void main() {
+  late MemoryFileSystem fs;
+  late ArtworkRepository repository;
+
+  setUp(() {
+    fs = MemoryFileSystem();
+    repository = ArtworkRepository(fileSystem: fs, documentsPath: '/documents');
+  });
+
   group('UnderlayController.pickImage', () {
-    test('a successful pick stores the (already-downsampled) file path', () async {
-      final picker = _FakeUnderlayPicker()..nextPath = '/tmp/photo.jpg';
-      final container = ProviderContainer(
-        overrides: [underlayPickerProvider.overrideWithValue(picker)],
-      );
-      addTearDown(container.dispose);
+    test(
+      'a successful pick copies into underlays/ and stores that documents path',
+      () async {
+        await _writeSource(fs, '/tmp/photo.jpg');
+        final picker = _FakeUnderlayPicker()..nextPath = '/tmp/photo.jpg';
+        final container = _container(fs: fs, repository: repository, picker: picker);
+        addTearDown(container.dispose);
 
-      await container.read(underlayProvider.notifier).pickImage();
+        final artworkId = container.read(canvasProvider).id;
+        await container.read(underlayProvider.notifier).pickImage();
 
-      final state = container.read(underlayProvider);
-      expect(state.imagePath, '/tmp/photo.jpg');
-      expect(state.errorMessage, isNull);
-    });
+        final state = container.read(underlayProvider);
+        expect(state.imagePath, repository.underlayPathFor(artworkId, '/tmp/photo.jpg'));
+        expect(state.imagePath, contains('/documents/underlays/'));
+        expect(state.errorMessage, isNull);
+        expect(await fs.file(state.imagePath!).exists(), isTrue);
+        expect(await fs.file(state.imagePath!).readAsBytes(), [1, 2, 3]);
+        // Original picker path is left in place (copy, not move).
+        expect(await fs.file('/tmp/photo.jpg').exists(), isTrue);
+      },
+    );
 
     test('cancelling the picker (null path) leaves the state unchanged', () async {
+      await _writeSource(fs, '/tmp/first.jpg');
       final picker = _FakeUnderlayPicker()..nextPath = '/tmp/first.jpg';
-      final container = ProviderContainer(
-        overrides: [underlayPickerProvider.overrideWithValue(picker)],
-      );
+      final container = _container(fs: fs, repository: repository, picker: picker);
       addTearDown(container.dispose);
 
       await container.read(underlayProvider.notifier).pickImage();
-      expect(container.read(underlayProvider).imagePath, '/tmp/first.jpg');
+      final firstCopied = container.read(underlayProvider).imagePath;
+      expect(firstCopied, isNotNull);
 
       // Re-pick, but this time the user backs out of the picker.
       picker.nextPath = null;
       await container.read(underlayProvider.notifier).pickImage();
 
       final state = container.read(underlayProvider);
-      expect(state.imagePath, '/tmp/first.jpg');
+      expect(state.imagePath, firstCopied);
       expect(state.errorMessage, isNull);
     });
 
@@ -59,14 +97,14 @@ void main() {
       'a picker failure surfaces a user-facing error without clearing a '
       'previously imported photo',
       () async {
+        await _writeSource(fs, '/tmp/existing.jpg');
         final picker = _FakeUnderlayPicker()..nextPath = '/tmp/existing.jpg';
-        final container = ProviderContainer(
-          overrides: [underlayPickerProvider.overrideWithValue(picker)],
-        );
+        final container = _container(fs: fs, repository: repository, picker: picker);
         addTearDown(container.dispose);
 
         await container.read(underlayProvider.notifier).pickImage();
-        expect(container.read(underlayProvider).imagePath, '/tmp/existing.jpg');
+        final existing = container.read(underlayProvider).imagePath;
+        expect(existing, isNotNull);
 
         picker
           ..nextPath = null
@@ -74,14 +112,33 @@ void main() {
         await container.read(underlayProvider.notifier).pickImage();
 
         final state = container.read(underlayProvider);
-        expect(state.imagePath, '/tmp/existing.jpg');
+        expect(state.imagePath, existing);
         expect(state.errorMessage, contains('permission denied'));
       },
     );
 
+    test(
+      'a copy failure does not store the picker’s transient path as imagePath',
+      () async {
+        // Source file does not exist → copyUnderlayImage throws.
+        final picker = _FakeUnderlayPicker()..nextPath = '/tmp/missing.jpg';
+        final container = _container(fs: fs, repository: repository, picker: picker);
+        addTearDown(container.dispose);
+
+        await container.read(underlayProvider.notifier).pickImage();
+
+        final state = container.read(underlayProvider);
+        expect(state.imagePath, isNull);
+        expect(state.errorMessage, isNotNull);
+        expect(state.errorMessage, contains('Could not load image'));
+      },
+    );
+
     test('a fresh, never-picked state has no image path and no error', () {
-      final container = ProviderContainer(
-        overrides: [underlayPickerProvider.overrideWithValue(_FakeUnderlayPicker())],
+      final container = _container(
+        fs: fs,
+        repository: repository,
+        picker: _FakeUnderlayPicker(),
       );
       addTearDown(container.dispose);
 
@@ -93,8 +150,10 @@ void main() {
 
   group('UnderlayController.setImagePath (Phase Hγ — gallery 新規作成/開く)', () {
     test('sets the image path directly, without going through the picker', () {
-      final container = ProviderContainer(
-        overrides: [underlayPickerProvider.overrideWithValue(_FakeUnderlayPicker())],
+      final container = _container(
+        fs: fs,
+        repository: repository,
+        picker: _FakeUnderlayPicker(),
       );
       addTearDown(container.dispose);
 
@@ -106,10 +165,9 @@ void main() {
     });
 
     test('a null argument clears a previously set image path (for a new artwork)', () async {
+      await _writeSource(fs, '/tmp/photo.jpg');
       final picker = _FakeUnderlayPicker()..nextPath = '/tmp/photo.jpg';
-      final container = ProviderContainer(
-        overrides: [underlayPickerProvider.overrideWithValue(picker)],
-      );
+      final container = _container(fs: fs, repository: repository, picker: picker);
       addTearDown(container.dispose);
       await container.read(underlayProvider.notifier).pickImage();
       expect(container.read(underlayProvider).imagePath, isNotNull);
@@ -121,9 +179,7 @@ void main() {
 
     test('clears a previous error even though it does not touch imagePath', () async {
       final picker = _FakeUnderlayPicker()..nextError = Exception('boom');
-      final container = ProviderContainer(
-        overrides: [underlayPickerProvider.overrideWithValue(picker)],
-      );
+      final container = _container(fs: fs, repository: repository, picker: picker);
       addTearDown(container.dispose);
       await container.read(underlayProvider.notifier).pickImage();
       expect(container.read(underlayProvider).errorMessage, isNotNull);

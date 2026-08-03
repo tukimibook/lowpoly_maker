@@ -9,6 +9,7 @@ import '../services/thumbnail_capture_service.dart';
 import 'artwork_repository_provider.dart';
 import 'canvas_capture_provider.dart';
 import 'canvas_provider.dart';
+import 'underlay_image_provider.dart';
 
 /// Wires [AutoSaveService] to every provider a saved `ArtworkDocument`
 /// actually depends on — [canvasProvider] (geometry), [underlayProvider]
@@ -37,6 +38,7 @@ final autoSaveServiceProvider = Provider<AutoSaveService?>((ref) {
   final service = AutoSaveService(
     repository: repository,
     captureThumbnail: () => thumbnailService.capture(captureKey),
+    allowThumbnailCapture: (document) => _isUnderlayReadyForThumbnail(ref, document),
   );
 
   ArtworkDocument currentDocument() {
@@ -53,6 +55,15 @@ final autoSaveServiceProvider = Provider<AutoSaveService?>((ref) {
   });
   ref.listen<UnderlayState>(underlayProvider, (previous, next) {
     service.scheduleSave(currentDocument());
+  });
+
+  // When an underlay finishes decoding after a save that skipped the
+  // thumbnail (loading/error guard), schedule again so a good thumb can
+  // land once the canvas is actually paintable.
+  ref.listen(underlayImageProvider, (previous, next) {
+    if (next.hasValue && next.valueOrNull != null) {
+      service.scheduleSave(currentDocument());
+    }
   });
 
   // `underlayLayoutProvider` exposes a `ValueNotifier`, not a
@@ -72,3 +83,14 @@ final autoSaveServiceProvider = Provider<AutoSaveService?>((ref) {
 
   return service;
 });
+
+/// Thumbnail capture is allowed when the document has no underlay, or when
+/// the underlay image has finished decoding successfully. Loading / error
+/// states must not overwrite a previously good gallery thumbnail with a
+/// dark, underlay-less frame.
+bool _isUnderlayReadyForThumbnail(Ref ref, ArtworkDocument document) {
+  if (document.underlay == null) return true;
+  final image = ref.read(underlayImageProvider);
+  if (image.isLoading || image.hasError) return false;
+  return image.valueOrNull != null;
+}

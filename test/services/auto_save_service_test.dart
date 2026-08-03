@@ -459,5 +459,58 @@ void main() {
 
       expect(await fs.file(repository.thumbnailPathFor('artwork-1')).exists(), isFalse);
     });
+
+    test(
+      'skips thumbnail capture when allowThumbnailCapture returns false '
+      '(underlay referenced but decode pending/error — do not overwrite a good thumb)',
+      () async {
+        final existingThumb = Uint8List.fromList([9, 9, 9]);
+        await repository.saveThumbnail('artwork-1', existingThumb);
+
+        var captureCalls = 0;
+        final service = AutoSaveService(
+          repository: repository,
+          debounce: _testDebounce,
+          captureThumbnail: () async {
+            captureCalls++;
+            return Uint8List.fromList([1, 2, 3]);
+          },
+          allowThumbnailCapture: (_) => false,
+        );
+        addTearDown(service.dispose);
+
+        service.scheduleSave(_documentWithUnderlay());
+        await Future<void>.delayed(_afterDebounce);
+
+        expect(await repository.readArtwork('artwork-1'), isNotNull);
+        expect(captureCalls, 0);
+        expect(
+          await fs.file(repository.thumbnailPathFor('artwork-1')).readAsBytes(),
+          existingThumb,
+        );
+      },
+    );
+
+    test(
+      'still captures a thumbnail for an underlay document when allowThumbnailCapture is true',
+      () async {
+        final bytes = Uint8List.fromList([4, 5, 6]);
+        final service = AutoSaveService(
+          repository: repository,
+          debounce: _testDebounce,
+          captureThumbnail: () async => bytes,
+          allowThumbnailCapture: (_) => true,
+        );
+        addTearDown(service.dispose);
+
+        service.scheduleSave(_documentWithUnderlay());
+        await Future<void>.delayed(_afterDebounce);
+
+        expect(
+          await fs.file(repository.thumbnailPathFor('artwork-1')).readAsBytes(),
+          bytes,
+        );
+      },
+    );
   });
 }
