@@ -770,6 +770,141 @@ void main() {
         expect(currentPainter(tester).highlightedPolygonId, isNull);
       },
     );
+
+    testWidgets(
+      'drill-down: after fill select, tapping near an edge sets edgeCycleIndex',
+      (tester) async {
+        final container = await pumpEditorReady(tester);
+        final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
+
+        // Large square so edge midpoints stay outside vertex hit radii.
+        await tester.tapAt(canvasTopLeft + const Offset(40, 40));
+        await tester.pump();
+        await tester.tapAt(canvasTopLeft + const Offset(240, 40));
+        await tester.pump();
+        await tester.tapAt(canvasTopLeft + const Offset(240, 240));
+        await tester.pump();
+        await tester.tapAt(canvasTopLeft + const Offset(40, 240));
+        await tester.pump();
+        await closeCurrentDraft(tester);
+
+        await enterEditMode(tester);
+
+        // Activate fill (interior).
+        await tester.tapAt(canvasTopLeft + const Offset(140, 140));
+        await tester.pump();
+        expect(container.read(polygonCycleIndexProvider), 0);
+        expect(container.read(edgeCycleIndexProvider), -1);
+
+        // Midpoint of top edge (40,40)–(240,40), slightly below the edge
+        // so we stay on-canvas; > kVertexHitRadius from both corners.
+        await tester.tapAt(canvasTopLeft + const Offset(140, 48));
+        await tester.pump();
+
+        expect(container.read(selectedVertexProvider), isNull);
+        expect(container.read(polygonCycleIndexProvider), 0);
+        expect(container.read(edgeCycleIndexProvider), 0);
+        expect(currentPainter(tester).targetEdge?.ringIndex, 0);
+      },
+    );
+
+    testWidgets(
+      'drill-down: retapping the fill clears the edge target',
+      (tester) async {
+        final container = await pumpEditorReady(tester);
+        final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
+
+        await tester.tapAt(canvasTopLeft + const Offset(40, 40));
+        await tester.pump();
+        await tester.tapAt(canvasTopLeft + const Offset(240, 40));
+        await tester.pump();
+        await tester.tapAt(canvasTopLeft + const Offset(240, 240));
+        await tester.pump();
+        await tester.tapAt(canvasTopLeft + const Offset(40, 240));
+        await tester.pump();
+        await closeCurrentDraft(tester);
+
+        await enterEditMode(tester);
+        await tester.tapAt(canvasTopLeft + const Offset(140, 140));
+        await tester.pump();
+        await tester.tapAt(canvasTopLeft + const Offset(140, 48));
+        await tester.pump();
+        expect(container.read(edgeCycleIndexProvider), 0);
+
+        // Interior retap must clear edge (existing contract).
+        await tester.tapAt(canvasTopLeft + const Offset(140, 140));
+        await tester.pump();
+
+        expect(container.read(polygonCycleIndexProvider), 0);
+        expect(container.read(edgeCycleIndexProvider), -1);
+        expect(currentPainter(tester).targetEdge, isNull);
+      },
+    );
+
+    testWidgets(
+      'priority: vertex tap wins over an active edge-near hit',
+      (tester) async {
+        final container = await pumpEditorReady(tester);
+        final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
+
+        await tester.tapAt(canvasTopLeft + const Offset(40, 40));
+        await tester.pump();
+        await tester.tapAt(canvasTopLeft + const Offset(240, 40));
+        await tester.pump();
+        await tester.tapAt(canvasTopLeft + const Offset(240, 240));
+        await tester.pump();
+        await tester.tapAt(canvasTopLeft + const Offset(40, 240));
+        await tester.pump();
+        await closeCurrentDraft(tester);
+
+        await enterEditMode(tester);
+        await tester.tapAt(canvasTopLeft + const Offset(140, 140));
+        await tester.pump();
+
+        final polygon = container.read(canvasProvider).polygons.single;
+        final vertexA = polygon.vertexIds.first;
+        final vertexAPos =
+            container.read(canvasProvider).vertices[vertexA]!.position;
+
+        // On the vertex itself — vertex priority must clear polygon/edge.
+        await tester.tapAt(canvasTopLeft + vertexAPos);
+        await tester.pump();
+
+        expect(container.read(selectedVertexProvider), vertexA);
+        expect(container.read(polygonCycleIndexProvider), -1);
+        expect(container.read(edgeCycleIndexProvider), -1);
+      },
+    );
+
+    testWidgets(
+      'drill-down: edge tap is ignored until a polygon is active',
+      (tester) async {
+        final container = await pumpEditorReady(tester);
+        final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
+
+        await tester.tapAt(canvasTopLeft + const Offset(40, 40));
+        await tester.pump();
+        await tester.tapAt(canvasTopLeft + const Offset(240, 40));
+        await tester.pump();
+        await tester.tapAt(canvasTopLeft + const Offset(240, 240));
+        await tester.pump();
+        await tester.tapAt(canvasTopLeft + const Offset(40, 240));
+        await tester.pump();
+        await closeCurrentDraft(tester);
+
+        await enterEditMode(tester);
+        expect(container.read(polygonCycleIndexProvider), -1);
+
+        // Near top edge but slightly outside the fill (y=32). Without an
+        // active polygon, edge hit must not run; blank/fill miss → clear.
+        await tester.tapAt(canvasTopLeft + const Offset(140, 32));
+        await tester.pump();
+
+        expect(container.read(polygonCycleIndexProvider), -1);
+        expect(container.read(edgeCycleIndexProvider), -1);
+        expect(currentPainter(tester).targetEdge, isNull);
+      },
+    );
   });
 
   group(

@@ -57,6 +57,12 @@ const String kClosePolygonRejectedMessage =
 /// constant regardless of zoom.
 const double kVertexHitRadius = 30.0;
 
+/// Screen-space tolerance for tapping an edge of the *active* edit-mode
+/// polygon (drill-down edge select). Tighter than [kVertexHitRadius] so
+/// short tessellated edges do not fight each other under a fat finger.
+/// Callers pass `kEdgeTapTolerance / transform.scale` for world space.
+const double kEdgeTapTolerance = 15.0;
+
 /// Perpendicular distance (in world/logical pixels) within which an
 /// existing confirmed vertex sitting near a freshly drawn segment gets
 /// folded into the draft automatically. This lets an artist connect two

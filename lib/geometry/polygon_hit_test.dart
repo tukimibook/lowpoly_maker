@@ -2,6 +2,7 @@ import 'dart:ui';
 
 import 'point_in_polygon.dart';
 import 'polygon_containment.dart';
+import 'ring_boundary.dart';
 
 /// True when [point] lies inside [ring], using a cheap AABB reject before
 /// the exact even-odd ray-cast ([isPointInPolygon]).
@@ -34,4 +35,31 @@ String? findTopmostPolygonIdAt(
     if (pointInRingWithAabb(point, candidate.ring)) return candidate.id;
   }
   return null;
+}
+
+/// Index of the closed-ring edge nearest to [point], or `null` when none
+/// lie within [tolerance] (or the ring has fewer than 2 vertices).
+///
+/// Edge `i` runs from `ring[i]` to `ring[(i + 1) % length]` — the same
+/// [ringIndex] convention as [resolveEdgeTarget] /
+/// [CanvasNotifier.insertVertexAtEdge]. Ties prefer the lower index.
+int? findNearestRingEdgeIndex(
+  Offset point,
+  List<Offset> ring, {
+  required double tolerance,
+}) {
+  if (ring.length < 2 || tolerance < 0) return null;
+
+  int? bestIndex;
+  var bestDistance = double.infinity;
+  for (var i = 0; i < ring.length; i++) {
+    final a = ring[i];
+    final b = ring[(i + 1) % ring.length];
+    final d = distanceToSegment(point, a, b);
+    if (d <= tolerance && d < bestDistance) {
+      bestDistance = d;
+      bestIndex = i;
+    }
+  }
+  return bestIndex;
 }

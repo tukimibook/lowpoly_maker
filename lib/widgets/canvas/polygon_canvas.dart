@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../geometry/trace_point_generator.dart';
 import '../../geometry/viewport_pinch.dart';
+import '../../geometry/polygon_hit_test.dart';
 import '../../geometry/polygon_shading.dart';
 import '../../models/canvas_mode.dart';
 import '../../models/draw_mode.dart';
@@ -352,10 +353,38 @@ class _PolygonCanvasState extends ConsumerState<PolygonCanvas> {
         return;
       }
 
-      // Vertex miss: fall back to filled-polygon hit-testing (Phase Select).
-      // Vertex handles always win over fills when both would apply.
+      // Vertex miss: clear vertex selection, then drill-down edge → fill.
       ref.read(selectedVertexProvider.notifier).state = null;
       ref.read(detachCycleIndexProvider.notifier).state = 0;
+
+      // Priority 2: edges of the *already active* polygon only (drill-down).
+      // Uses build-time [targetPolygonId] so a vertex-selection session does
+      // not accidentally arm edges mid-tap. Does not reset edge on hit.
+      final activePolygonId = targetPolygonId;
+      if (activePolygonId != null) {
+        final activePolygon = artwork.polygons
+            .where((p) => p.id == activePolygonId)
+            .firstOrNull;
+        if (activePolygon != null && activePolygon.vertexIds.length >= 2) {
+          final ring = <Offset>[
+            for (final id in activePolygon.vertexIds)
+              artwork.vertices[id]!.position,
+          ];
+          final edgeIndex = findNearestRingEdgeIndex(
+            world,
+            ring,
+            tolerance: kEdgeTapTolerance / viewport.value.scale,
+          );
+          if (edgeIndex != null) {
+            ref.read(edgeCycleIndexProvider.notifier).state = edgeIndex;
+            HapticFeedback.selectionClick();
+            return;
+          }
+        }
+      }
+
+      // Priority 3: filled-polygon hit-testing (Phase Select). Retapping a
+      // fill intentionally clears any prior edge target (-1 below).
       final polygonId = notifier.findPolygonContaining(world);
       if (polygonId != null) {
         final index = artwork.polygons.indexWhere((p) => p.id == polygonId);
