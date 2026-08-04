@@ -9,7 +9,37 @@ import '../services/thumbnail_capture_service.dart';
 import 'artwork_repository_provider.dart';
 import 'canvas_capture_provider.dart';
 import 'canvas_provider.dart';
+import 'selected_vertex_provider.dart' show EditorSessionRead;
 import 'underlay_image_provider.dart';
+
+/// Builds the current editing session as an [ArtworkDocument], or `null`
+/// when [artworkRepositoryProvider] has not resolved yet.
+///
+/// Single source of truth for the `ArtworkDocument.fromSession` assembly
+/// that auto-save and explicit flush (save-and-exit) previously duplicated.
+/// Call as `currentArtworkDocument(ref.read)`.
+ArtworkDocument? currentArtworkDocument(EditorSessionRead read) {
+  final repository = read(artworkRepositoryProvider).valueOrNull;
+  if (repository == null) return null;
+  return ArtworkDocument.fromSession(
+    artwork: read(canvasProvider),
+    documentsPath: repository.documentsPath,
+    underlayAbsolutePath: read(underlayProvider).imagePath,
+    underlayLayout: read(underlayLayoutProvider).value,
+  );
+}
+
+/// Forces an immediate (non-debounced) save of [currentArtworkDocument]
+/// via [AutoSaveService.flush]. No-op when the repository or
+/// [autoSaveServiceProvider] is not ready yet.
+///
+/// Call as `await saveAndFlushCurrentDocument(ref.read)`.
+Future<void> saveAndFlushCurrentDocument(EditorSessionRead read) async {
+  final service = read(autoSaveServiceProvider);
+  final document = currentArtworkDocument(read);
+  if (service == null || document == null) return;
+  await service.flush(document);
+}
 
 /// Wires [AutoSaveService] to every provider a saved `ArtworkDocument`
 /// actually depends on — [canvasProvider] (geometry), [underlayProvider]
@@ -41,20 +71,17 @@ final autoSaveServiceProvider = Provider<AutoSaveService?>((ref) {
     allowThumbnailCapture: (document) => _isUnderlayReadyForThumbnail(ref, document),
   );
 
-  ArtworkDocument currentDocument() {
-    return ArtworkDocument.fromSession(
-      artwork: ref.read(canvasProvider),
-      documentsPath: repository.documentsPath,
-      underlayAbsolutePath: ref.read(underlayProvider).imagePath,
-      underlayLayout: ref.read(underlayLayoutProvider).value,
-    );
+  void scheduleCurrent() {
+    final document = currentArtworkDocument(ref.read);
+    if (document == null) return;
+    service.scheduleSave(document);
   }
 
   ref.listen<Artwork>(canvasProvider, (previous, next) {
-    service.scheduleSave(currentDocument());
+    scheduleCurrent();
   });
   ref.listen<UnderlayState>(underlayProvider, (previous, next) {
-    service.scheduleSave(currentDocument());
+    scheduleCurrent();
   });
 
   // When an underlay finishes decoding after a save that skipped the
@@ -62,7 +89,7 @@ final autoSaveServiceProvider = Provider<AutoSaveService?>((ref) {
   // land once the canvas is actually paintable.
   ref.listen(underlayImageProvider, (previous, next) {
     if (next.hasValue && next.valueOrNull != null) {
-      service.scheduleSave(currentDocument());
+      scheduleCurrent();
     }
   });
 
@@ -73,7 +100,7 @@ final autoSaveServiceProvider = Provider<AutoSaveService?>((ref) {
   // directly). Listening to the controller itself catches every
   // opacity/visibility/placement change too.
   final underlayLayoutController = ref.read(underlayLayoutProvider);
-  void onUnderlayLayoutChanged() => service.scheduleSave(currentDocument());
+  void onUnderlayLayoutChanged() => scheduleCurrent();
   underlayLayoutController.addListener(onUnderlayLayoutChanged);
 
   ref.onDispose(() {

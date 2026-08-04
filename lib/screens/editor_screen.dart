@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../models/artwork_document.dart';
-import '../providers/artwork_repository_provider.dart';
 import '../providers/auto_save_provider.dart';
 import '../providers/canvas_background_provider.dart';
 import '../providers/canvas_provider.dart';
@@ -11,7 +9,6 @@ import '../providers/export_provider.dart';
 import '../providers/gallery_provider.dart';
 import '../providers/preview_mode_provider.dart';
 import '../providers/tessellation_provider.dart';
-import '../providers/underlay_layout_provider.dart';
 import '../providers/underlay_provider.dart';
 import '../widgets/canvas/polygon_canvas.dart';
 import '../widgets/toolbar/editor_toolbar.dart';
@@ -263,17 +260,7 @@ class _SaveAndExitButtonState extends ConsumerState<_SaveAndExitButton> {
     if (_isSaving) return; // Belt-and-suspenders: onPressed is already null while true.
     setState(() => _isSaving = true);
     try {
-      final autoSaveService = ref.read(autoSaveServiceProvider);
-      final repository = ref.read(artworkRepositoryProvider).valueOrNull;
-      if (autoSaveService != null && repository != null) {
-        final document = ArtworkDocument.fromSession(
-          artwork: ref.read(canvasProvider),
-          documentsPath: repository.documentsPath,
-          underlayAbsolutePath: ref.read(underlayProvider).imagePath,
-          underlayLayout: ref.read(underlayLayoutProvider).value,
-        );
-        await autoSaveService.flush(document);
-      }
+      await saveAndFlushCurrentDocument(ref.read);
       // The grid may still be showing this artwork's previous title/
       // thumbnail (or may not have this artwork at all yet, for a
       // brand-new one) — refresh so it reflects what was just saved the
