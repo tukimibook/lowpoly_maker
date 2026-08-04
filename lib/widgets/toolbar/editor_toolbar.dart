@@ -10,6 +10,7 @@ import '../../providers/detach_cycle_provider.dart';
 import '../../providers/polygon_edit_target_provider.dart';
 import '../../providers/preview_mode_provider.dart';
 import '../../providers/selected_vertex_provider.dart';
+import '../../providers/selection_drag_provider.dart';
 import '../../providers/shade_session_provider.dart';
 import '../../providers/tessellation_provider.dart';
 import '../../providers/viewport_provider.dart';
@@ -518,44 +519,66 @@ class _DetachControls extends ConsumerWidget {
   }
 }
 
-/// Row 1 while in [CanvasMode.shade]: solid / select / light sub-tools.
+/// Row 1 while in [CanvasMode.shade]: solid / select / light sub-tools,
+/// plus clear-all on the trailing edge (Wave 3.2.1).
 class _ShadeModeContextRow extends ConsumerWidget {
   const _ShadeModeContextRow();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final shadeTool = ref.watch(shadeToolProvider);
+    // Watch the provider only to obtain the stable controller — membership
+    // changes must not rebuild this whole row (ListenableBuilder below).
+    final selectionDrag = ref.watch(selectionDragProvider);
 
     return SizedBox(
       height: _kRowHeight,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 8),
-        child: Align(
-          alignment: Alignment.centerLeft,
-          child: SegmentedButton<ShadeTool>(
-            segments: const [
-              ButtonSegment(
-                value: ShadeTool.solid,
-                icon: Icon(Icons.format_color_fill),
-                tooltip: 'Solid fill',
-              ),
-              ButtonSegment(
-                value: ShadeTool.select,
-                icon: Icon(Icons.touch_app_outlined),
-                tooltip: 'Select range',
-              ),
-              ButtonSegment(
-                value: ShadeTool.light,
-                icon: Icon(Icons.wb_sunny_outlined),
-                tooltip: 'Light origin',
-              ),
-            ],
-            selected: {shadeTool},
-            showSelectedIcon: false,
-            onSelectionChanged: (selection) {
-              ref.read(shadeToolProvider.notifier).state = selection.first;
-            },
-          ),
+        child: Row(
+          children: [
+            SegmentedButton<ShadeTool>(
+              segments: const [
+                ButtonSegment(
+                  value: ShadeTool.solid,
+                  icon: Icon(Icons.format_color_fill),
+                  tooltip: 'Solid fill',
+                ),
+                ButtonSegment(
+                  value: ShadeTool.select,
+                  icon: Icon(Icons.touch_app_outlined),
+                  tooltip: 'Select range',
+                ),
+                ButtonSegment(
+                  value: ShadeTool.light,
+                  icon: Icon(Icons.wb_sunny_outlined),
+                  tooltip: 'Light origin',
+                ),
+              ],
+              selected: {shadeTool},
+              showSelectedIcon: false,
+              onSelectionChanged: (selection) {
+                ref.read(shadeToolProvider.notifier).state = selection.first;
+              },
+            ),
+            const Spacer(),
+            ListenableBuilder(
+              listenable: selectionDrag,
+              builder: (context, _) {
+                final hasSelection = selectionDrag.value.isNotEmpty;
+                return IconButton(
+                  key: const Key('shade-clear-selection-button'),
+                  tooltip: 'Clear selection',
+                  iconSize: 28,
+                  onPressed: hasSelection ? selectionDrag.clear : null,
+                  icon: const Icon(
+                    Icons.deselect,
+                    semanticLabel: 'Clear selection',
+                  ),
+                );
+              },
+            ),
+          ],
         ),
       ),
     );
