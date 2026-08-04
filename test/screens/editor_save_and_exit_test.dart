@@ -12,6 +12,7 @@ import 'package:polygon_art_app/models/artwork_index.dart';
 import 'package:polygon_art_app/providers/artwork_repository_provider.dart';
 import 'package:polygon_art_app/repositories/artwork_repository.dart';
 import 'package:polygon_art_app/screens/editor_screen.dart';
+import 'package:polygon_art_app/screens/gallery_screen.dart';
 import 'package:polygon_art_app/screens/home_screen.dart';
 import 'package:polygon_art_app/widgets/canvas/polygon_painter.dart';
 
@@ -29,7 +30,7 @@ class _TestArtworkRepository extends ArtworkRepository {
   int saveArtworkCallCount = 0;
 
   /// Awaited inside [saveArtwork] before it returns — lets a test hold the
-  /// forced save in flight (via a [Completer]) to observe the save-and-exit
+  /// forced save in flight (via a [Completer]) to observe the exit
   /// button's disabled/spinner state, and that a second tap while it's
   /// still pending never triggers a second, overlapping save.
   Future<void> Function()? onSave;
@@ -94,7 +95,9 @@ Future<void> _drawOneTriangle(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
-Finder _saveAndExitButtonFinder() => find.byKey(const Key('save-and-exit-button'));
+Finder _homeExitButtonFinder() => find.byKey(const Key('save-and-go-home-button'));
+Finder _galleryExitButtonFinder() =>
+    find.byKey(const Key('save-and-go-gallery-button'));
 
 void main() {
   Future<_TestArtworkRepository> pumpEditorFromHome(
@@ -109,15 +112,32 @@ void main() {
     );
     // Reaches `EditorScreen` via `HomeScreen`'s direct shortcut (no
     // `GalleryScreen` beneath it in the stack yet) — the path most likely
-    // to be broken by a naive `Navigator.pop()`-based "戻る" button.
+    // to be broken by a naive `Navigator.pop()`-based "back" button.
     await tester.tap(find.text('New Artwork'));
     await tester.pumpAndSettle();
     return repository;
   }
 
-  group('EditorScreen save-and-exit button', () {
+  Future<_TestArtworkRepository> pumpEditorViaGallery(
+    WidgetTester tester, {
+    required _TestArtworkRepository repository,
+  }) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [artworkRepositoryProvider.overrideWith((ref) async => repository)],
+        child: const PolygonArtApp(),
+      ),
+    );
+    await tester.tap(find.text('Gallery'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('gallery-new-fab')));
+    await tester.pumpAndSettle();
+    return repository;
+  }
+
+  group('EditorScreen exit buttons', () {
     testWidgets(
-      'forces an immediate save (no debounce wait) and returns to HomeScreen, '
+      'Home button forces an immediate save and returns to HomeScreen, '
       'popping back to the first route',
       (tester) async {
         final repository = _TestArtworkRepository(MemoryFileSystem());
@@ -125,13 +145,15 @@ void main() {
         await _drawOneTriangle(tester);
 
         expect(find.byType(EditorScreen), findsOneWidget);
+        expect(_iconButtonByTooltip('Return to Home'), findsOneWidget);
+        expect(_iconButtonByTooltip('Go to Gallery'), findsOneWidget);
         // The forced save's thumbnail capture goes through a real
         // `RenderRepaintBoundary.toImage()`/`toByteData()` round trip, which
         // (like `compute()` elsewhere in this app — see `widget_test.dart`'s
         // tessellation tests) never progresses inside `testWidgets`' fake-async
         // zone without `runAsync`.
         await tester.runAsync(() async {
-          await tester.tap(_saveAndExitButtonFinder());
+          await tester.tap(_homeExitButtonFinder());
           await Future<void>.delayed(const Duration(milliseconds: 500));
         });
         await tester.pumpAndSettle();
@@ -148,8 +170,58 @@ void main() {
     );
 
     testWidgets(
-      'disables itself and shows a spinner while the forced save is still in flight, '
-      'and ignores further taps until it completes',
+      'Gallery button from Home→Editor (no Gallery in stack) saves and '
+      'opens GalleryScreen',
+      (tester) async {
+        final repository = _TestArtworkRepository(MemoryFileSystem());
+        await pumpEditorFromHome(tester, repository: repository);
+        await _drawOneTriangle(tester);
+
+        await tester.runAsync(() async {
+          await tester.tap(_galleryExitButtonFinder());
+          await Future<void>.delayed(const Duration(milliseconds: 500));
+        });
+        await tester.pumpAndSettle();
+
+        expect(find.byType(GalleryScreen), findsOneWidget);
+        expect(find.byType(EditorScreen), findsNothing);
+        expect(repository.saveArtworkCallCount, 1);
+      },
+    );
+
+    testWidgets(
+      'Gallery button from Home→Gallery→Editor pops back to the existing '
+      'GalleryScreen without stacking a second one',
+      (tester) async {
+        final repository = _TestArtworkRepository(MemoryFileSystem());
+        await pumpEditorViaGallery(tester, repository: repository);
+        await _drawOneTriangle(tester);
+
+        expect(find.byType(EditorScreen), findsOneWidget);
+
+        await tester.runAsync(() async {
+          await tester.tap(_galleryExitButtonFinder());
+          await Future<void>.delayed(const Duration(milliseconds: 500));
+        });
+        await tester.pumpAndSettle();
+
+        expect(find.byType(GalleryScreen), findsOneWidget);
+        expect(find.byType(EditorScreen), findsNothing);
+        expect(repository.saveArtworkCallCount, 1);
+
+        // One more pop should reveal Home — proving Gallery was the route
+        // we stopped on, not a freshly-pushed replacement of the root.
+        final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+        navigator.pop();
+        await tester.pumpAndSettle();
+        expect(find.byType(HomeScreen), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'disables both exit buttons and shows a spinner on the pressed one '
+      'while the forced save is still in flight, and ignores further taps '
+      'until it completes',
       (tester) async {
         final saveGate = Completer<void>();
         final repository = _TestArtworkRepository(MemoryFileSystem())
@@ -159,17 +231,21 @@ void main() {
         // would complete flush synchronously (no spinner / no saveArtwork).
         await _drawOneTriangle(tester);
 
-        await tester.tap(_saveAndExitButtonFinder());
+        await tester.tap(_homeExitButtonFinder());
         await tester.pump(); // Don't settle: the save never completes yet.
 
         expect(find.byType(CircularProgressIndicator), findsOneWidget);
-        final button = tester.widget<IconButton>(_saveAndExitButtonFinder());
-        expect(button.onPressed, isNull);
+        final homeButton = tester.widget<IconButton>(_homeExitButtonFinder());
+        final galleryButton =
+            tester.widget<IconButton>(_galleryExitButtonFinder());
+        expect(homeButton.onPressed, isNull);
+        expect(galleryButton.onPressed, isNull);
 
         // A second tap while disabled is a no-op at the framework level
         // (a disabled `IconButton` doesn't fire `onPressed`) — this is the
         // actual multi-tap-prevention guarantee under test.
-        await tester.tap(_saveAndExitButtonFinder(), warnIfMissed: false);
+        await tester.tap(_homeExitButtonFinder(), warnIfMissed: false);
+        await tester.tap(_galleryExitButtonFinder(), warnIfMissed: false);
         await tester.pump();
         expect(repository.saveArtworkCallCount, 1);
 
@@ -188,14 +264,14 @@ void main() {
     );
 
     testWidgets(
-      'leaving a brand-new blank canvas via save-and-exit does not create a '
+      'leaving a brand-new blank canvas via Home exit does not create a '
       'gallery entry (empty-canvas auto-save suppression)',
       (tester) async {
         final repository = _TestArtworkRepository(MemoryFileSystem());
         await pumpEditorFromHome(tester, repository: repository);
 
         await tester.runAsync(() async {
-          await tester.tap(_saveAndExitButtonFinder());
+          await tester.tap(_homeExitButtonFinder());
           await Future<void>.delayed(const Duration(milliseconds: 100));
         });
         await tester.pumpAndSettle();

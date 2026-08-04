@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../app.dart';
 import '../providers/auto_save_provider.dart';
 import '../providers/canvas_background_provider.dart';
 import '../providers/canvas_provider.dart';
@@ -120,7 +121,10 @@ class EditorScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(
         automaticallyImplyLeading: false,
-        leading: const _SaveAndExitButton(),
+        // Two IconButtons side-by-side (Home + Gallery); default leading
+        // width (56) is only enough for one.
+        leadingWidth: 96,
+        leading: const _EditorExitButtons(),
         title: InkWell(
           key: const Key('artwork-title'),
           onTap: handleRename,
@@ -233,61 +237,118 @@ class EditorScreen extends ConsumerWidget {
   }
 }
 
-/// 「即時保存して作品一覧へ戻る」(defect-fix #2): forces an immediate
-/// (non-debounced) save via [AutoSaveService.flush] — including a freshly
-/// captured thumbnail, same as any debounced auto-save — then discards the
-/// entire navigation stack and returns to `GalleryScreen`, regardless of
-/// how this `EditorScreen` was reached (`HomeScreen`'s direct shortcut or
-/// `GalleryScreen`'s own 新規作成/開く).
+/// AppBar exit controls: flush the current artwork, then leave the editor.
 ///
-/// A dedicated (`ConsumerStatefulWidget`) widget, not a stateless callback
-/// on [EditorScreen] itself, purely to hold [_isSaving] — the local "is a
-/// save+exit already in flight" flag that disables the button and swaps
-/// in a spinner for its whole duration, so a second tap while the first
-/// `flush()` is still awaiting can never fire a second, overlapping save
-/// (and, worse, a second stack-clearing navigation).
-class _SaveAndExitButton extends ConsumerStatefulWidget {
-  const _SaveAndExitButton();
+/// Spec (Phase Select / 死角2): the single ambiguous "back" control is
+/// replaced by **two** destinations so Home-direct and Gallery-via stacks
+/// never share one underspecified `popUntil`. Both buttons always call
+/// [saveAndFlushCurrentDocument] before navigating.
+///
+/// - **Home** ([_ExitDestination.home]): `popUntil(isFirst)` — always the
+///   root [HomeScreen], regardless of whether Gallery was beneath the
+///   editor.
+/// - **Gallery** ([_ExitDestination.gallery]): if a route named
+///   [PolygonArtApp.galleryRoute] is already on the stack (Home → Gallery
+///   → Editor), `popUntil` that route; otherwise pop to the root and
+///   [Navigator.pushNamed] the gallery (Home → Editor with no Gallery
+///   underneath). Preferring `push` over `pushReplacement` keeps Home as
+///   the stack root.
+///
+/// A dedicated [ConsumerStatefulWidget] holds [_isSaving] so a second tap
+/// while the first `flush()` is still awaiting cannot fire a second save
+/// or a second navigation.
+enum _ExitDestination { home, gallery }
+
+class _EditorExitButtons extends ConsumerStatefulWidget {
+  const _EditorExitButtons();
 
   @override
-  ConsumerState<_SaveAndExitButton> createState() => _SaveAndExitButtonState();
+  ConsumerState<_EditorExitButtons> createState() => _EditorExitButtonsState();
 }
 
-class _SaveAndExitButtonState extends ConsumerState<_SaveAndExitButton> {
+class _EditorExitButtonsState extends ConsumerState<_EditorExitButtons> {
   bool _isSaving = false;
+  _ExitDestination? _activeDestination;
 
-  Future<void> _handleSaveAndExit() async {
-    if (_isSaving) return; // Belt-and-suspenders: onPressed is already null while true.
-    setState(() => _isSaving = true);
+  Future<void> _handleExit(_ExitDestination destination) async {
+    if (_isSaving) return;
+    setState(() {
+      _isSaving = true;
+      _activeDestination = destination;
+    });
     try {
       await saveAndFlushCurrentDocument(ref.read);
-      // The grid may still be showing this artwork's previous title/
-      // thumbnail (or may not have this artwork at all yet, for a
-      // brand-new one) — refresh so it reflects what was just saved the
-      // moment it's shown.
+      // Refresh the gallery grid so title/thumbnail (or a brand-new entry)
+      // match what was just flushed the moment the artist sees it.
       ref.invalidate(artworkIndexProvider);
       if (!mounted) return;
-      // Return to the root HomeScreen regardless of whether the editor was
-      // opened from Home or via Gallery → Editor.
-      Navigator.of(context).popUntil((route) => route.isFirst);
+
+      final navigator = Navigator.of(context);
+      switch (destination) {
+        case _ExitDestination.home:
+          navigator.popUntil((route) => route.isFirst);
+        case _ExitDestination.gallery:
+          var galleryInStack = false;
+          navigator.popUntil((route) {
+            if (route.settings.name == PolygonArtApp.galleryRoute) {
+              galleryInStack = true;
+              return true;
+            }
+            return route.isFirst;
+          });
+          if (!galleryInStack && mounted) {
+            await navigator.pushNamed(PolygonArtApp.galleryRoute);
+          }
+      }
     } finally {
-      if (mounted) setState(() => _isSaving = false);
+      if (mounted) {
+        setState(() {
+          _isSaving = false;
+          _activeDestination = null;
+        });
+      }
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
+  Widget _exitIconButton({
+    required Key key,
+    required _ExitDestination destination,
+    required String tooltip,
+    required IconData icon,
+  }) {
+    final showSpinner = _isSaving && _activeDestination == destination;
     return IconButton(
-      key: const Key('save-and-exit-button'),
-      tooltip: 'Home',
-      onPressed: _isSaving ? null : _handleSaveAndExit,
-      icon: _isSaving
+      key: key,
+      tooltip: tooltip,
+      onPressed: _isSaving ? null : () => _handleExit(destination),
+      icon: showSpinner
           ? const SizedBox(
               width: 20,
               height: 20,
               child: CircularProgressIndicator(strokeWidth: 2),
             )
-          : const Icon(Icons.home_outlined),
+          : Icon(icon, semanticLabel: tooltip),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _exitIconButton(
+          key: const Key('save-and-go-home-button'),
+          destination: _ExitDestination.home,
+          tooltip: 'Return to Home',
+          icon: Icons.home,
+        ),
+        _exitIconButton(
+          key: const Key('save-and-go-gallery-button'),
+          destination: _ExitDestination.gallery,
+          tooltip: 'Go to Gallery',
+          icon: Icons.photo_library,
+        ),
+      ],
     );
   }
 }
