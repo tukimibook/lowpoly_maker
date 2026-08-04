@@ -84,8 +84,10 @@ class PolygonPainter extends CustomPainter {
   /// When true, only polygon fills are painted (no strokes or edit chrome).
   final bool isPreviewMode;
 
-  static const double _vertexRadius = 5;
-  static const double _continuationHandleRadius = 4;
+  // Visual marker sizes only (Phase Select / 死角3). Hit testing stays on
+  // `kVertexHitRadius` in canvas_provider — do not shrink that with these.
+  static const double _vertexRadius = 4;
+  static const double _continuationHandleRadius = 3;
 
   static const int _fillAlpha = 77; // ~30%
   static const int _highlightedFillAlpha = 153; // ~60%
