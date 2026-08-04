@@ -27,14 +27,19 @@ import '../../providers/viewport_provider.dart';
 import 'polygon_painter.dart';
 import 'underlay_layer.dart';
 
+/// Locked for one shade-select stroke after the first polygon hit
+/// (Wave 3.2.1). Null while the finger is still on empty canvas.
+enum _StrokePolarity { add, remove }
+
 /// The drawable surface: renders confirmed polygons and the in-progress
 /// draft, and interprets touches according to the current [CanvasMode]:
 /// - [CanvasMode.draw]: place/extend/close polygons — either tap-by-tap, or
 ///   (see [DrawMode.trace]) by tracing a continuous stroke.
 /// - [CanvasMode.eraser]: delete a single touched vertex.
 /// - [CanvasMode.edit]: tap to select a vertex; long-press drag to move it.
-/// - [CanvasMode.shade]: solid fill / multi-select brush / light origin
-///   (select brush adds immediately via [SelectionDragController]).
+/// - [CanvasMode.shade]: solid fill / multi-select brush / light origin.
+///   Select brush locks Add vs Remove on the **first polygon hit** of each
+///   stroke (Wave 3.2.1); polarity lives on [State], not in `build` locals.
 ///
 /// Every mode also recognizes a 2-finger pinch/pan as a *viewport* gesture
 /// (Phase Hβ, `.cursor/plans/plan_phase_H_beta.md`) rather than whatever
@@ -52,11 +57,28 @@ import 'underlay_layer.dart';
 /// controller's doc (`providers/trace_gesture_provider.dart`) for why a
 /// brief disambiguation window comes first, so a genuine 2-finger
 /// pinch/pan still reliably wins when that's what the artist meant.
-class PolygonCanvas extends ConsumerWidget {
+class PolygonCanvas extends ConsumerStatefulWidget {
   const PolygonCanvas({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<PolygonCanvas> createState() => _PolygonCanvasState();
+}
+
+class _PolygonCanvasState extends ConsumerState<PolygonCanvas> {
+  /// Shade-select stroke polarity. Survives Riverpod rebuilds (dead-end A).
+  /// Cleared on [onScaleEnd] and when a multi-finger viewport gesture wins.
+  _StrokePolarity? _selectStrokePolarity;
+
+  /// Last single-finger focal point for shade solid-fill commit on scale end.
+  Offset? _lastShadeFocalPoint;
+
+  void _clearSelectStrokePolarity() {
+    _selectStrokePolarity = null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ref = this.ref;
     final artwork = ref.watch(canvasProvider);
     final mode = ref.watch(canvasModeProvider);
     final drawMode = ref.watch(drawModeProvider);
@@ -643,18 +665,25 @@ class PolygonCanvas extends ConsumerWidget {
         }
 
         if (mode == CanvasMode.shade) {
-          /// Immediate add-only brush (Phase Select): never stage a preview
-          /// set for end-of-gesture commit — a mid-gesture second finger
-          /// must not wipe polygons already added.
-          Offset? lastShadeFocalPoint;
-
-          void addPolygonUnderFinger(Offset localPosition) {
+          /// Select brush with stroke polarity (Wave 3.2.1 / 代替案 A):
+          /// polarity locks on the **first polygon hit**; blank motion is
+          /// no-op until then. [_selectStrokePolarity] lives on State so a
+          /// Riverpod rebuild cannot wipe it mid-stroke (死角 A).
+          void applySelectBrush(Offset localPosition) {
             final polygonId =
                 notifier.findPolygonContaining(worldPosition(localPosition));
             if (polygonId == null) return;
-            if (selectionDrag.add(polygonId)) {
-              HapticFeedback.selectionClick();
-            }
+
+            final polarity = _selectStrokePolarity ??=
+                selectionDrag.value.contains(polygonId)
+                    ? _StrokePolarity.remove
+                    : _StrokePolarity.add;
+
+            final changed = switch (polarity) {
+              _StrokePolarity.add => selectionDrag.add(polygonId),
+              _StrokePolarity.remove => selectionDrag.remove(polygonId),
+            };
+            if (changed) HapticFeedback.selectionClick();
           }
 
           void applySolidFill(Offset localPosition) {
@@ -669,33 +698,47 @@ class PolygonCanvas extends ConsumerWidget {
             behavior: HitTestBehavior.opaque,
             onScaleStart: (details) {
               beginGestureSubCycle(details);
-              lastShadeFocalPoint = details.localFocalPoint;
-              if (isViewportGesture()) return;
+              _lastShadeFocalPoint = details.localFocalPoint;
+              if (isViewportGesture()) {
+                // Multi-finger already owns this physical gesture — discard
+                // any select polarity (死角 B).
+                _clearSelectStrokePolarity();
+                return;
+              }
               switch (shadeTool) {
                 case ShadeTool.select:
-                  addPolygonUnderFinger(details.localFocalPoint);
+                  applySelectBrush(details.localFocalPoint);
                 case ShadeTool.solid:
                 case ShadeTool.light:
                   break;
               }
             },
             onScaleUpdate: (details) {
-              lastShadeFocalPoint = details.localFocalPoint;
-              if (applyViewportUpdate(details)) return;
+              _lastShadeFocalPoint = details.localFocalPoint;
+              if (applyViewportUpdate(details)) {
+                // Second finger joined (or sticky hadMultiFinger) — stop
+                // the select brush for the rest of this physical gesture.
+                _clearSelectStrokePolarity();
+                return;
+              }
               if (shadeTool == ShadeTool.select) {
-                addPolygonUnderFinger(details.localFocalPoint);
+                applySelectBrush(details.localFocalPoint);
               }
             },
             onScaleEnd: (details) {
               final shouldCommit = endGestureSubCycle(details);
-              final focal = lastShadeFocalPoint;
-              lastShadeFocalPoint = null;
+              final focal = _lastShadeFocalPoint;
+              _lastShadeFocalPoint = null;
+              // Always clear polarity when the sub-cycle ends — including
+              // mid-gesture reconfigure ends — so Remove never leaks into
+              // the next stroke (死角 B).
+              _clearSelectStrokePolarity();
               if (!shouldCommit || focal == null) return;
               switch (shadeTool) {
                 case ShadeTool.solid:
                   applySolidFill(focal);
                 case ShadeTool.select:
-                  // Already added during the gesture.
+                  // Membership already updated during the gesture.
                   break;
                 case ShadeTool.light:
                   // Light → computeDistanceShading / applyPolygonColors in
