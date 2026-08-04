@@ -97,7 +97,7 @@ void main() {
 
         await tester.tap(_iconButtonByTooltip('Cycle Shape'));
         await tester.pump();
-        expect(container.read(polygonCycleIndexProvider), 0);
+        expect(container.read(editSelectionProvider).polygonIndex, 0);
         expect(find.byKey(const Key('fill-color-palette')), findsOneWidget);
 
         final paintColor = kDefaultPolygonPalette[2];

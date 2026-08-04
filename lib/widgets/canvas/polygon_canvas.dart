@@ -102,16 +102,16 @@ class _PolygonCanvasState extends ConsumerState<PolygonCanvas> {
     final canvasBrightness = ref.watch(canvasBackgroundProvider);
     final isPreviewMode = ref.watch(isPreviewModeProvider);
     final detachCycleIndex = ref.watch(detachCycleIndexProvider);
-    final polygonCycleIndex = ref.watch(polygonCycleIndexProvider);
-    final edgeCycleIndex = ref.watch(edgeCycleIndexProvider);
+    // Whole-shape target (図形/辺) — single source via editTargetProvider.
+    final editTarget = ref.watch(editTargetProvider);
 
     // Which polygon edit mode currently emphasizes, and — while no vertex
     // is selected — which of its edges, if any. Exactly one of these two
     // features is ever active at a time (selection state alone decides
     // which), so both resolve into the same `highlightedPolygonId` the
-    // painter takes — see that field's doc for why. Computed once here,
-    // rather than duplicated in the toolbar, so the canvas and toolbar
-    // buttons can never disagree about the current target.
+    // painter takes — see that field's doc for why. Whole-shape resolution
+    // lives in [editTargetProvider] so the canvas and toolbar cannot
+    // disagree about the current target.
     String? highlightedPolygonId;
     PolygonEdge? targetEdge;
     if (mode == CanvasMode.edit) {
@@ -122,19 +122,8 @@ class _PolygonCanvasState extends ConsumerState<PolygonCanvas> {
           rawCycleIndex: detachCycleIndex,
         )?.polygonId;
       } else {
-        highlightedPolygonId = resolvePolygonTarget(
-          polygons: artwork.polygons,
-          rawCycleIndex: polygonCycleIndex,
-        );
-        final targetPolygon = artwork.polygons
-            .where((p) => p.id == highlightedPolygonId)
-            .firstOrNull;
-        if (targetPolygon != null) {
-          targetEdge = resolveEdgeTarget(
-            polygon: targetPolygon,
-            rawCycleIndex: edgeCycleIndex,
-          );
-        }
+        highlightedPolygonId = editTarget.polygonId;
+        targetEdge = editTarget.edge;
       }
     }
     final targetPolygonId = selectedVertexId == null ? highlightedPolygonId : null;
@@ -348,8 +337,7 @@ class _PolygonCanvasState extends ConsumerState<PolygonCanvas> {
         // A vertex just became selected — the whole-shape target UI (図形
         // 切替/辺切替/追加/削除) that only shows while nothing is selected
         // is about to disappear, so leave it starting fresh next time.
-        ref.read(polygonCycleIndexProvider.notifier).state = -1;
-        ref.read(edgeCycleIndexProvider.notifier).state = -1;
+        ref.read(editSelectionProvider.notifier).clearBoth();
         return;
       }
 
@@ -376,7 +364,7 @@ class _PolygonCanvasState extends ConsumerState<PolygonCanvas> {
             tolerance: kEdgeTapTolerance / viewport.value.scale,
           );
           if (edgeIndex != null) {
-            ref.read(edgeCycleIndexProvider.notifier).state = edgeIndex;
+            ref.read(editSelectionProvider.notifier).selectEdge(edgeIndex);
             HapticFeedback.selectionClick();
             return;
           }
@@ -384,21 +372,19 @@ class _PolygonCanvasState extends ConsumerState<PolygonCanvas> {
       }
 
       // Priority 3: filled-polygon hit-testing (Phase Select). Retapping a
-      // fill intentionally clears any prior edge target (-1 below).
+      // fill intentionally clears any prior edge target (selectPolygon).
       final polygonId = notifier.findPolygonContaining(world);
       if (polygonId != null) {
         final index = artwork.polygons.indexWhere((p) => p.id == polygonId);
         if (index >= 0) {
-          ref.read(polygonCycleIndexProvider.notifier).state = index;
-          ref.read(edgeCycleIndexProvider.notifier).state = -1;
+          ref.read(editSelectionProvider.notifier).selectPolygon(index);
           HapticFeedback.selectionClick();
         }
         return;
       }
 
       // Blank canvas: clear every edit-mode selection target.
-      ref.read(polygonCycleIndexProvider.notifier).state = -1;
-      ref.read(edgeCycleIndexProvider.notifier).state = -1;
+      ref.read(editSelectionProvider.notifier).clearBoth();
     }
 
     void startPolygonDrag() {
@@ -458,8 +444,7 @@ class _PolygonCanvasState extends ConsumerState<PolygonCanvas> {
       // an in-progress detach-cycle choice the artist already dialled in.
       if (vertexId != previouslySelected) {
         ref.read(detachCycleIndexProvider.notifier).state = 0;
-        ref.read(polygonCycleIndexProvider.notifier).state = -1;
-        ref.read(edgeCycleIndexProvider.notifier).state = -1;
+        ref.read(editSelectionProvider.notifier).clearBoth();
       }
       vertexDragPreview.value = VertexDragPreview(
         vertexId: vertexId,

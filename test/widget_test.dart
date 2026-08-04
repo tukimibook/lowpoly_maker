@@ -28,7 +28,7 @@ Finder _canvasCustomPaintFinder() {
   });
 }
 
-/// Finds an [IconButton] by its accessible name — the icon-only 2026-07-16
+/// Finds an [IconButton] by its accessible name ? the icon-only 2026-07-16
 /// toolbar redesign (`.cursor/plans/plan_phase_H_alpha.md`) carries no
 /// visible text, so tests must match on `tooltip` instead of `find.text`.
 Finder _iconButtonByTooltip(String tooltip) {
@@ -56,9 +56,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Untitled'), findsOneWidget);
-    // The "閉じる" button lost its visible text label in the 2026-07-16
+    // The "???" button lost its visible text label in the 2026-07-16
     // icon-only toolbar redesign (see `.cursor/plans/plan_phase_H_alpha.md`)
-    // — its accessible name now lives solely in its Tooltip.
+    // ? its accessible name now lives solely in its Tooltip.
     expect(_iconButtonByTooltip('Close shape'), findsOneWidget);
   });
 
@@ -103,7 +103,7 @@ void main() {
 
       expect(container.read(canvasBackgroundProvider), Brightness.light);
 
-      // Theme toggle lives under AppBar ⋮ (environment), not the toolbar.
+      // Theme toggle lives under AppBar ? (environment), not the toolbar.
       await tester.tap(find.byKey(const Key('editor-more-menu-button')));
       await tester.pumpAndSettle();
       expect(find.byIcon(Icons.dark_mode_outlined), findsOneWidget);
@@ -189,13 +189,13 @@ void main() {
           container.read(canvasProvider).vertices[vertexId]!.position;
 
       // Start well away from the shape, near the canvas's top-right corner
-      // — since the 2026-07-16 redesign (`.cursor/plans/
+      // ? since the 2026-07-16 redesign (`.cursor/plans/
       // plan_phase_H_alpha.md`), the canvas itself spans the *entire* body
       // (the bottom toolbar floats on top as a `Stack` overlay instead of
       // shrinking it), so a point near the very bottom would now land
       // under that floating toolbar instead of on an empty patch of
       // canvas. Then drag in to just beside (not exactly onto) that
-      // vertex — close enough to be within the snap radius.
+      // vertex ? close enough to be within the snap radius.
       final canvasSize = tester.getSize(_canvasCustomPaintFinder());
       final farPoint = Offset(canvasSize.width - 40, 40);
       final gesture = await tester.startGesture(canvasTopLeft + farPoint);
@@ -252,10 +252,10 @@ void main() {
           await tester.pump();
 
           // Purple: its first tap snaps onto the same spot as green's
-          // second vertex, welding the two — and purple is listed
+          // second vertex, welding the two ? and purple is listed
           // *second* in `Artwork.polygons`, which is exactly the ordering
           // that used to make the bug reproduce (the vertex still held by
-          // the "later" polygon — purple's original — used to win the
+          // the "later" polygon ? purple's original ? used to win the
           // coincidence tie over the freshly detached copy).
           await tester.tap(find.byTooltip('Draw'));
           await tester.pump();
@@ -300,7 +300,7 @@ void main() {
           );
 
           // Long-press (holding still long enough for the timer to fire,
-          // without moving — a plain pan would instead target whichever
+          // without moving ? a plain pan would instead target whichever
           // whole polygon is currently cycled, an unrelated feature) right
           // on the now-coincident spot, then drag away.
           final gesture = await tester.startGesture(canvasTopLeft + sharedSpot);
@@ -357,7 +357,7 @@ void main() {
 
     testWidgets(
       'shows the tap-to-select hint and cycle control, with nothing '
-      'highlighted until 図形を切り替え is pressed',
+      'highlighted until ??????? is pressed',
       (tester) async {
         await pumpEditorWithTriangle(tester);
 
@@ -371,7 +371,7 @@ void main() {
       },
     );
 
-    testWidgets('図形を切り替え highlights that polygon on the canvas', (tester) async {
+    testWidgets('??????? highlights that polygon on the canvas', (tester) async {
       final container = await pumpEditorWithTriangle(tester);
       final polygonId = container.read(canvasProvider).polygons.single.id;
 
@@ -384,7 +384,7 @@ void main() {
     });
 
     testWidgets(
-      '辺を切り替え then ここに頂点を追加 inserts a vertex at that edge\'s midpoint and '
+      '?????? then ???????? inserts a vertex at that edge\'s midpoint and '
       'selects it immediately',
       (tester) async {
         final container = await pumpEditorWithTriangle(tester);
@@ -406,7 +406,7 @@ void main() {
         expect(before, isNot(contains(selectedId)));
 
         // The whole-shape edge tools are gone now that a vertex is selected,
-        // but 図形を切り替え stays pinned for Z-order rescue.
+        // but ??????? stays pinned for Z-order rescue.
         expect(_iconButtonByTooltip('Cycle Shape'), findsOneWidget);
         expect(_iconButtonByTooltip('Cycle Edge'), findsNothing);
         expect(_iconButtonByTooltip('Add Vertex'), findsNothing);
@@ -415,7 +415,7 @@ void main() {
       },
     );
 
-    testWidgets('図形を削除 removes the targeted polygon', (tester) async {
+    testWidgets('????? removes the targeted polygon', (tester) async {
       final container = await pumpEditorWithTriangle(tester);
 
       await tester.tap(_iconButtonByTooltip('Cycle Shape'));
@@ -442,7 +442,7 @@ void main() {
         await tester.pump();
 
         // A single move, well past Flutter's own scale-vs-tap/long-press
-        // arena slop (`kPanSlop`, 36 logical px — needed for `onScaleStart`
+        // arena slop (`kPanSlop`, 36 logical px ? needed for `onScaleStart`
         // to win the arena over `onLongPressStart` at all), is enough: unlike
         // `PanGestureRecognizer` (whose very first accepted move used to be
         // entirely consumed by establishing the drag's starting position
@@ -450,8 +450,8 @@ void main() {
         // before this test's real one), `ScaleGestureRecognizer` reports
         // `ScaleUpdateDetails.focalPointDelta` as the *actual* incremental
         // movement for every update, including the one that just won the
-        // arena — see `.cursor/plans/plan_phase_H_beta.md`, 2026-07-17
-        // 検討メモ.
+        // arena ? see `.cursor/plans/plan_phase_H_beta.md`, 2026-07-17
+        // ????.
         const dragBy = Offset(60, 40);
         final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
         final gesture = await tester.startGesture(canvasTopLeft + const Offset(20, 20));
@@ -495,7 +495,7 @@ void main() {
         await finger1.moveBy(const Offset(60, 40));
         await tester.pump();
 
-        // A second finger joins mid-drag — must discard the in-progress
+        // A second finger joins mid-drag ? must discard the in-progress
         // whole-shape translation (not commit it at wherever finger 1
         // currently sits), same as the draw-mode equivalent above.
         final finger2 = await tester.startGesture(
@@ -506,7 +506,7 @@ void main() {
         await finger2.up();
         await tester.pump();
 
-        // Positions are exactly what they were before the gesture — proof
+        // Positions are exactly what they were before the gesture ? proof
         // `commitPolygonDrag`/`translatePolygon` never ran; only the
         // (separately tested) viewport pan/zoom math handled this gesture.
         final polygon = container.read(canvasProvider).polygons.single;
@@ -521,11 +521,11 @@ void main() {
 
     // Phase G (plan #17)'s tessellation engine was fully implemented
     // (`TessellationController`, `compute(triangulate, ...)`,
-    // `commitTessellationResult`) but never actually wired to any control —
+    // `commitTessellationResult`) but never actually wired to any control ?
     // discovered during real-device testing (2026-07-21). These two guard
     // against that regressing again now that the overflow menu item exists.
     testWidgets(
-      'テッセレーション menu item appears only after 図形を切り替え picks a target',
+      '???????? menu item appears only after ??????? picks a target',
       (tester) async {
         await pumpEditorWithTriangle(tester);
 
@@ -567,12 +567,12 @@ void main() {
         );
         await tester.pump();
 
-        // `compute()` spawns a real `Isolate` — outside `runAsync`, a
+        // `compute()` spawns a real `Isolate` ? outside `runAsync`, a
         // `testWidgets` test's fake-clock zone can never let it resolve
         // (see `test/services/thumbnail_capture_service_test.dart`'s doc for
         // the same constraint). Polling `isTessellatingProvider` directly on
         // the container (rather than `pumpAndSettle`, which fights this
-        // exact real-Isolate-vs-fake-clock mismatch — see 2026-07-20's
+        // exact real-Isolate-vs-fake-clock mismatch ? see 2026-07-20's
         // `gallery_screen_test.dart` investigation) sidesteps that
         // entirely: real time actually elapses inside this callback, so a
         // handful of short real delays is enough once the flag flips back.
@@ -586,7 +586,7 @@ void main() {
         expect(container.read(isTessellatingProvider), isFalse);
         final stateAfter = container.read(canvasProvider);
         // The original polygon is gone, replaced by (at least) one new
-        // triangle — this triangle's edges are all well under the default
+        // triangle ? this triangle's edges are all well under the default
         // maxEdge, so no further subdivision should have happened.
         expect(stateAfter.polygons.any((p) => p.id == originalPolygonId), isFalse);
         expect(stateAfter.polygons, isNotEmpty);
@@ -596,7 +596,7 @@ void main() {
         container.read(canvasProvider.notifier).undo();
         expect(container.read(canvasProvider), stateBefore);
 
-        // Cycle counters were reset — back to the unselected hint row.
+        // Cycle counters were reset ? back to the unselected hint row.
         expect(find.text('Tap a shape to select'), findsOneWidget);
         expect(find.byKey(const Key('polygon-more-menu-button')), findsNothing);
       },
@@ -656,7 +656,7 @@ void main() {
         await tester.pump();
 
         expect(container.read(selectedVertexProvider), isNull);
-        expect(container.read(polygonCycleIndexProvider), 0);
+        expect(container.read(editSelectionProvider).polygonIndex, 0);
         expect(currentPainter(tester).highlightedPolygonId, polygonId);
       },
     );
@@ -699,7 +699,7 @@ void main() {
         await tester.tapAt(canvasTopLeft + const Offset(100, 82));
         await tester.pump();
 
-        expect(container.read(polygonCycleIndexProvider), 1);
+        expect(container.read(editSelectionProvider).polygonIndex, 1);
         expect(currentPainter(tester).highlightedPolygonId, frontId);
       },
     );
@@ -727,14 +727,14 @@ void main() {
         // Select the fill first so a whole-shape target is active.
         await tester.tapAt(canvasTopLeft + const Offset(100, 80));
         await tester.pump();
-        expect(container.read(polygonCycleIndexProvider), 0);
+        expect(container.read(editSelectionProvider).polygonIndex, 0);
 
         // Vertex tap must win over the active fill target.
         await tester.tapAt(canvasTopLeft + vertexAPos);
         await tester.pump();
 
         expect(container.read(selectedVertexProvider), vertexA);
-        expect(container.read(polygonCycleIndexProvider), -1);
+        expect(container.read(editSelectionProvider).polygonIndex, -1);
         // Cycle control remains available even while a vertex is selected.
         expect(_iconButtonByTooltip('Cycle Shape'), findsOneWidget);
         expect(_iconButtonByTooltip('Delete Vertex'), findsOneWidget);
@@ -758,15 +758,15 @@ void main() {
         await enterEditMode(tester);
         await tester.tapAt(canvasTopLeft + const Offset(100, 80));
         await tester.pump();
-        expect(container.read(polygonCycleIndexProvider), 0);
+        expect(container.read(editSelectionProvider).polygonIndex, 0);
 
         // Far from the triangle and its vertex hit radii.
         await tester.tapAt(canvasTopLeft + const Offset(320, 320));
         await tester.pump();
 
         expect(container.read(selectedVertexProvider), isNull);
-        expect(container.read(polygonCycleIndexProvider), -1);
-        expect(container.read(edgeCycleIndexProvider), -1);
+        expect(container.read(editSelectionProvider).polygonIndex, -1);
+        expect(container.read(editSelectionProvider).edgeIndex, -1);
         expect(currentPainter(tester).highlightedPolygonId, isNull);
       },
     );
@@ -793,17 +793,17 @@ void main() {
         // Activate fill (interior).
         await tester.tapAt(canvasTopLeft + const Offset(140, 140));
         await tester.pump();
-        expect(container.read(polygonCycleIndexProvider), 0);
-        expect(container.read(edgeCycleIndexProvider), -1);
+        expect(container.read(editSelectionProvider).polygonIndex, 0);
+        expect(container.read(editSelectionProvider).edgeIndex, -1);
 
-        // Midpoint of top edge (40,40)–(240,40), slightly below the edge
+        // Midpoint of top edge (40,40)?(240,40), slightly below the edge
         // so we stay on-canvas; > kVertexHitRadius from both corners.
         await tester.tapAt(canvasTopLeft + const Offset(140, 48));
         await tester.pump();
 
         expect(container.read(selectedVertexProvider), isNull);
-        expect(container.read(polygonCycleIndexProvider), 0);
-        expect(container.read(edgeCycleIndexProvider), 0);
+        expect(container.read(editSelectionProvider).polygonIndex, 0);
+        expect(container.read(editSelectionProvider).edgeIndex, 0);
         expect(currentPainter(tester).targetEdge?.ringIndex, 0);
       },
     );
@@ -829,14 +829,14 @@ void main() {
         await tester.pump();
         await tester.tapAt(canvasTopLeft + const Offset(140, 48));
         await tester.pump();
-        expect(container.read(edgeCycleIndexProvider), 0);
+        expect(container.read(editSelectionProvider).edgeIndex, 0);
 
         // Interior retap must clear edge (existing contract).
         await tester.tapAt(canvasTopLeft + const Offset(140, 140));
         await tester.pump();
 
-        expect(container.read(polygonCycleIndexProvider), 0);
-        expect(container.read(edgeCycleIndexProvider), -1);
+        expect(container.read(editSelectionProvider).polygonIndex, 0);
+        expect(container.read(editSelectionProvider).edgeIndex, -1);
         expect(currentPainter(tester).targetEdge, isNull);
       },
     );
@@ -866,13 +866,13 @@ void main() {
         final vertexAPos =
             container.read(canvasProvider).vertices[vertexA]!.position;
 
-        // On the vertex itself — vertex priority must clear polygon/edge.
+        // On the vertex itself ? vertex priority must clear polygon/edge.
         await tester.tapAt(canvasTopLeft + vertexAPos);
         await tester.pump();
 
         expect(container.read(selectedVertexProvider), vertexA);
-        expect(container.read(polygonCycleIndexProvider), -1);
-        expect(container.read(edgeCycleIndexProvider), -1);
+        expect(container.read(editSelectionProvider).polygonIndex, -1);
+        expect(container.read(editSelectionProvider).edgeIndex, -1);
       },
     );
 
@@ -893,15 +893,15 @@ void main() {
         await closeCurrentDraft(tester);
 
         await enterEditMode(tester);
-        expect(container.read(polygonCycleIndexProvider), -1);
+        expect(container.read(editSelectionProvider).polygonIndex, -1);
 
         // Near top edge but slightly outside the fill (y=32). Without an
-        // active polygon, edge hit must not run; blank/fill miss → clear.
+        // active polygon, edge hit must not run; blank/fill miss ? clear.
         await tester.tapAt(canvasTopLeft + const Offset(140, 32));
         await tester.pump();
 
-        expect(container.read(polygonCycleIndexProvider), -1);
-        expect(container.read(edgeCycleIndexProvider), -1);
+        expect(container.read(editSelectionProvider).polygonIndex, -1);
+        expect(container.read(editSelectionProvider).edgeIndex, -1);
         expect(currentPainter(tester).targetEdge, isNull);
       },
     );
@@ -909,7 +909,7 @@ void main() {
 
   group(
     'Edit mode selected-vertex UX enhancements (2026-07-17: seamless '
-    'switch-and-drag + 選択解除)',
+    'switch-and-drag + ????)',
     () {
       Future<ProviderContainer> pumpEditorWithTriangle(WidgetTester tester) async {
         final container = ProviderContainer();
@@ -957,13 +957,13 @@ void main() {
           await tester.pump();
           expect(container.read(selectedVertexProvider), vertexAId);
 
-          // Leave behind cycle state as if the artist had been mid-cycle —
+          // Leave behind cycle state as if the artist had been mid-cycle ?
           // switching to a genuinely different vertex must clear all of
           // it, exactly like tapping a different vertex already does via
           // `handleEditTap`.
           container.read(detachCycleIndexProvider.notifier).state = 3;
-          container.read(polygonCycleIndexProvider.notifier).state = 2;
-          container.read(edgeCycleIndexProvider.notifier).state = 1;
+          container.read(editSelectionProvider.notifier).selectPolygon(2);
+          container.read(editSelectionProvider.notifier).selectEdge(1);
 
           final gesture = await tester.startGesture(canvasTopLeft + vertexBPos);
           await tester.pump(const Duration(milliseconds: 600));
@@ -974,14 +974,14 @@ void main() {
 
           expect(container.read(selectedVertexProvider), vertexBId);
           expect(container.read(detachCycleIndexProvider), 0);
-          expect(container.read(polygonCycleIndexProvider), -1);
-          expect(container.read(edgeCycleIndexProvider), -1);
+          expect(container.read(editSelectionProvider).polygonIndex, -1);
+          expect(container.read(editSelectionProvider).edgeIndex, -1);
         },
       );
 
       testWidgets(
         're-long-pressing the SAME already-selected vertex (e.g. to '
-        'reposition it) leaves the detach cycle counter untouched — the '
+        'reposition it) leaves the detach cycle counter untouched ? the '
         'guard condition must only fire on an actual switch',
         (tester) async {
           final container = await pumpEditorWithTriangle(tester);
@@ -1076,7 +1076,7 @@ void main() {
     },
   );
 
-  group('Phase Hβ: viewport pinch/pan gesture (2026-07-17)', () {
+  group('Phase H?: viewport pinch/pan gesture (2026-07-17)', () {
     Future<ProviderContainer> pumpEditor(WidgetTester tester) async {
       final container = ProviderContainer();
       addTearDown(container.dispose);
@@ -1105,7 +1105,7 @@ void main() {
         // resolve immediately.
         final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
         // Symmetric about a fixed midpoint (200, 150), so the focal point
-        // never moves — isolates the scale change from any panning.
+        // never moves ? isolates the scale change from any panning.
         final finger1 = await tester.startGesture(
           canvasTopLeft + const Offset(150, 150),
         );
@@ -1115,13 +1115,13 @@ void main() {
         );
         await tester.pump();
 
-        // Small, interleaved steps for *both* fingers — real touch hardware
+        // Small, interleaved steps for *both* fingers ? real touch hardware
         // reports incremental movement for every pointer roughly in sync;
         // moving one finger's full distance in a single jump before the
         // other has moved at all (which a real pinch never does) would
         // itself distort the focal point Flutter reports, since
         // `onScaleStart` for the newly-added second finger only fires on
-        // the *next* pointer event after it touches down — by which point
+        // the *next* pointer event after it touches down ? by which point
         // this step's own movement has already happened.
         const steps = 50;
         for (var i = 0; i < steps; i++) {
@@ -1135,8 +1135,8 @@ void main() {
 
         final transform = container.read(viewportProvider).value;
         expect(transform.scale, closeTo(2.0, 0.1));
-        // The world point under the fixed midpoint (200, 150) — which,
-        // since the viewport started at identity, is itself — must still
+        // The world point under the fixed midpoint (200, 150) ? which,
+        // since the viewport started at identity, is itself ? must still
         // render right there after zooming around it.
         final rendered = transform.worldToScreen(const Offset(200, 150));
         expect(rendered.dx, closeTo(200, 3));
@@ -1166,7 +1166,7 @@ void main() {
         );
         await tester.pump();
 
-        // Small, interleaved steps for both fingers — see the pinch test
+        // Small, interleaved steps for both fingers ? see the pinch test
         // above for why a single full-distance jump on just one finger
         // would itself distort the reported focal point.
         const steps = 50;
@@ -1206,11 +1206,11 @@ void main() {
         expect(container.read(dragPreviewProvider).value, isNotNull);
 
         // A second finger joins while the first is still down and hasn't
-        // moved — per Flutter's own `ScaleGestureRecognizer`, this ends the
+        // moved ? per Flutter's own `ScaleGestureRecognizer`, this ends the
         // 1-finger sub-cycle right where finger 1 currently sits, which
         // `PolygonCanvas` must read as "discard whatever finger 1 alone was
         // doing", not "commit it as if finger 1 had just been released
-        // normally" — otherwise starting an ordinary pinch would reliably
+        // normally" ? otherwise starting an ordinary pinch would reliably
         // leave behind an unwanted point at the first finger's landing
         // spot.
         final finger2 = await tester.startGesture(
@@ -1221,7 +1221,7 @@ void main() {
         expect(container.read(canvasProvider).draftVertexIds, isEmpty);
         expect(container.read(dragPreviewProvider).value, isNull);
 
-        // Both fingers now move together (a plain pan) — must NOT be
+        // Both fingers now move together (a plain pan) ? must NOT be
         // reinterpreted as a draw action once a pinch/pan has started,
         // even though only one of them keeps moving here.
         await finger1.moveTo(canvasTopLeft + const Offset(120, 80));
@@ -1239,7 +1239,7 @@ void main() {
     );
 
     testWidgets(
-      '全体表示に戻す resets an arbitrary pan/zoom back to identity',
+      '??????? resets an arbitrary pan/zoom back to identity',
       (tester) async {
         final container = await pumpEditor(tester);
         container.read(viewportProvider).value = const ViewportTransform(
@@ -1283,7 +1283,7 @@ void main() {
         // First tap of the pair: near the draft's own start on screen.
         await tester.tapAt(canvasTopLeft + const Offset(60, 50));
         await tester.pump();
-        // Second tap of the pair, 30 *screen* px from the first — at scale
+        // Second tap of the pair, 30 *screen* px from the first ? at scale
         // 2 that's 15 *world* px, which exceeds the correctly-scaled
         // tolerance (kDoubleTapMaxDistance / 2 = 10) and so must NOT
         // self-close; a caller that forgot to scale this down (still
@@ -1298,7 +1298,7 @@ void main() {
     );
   });
 
-  group('Phase F: なぞりモード gesture (Lock & Ignore, 2026-07-18)', () {
+  group('Phase F: ?????? gesture (Lock & Ignore, 2026-07-18)', () {
     Future<ProviderContainer> pumpEditorInTraceMode(WidgetTester tester) async {
       final container = ProviderContainer();
       addTearDown(container.dispose);
@@ -1320,7 +1320,7 @@ void main() {
 
     testWidgets(
       'a single-finger stroke well past the grace-window slop is resampled '
-      'and committed as one batch — one undo entry — the instant the '
+      'and committed as one batch ? one undo entry ? the instant the '
       'finger lifts',
       (tester) async {
         final container = await pumpEditorInTraceMode(tester);
@@ -1342,7 +1342,7 @@ void main() {
         // kTraceVertexSpacing (50, a fixed world-coordinate distance,
         // unaffected by zoom) over a 120px stroke at scale 1 (world ==
         // screen here): samples at 0/50/100, plus the preserved true end
-        // at 120 — 4 vertices.
+        // at 120 ? 4 vertices.
         expect(artwork.draftVertexIds, hasLength(4));
         final positions = artwork.draftVertexIds
             .map((id) => artwork.vertices[id]!.position)
@@ -1360,7 +1360,7 @@ void main() {
 
     testWidgets(
       'releasing before the grace window elapses and without ever moving '
-      'discards the touch — not even a single-point stroke is committed',
+      'discards the touch ? not even a single-point stroke is committed',
       (tester) async {
         final container = await pumpEditorInTraceMode(tester);
         final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
@@ -1389,7 +1389,7 @@ void main() {
           canvasTopLeft + const Offset(100, 100),
         );
         await tester.pump();
-        // No movement yet — still awaiting disambiguation — when the
+        // No movement yet ? still awaiting disambiguation ? when the
         // second finger joins.
         final finger2 = await tester.startGesture(
           canvasTopLeft + const Offset(300, 100),
@@ -1401,8 +1401,8 @@ void main() {
         // The handoff is real: both fingers panning together now moves
         // the viewport, exactly like every other mode's 2-finger gesture.
         // Small, interleaved steps for both fingers (as opposed to one big
-        // jump per finger) — see `.cursor/plans/plan_phase_H_beta.md`,
-        // 2026-07-17 検討メモ, for why a single full-distance jump on just
+        // jump per finger) ? see `.cursor/plans/plan_phase_H_beta.md`,
+        // 2026-07-17 ????, for why a single full-distance jump on just
         // one finger before the other moves at all would itself distort
         // the focal point `ScaleGestureRecognizer` reports.
         const delta = Offset(30, 10);
@@ -1427,7 +1427,7 @@ void main() {
 
     testWidgets(
       'once a stroke is locked (moved past the slop), a second finger '
-      'joining is ignored outright — no pinch/pan, no interruption — and '
+      'joining is ignored outright ? no pinch/pan, no interruption ? and '
       'the stroke keeps extending from the locked finger alone until IT '
       'lifts, regardless of the ignored finger',
       (tester) async {
@@ -1438,11 +1438,11 @@ void main() {
           canvasTopLeft + const Offset(50, 50),
         );
         await tester.pump();
-        // Past the slop — confirms the lock.
+        // Past the slop ? confirms the lock.
         await finger1.moveBy(const Offset(120, 0));
         await tester.pump();
 
-        // A second finger joins post-lock — must be ignored entirely: no
+        // A second finger joins post-lock ? must be ignored entirely: no
         // viewport change, no effect on the in-progress stroke.
         final finger2 = await tester.startGesture(
           canvasTopLeft + const Offset(300, 50),
@@ -1504,7 +1504,7 @@ void main() {
 
     testWidgets(
       'at viewport scale 2.0, the resampled vertex spacing is still '
-      'exactly kTraceVertexSpacing (50) in WORLD coordinates — not halved '
+      'exactly kTraceVertexSpacing (50) in WORLD coordinates ? not halved '
       'by the zoom (regression guard for the world-space-fixed spacing fix)',
       (tester) async {
         final container = await pumpEditorInTraceMode(tester);
@@ -1515,7 +1515,7 @@ void main() {
         await tester.pump();
 
         final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
-        // Screen-space stroke of 300px at scale 2.0 == 150 world px —
+        // Screen-space stroke of 300px at scale 2.0 == 150 world px ?
         // exactly 3 * kTraceVertexSpacing, landing samples exactly on
         // world offsets 0/50/100/150 from the start with no tail point.
         final gesture = await tester.startGesture(

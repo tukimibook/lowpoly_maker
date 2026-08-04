@@ -16,21 +16,82 @@ PolygonShape _polygon(String id, List<String> vertexIds) {
 }
 
 void main() {
-  group('polygonCycleIndexProvider', () {
-    test('starts at -1 (nothing chosen yet)', () {
+  group('editSelectionProvider', () {
+    test('starts at -1 / -1 (nothing chosen yet)', () {
       final container = ProviderContainer();
       addTearDown(container.dispose);
 
-      expect(container.read(polygonCycleIndexProvider), -1);
+      final state = container.read(editSelectionProvider);
+      expect(state.polygonIndex, -1);
+      expect(state.edgeIndex, -1);
     });
-  });
 
-  group('edgeCycleIndexProvider', () {
-    test('starts at -1 (nothing chosen yet)', () {
+    test('selectPolygon clears the edge index', () {
       final container = ProviderContainer();
       addTearDown(container.dispose);
+      final notifier = container.read(editSelectionProvider.notifier);
 
-      expect(container.read(edgeCycleIndexProvider), -1);
+      notifier.selectEdge(2);
+      notifier.selectPolygon(1);
+
+      final state = container.read(editSelectionProvider);
+      expect(state.polygonIndex, 1);
+      expect(state.edgeIndex, -1);
+    });
+
+    test('selectEdge leaves the polygon index untouched', () {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final notifier = container.read(editSelectionProvider.notifier);
+
+      notifier.selectPolygon(2);
+      notifier.selectEdge(3);
+
+      final state = container.read(editSelectionProvider);
+      expect(state.polygonIndex, 2);
+      expect(state.edgeIndex, 3);
+    });
+
+    test('cyclePolygon advances polygon and clears edge', () {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final notifier = container.read(editSelectionProvider.notifier);
+
+      notifier.selectPolygon(0);
+      notifier.selectEdge(1);
+      notifier.cyclePolygon();
+
+      final state = container.read(editSelectionProvider);
+      expect(state.polygonIndex, 1);
+      expect(state.edgeIndex, -1);
+    });
+
+    test('cycleEdge advances edge only', () {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final notifier = container.read(editSelectionProvider.notifier);
+
+      notifier.selectPolygon(0);
+      notifier.selectEdge(0);
+      notifier.cycleEdge();
+
+      final state = container.read(editSelectionProvider);
+      expect(state.polygonIndex, 0);
+      expect(state.edgeIndex, 1);
+    });
+
+    test('clearBoth resets both to the -1 sentinel', () {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
+      final notifier = container.read(editSelectionProvider.notifier);
+
+      notifier.selectPolygon(4);
+      notifier.selectEdge(2);
+      notifier.clearBoth();
+
+      final state = container.read(editSelectionProvider);
+      expect(state.polygonIndex, -1);
+      expect(state.edgeIndex, -1);
     });
   });
 

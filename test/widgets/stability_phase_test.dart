@@ -88,22 +88,22 @@ void main() {
         container.read(selectedVertexProvider.notifier).state = 'v';
         container.read(weldArmedProvider.notifier).state = true;
         container.read(detachCycleIndexProvider.notifier).state = 2;
-        container.read(polygonCycleIndexProvider.notifier).state = 1;
-        container.read(edgeCycleIndexProvider.notifier).state = 0;
+        container.read(editSelectionProvider.notifier).selectPolygon(1);
+        container.read(editSelectionProvider.notifier).selectEdge(0);
 
         clearEditSelectionUi(container.read, resetWholeShapeCycles: false);
         expect(container.read(selectedVertexProvider), isNull);
         expect(container.read(weldArmedProvider), isFalse);
         expect(container.read(detachCycleIndexProvider), 0);
-        expect(container.read(polygonCycleIndexProvider), 1);
-        expect(container.read(edgeCycleIndexProvider), 0);
+        expect(container.read(editSelectionProvider).polygonIndex, 1);
+        expect(container.read(editSelectionProvider).edgeIndex, 0);
 
         container.read(selectedVertexProvider.notifier).state = 'v2';
-        container.read(polygonCycleIndexProvider.notifier).state = 3;
+        container.read(editSelectionProvider.notifier).selectPolygon(3);
         clearEditSelectionUi(container.read);
         expect(container.read(selectedVertexProvider), isNull);
-        expect(container.read(polygonCycleIndexProvider), -1);
-        expect(container.read(edgeCycleIndexProvider), -1);
+        expect(container.read(editSelectionProvider).polygonIndex, -1);
+        expect(container.read(editSelectionProvider).edgeIndex, -1);
       },
     );
 
@@ -144,7 +144,7 @@ void main() {
         await tester.pump();
         await tester.tap(_iconButtonByTooltip('Cycle Shape'));
         await tester.pump();
-        expect(container.read(polygonCycleIndexProvider), 0);
+        expect(container.read(editSelectionProvider).polygonIndex, 0);
 
         final polygon = container.read(canvasProvider).polygons.single;
         final draggedId = polygon.vertexIds[0];

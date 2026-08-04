@@ -240,20 +240,12 @@ class _EditModeContextRow extends ConsumerWidget {
     final artwork = ref.watch(canvasProvider);
     final notifier = ref.read(canvasProvider.notifier);
     final selectedVertexId = ref.watch(selectedVertexProvider);
-    final polygonIndex = ref.watch(polygonCycleIndexProvider);
-    final edgeIndex = ref.watch(edgeCycleIndexProvider);
+    final editTarget = ref.watch(editTargetProvider);
     final weldArmed = ref.watch(weldArmedProvider);
     final isTessellating = ref.watch(isTessellatingProvider);
 
-    final targetPolygonId = resolvePolygonTarget(
-      polygons: artwork.polygons,
-      rawCycleIndex: polygonIndex,
-    );
-    final targetPolygon =
-        artwork.polygons.where((p) => p.id == targetPolygonId).firstOrNull;
-    final targetEdge = targetPolygon == null
-        ? null
-        : resolveEdgeTarget(polygon: targetPolygon, rawCycleIndex: edgeIndex);
+    final targetPolygonId = editTarget.polygonId;
+    final targetEdge = editTarget.edge;
 
     final hasVertex = selectedVertexId != null;
     final hasPolygon = targetPolygonId != null && !hasVertex;
@@ -265,13 +257,11 @@ class _EditModeContextRow extends ConsumerWidget {
       if (ref.read(selectedVertexProvider) != null) {
         clearEditSelectionUi(ref.read, resetWholeShapeCycles: false);
       }
-      final current = ref.read(polygonCycleIndexProvider);
-      ref.read(polygonCycleIndexProvider.notifier).state = current + 1;
-      ref.read(edgeCycleIndexProvider.notifier).state = -1;
+      ref.read(editSelectionProvider.notifier).cyclePolygon();
     }
 
     void cycleEdge() {
-      ref.read(edgeCycleIndexProvider.notifier).state = edgeIndex + 1;
+      ref.read(editSelectionProvider.notifier).cycleEdge();
     }
 
     void addVertexAtEdge() {
@@ -282,8 +272,7 @@ class _EditModeContextRow extends ConsumerWidget {
       if (newVertexId != null) {
         ref.read(selectedVertexProvider.notifier).state = newVertexId;
       }
-      ref.read(polygonCycleIndexProvider.notifier).state = -1;
-      ref.read(edgeCycleIndexProvider.notifier).state = -1;
+      ref.read(editSelectionProvider.notifier).clearBoth();
     }
 
     void deleteSelectedVertex() {
@@ -300,8 +289,7 @@ class _EditModeContextRow extends ConsumerWidget {
       final polygonId = targetPolygonId;
       if (polygonId == null) return;
       notifier.deletePolygon(polygonId);
-      ref.read(polygonCycleIndexProvider.notifier).state = -1;
-      ref.read(edgeCycleIndexProvider.notifier).state = -1;
+      ref.read(editSelectionProvider.notifier).clearBoth();
     }
 
     Future<void> tessellateTargetPolygon() async {
@@ -309,8 +297,7 @@ class _EditModeContextRow extends ConsumerWidget {
       if (polygonId == null) return;
       final rejectReason =
           await ref.read(tessellationControllerProvider).tessellate(polygonId);
-      ref.read(polygonCycleIndexProvider.notifier).state = -1;
-      ref.read(edgeCycleIndexProvider.notifier).state = -1;
+      ref.read(editSelectionProvider.notifier).clearBoth();
       if (rejectReason != null && context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(_describeTessellationRejection(rejectReason))),
@@ -596,14 +583,11 @@ class _PaletteRow extends ConsumerWidget {
     final mode = ref.watch(canvasModeProvider);
     final selectedVertexId = ref.watch(selectedVertexProvider);
     final artwork = ref.watch(canvasProvider);
-    final polygonIndex = ref.watch(polygonCycleIndexProvider);
+    final editTarget = ref.watch(editTargetProvider);
     final penColor = ref.watch(selectedFillColorProvider);
     final shadingRamp = ref.watch(lastShadingRampProvider);
 
-    final targetPolygonId = resolvePolygonTarget(
-      polygons: artwork.polygons,
-      rawCycleIndex: polygonIndex,
-    );
+    final targetPolygonId = editTarget.polygonId;
     final targetPolygon =
         artwork.polygons.where((p) => p.id == targetPolygonId).firstOrNull;
 

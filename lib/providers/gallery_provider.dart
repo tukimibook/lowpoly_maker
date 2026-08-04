@@ -97,8 +97,7 @@ class GalleryController {
     _ref.read(canvasModeProvider.notifier).state = CanvasMode.draw;
     _ref.read(drawModeProvider.notifier).state = DrawMode.tap;
     _ref.read(selectedVertexProvider.notifier).state = null;
-    _ref.read(polygonCycleIndexProvider.notifier).state = -1;
-    _ref.read(edgeCycleIndexProvider.notifier).state = -1;
+    _ref.read(editSelectionProvider.notifier).clearBoth();
     _ref.read(detachCycleIndexProvider.notifier).state = 0;
     _ref.read(isTessellatingProvider.notifier).state = false;
     // Phase Select: clear shade selection + ramp at gallery open/new

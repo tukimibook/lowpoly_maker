@@ -99,8 +99,8 @@ void main() {
         container.read(canvasModeProvider.notifier).state = CanvasMode.eraser;
         container.read(drawModeProvider.notifier).state = DrawMode.trace;
         container.read(selectedVertexProvider.notifier).state = 'v1';
-        container.read(polygonCycleIndexProvider.notifier).state = 3;
-        container.read(edgeCycleIndexProvider.notifier).state = 2;
+        container.read(editSelectionProvider.notifier).selectPolygon(3);
+        container.read(editSelectionProvider.notifier).selectEdge(2);
         container.read(detachCycleIndexProvider.notifier).state = 4;
         container.read(isTessellatingProvider.notifier).state = true;
 
@@ -109,8 +109,8 @@ void main() {
         expect(container.read(canvasModeProvider), CanvasMode.draw);
         expect(container.read(drawModeProvider), DrawMode.tap);
         expect(container.read(selectedVertexProvider), isNull);
-        expect(container.read(polygonCycleIndexProvider), -1);
-        expect(container.read(edgeCycleIndexProvider), -1);
+        expect(container.read(editSelectionProvider).polygonIndex, -1);
+        expect(container.read(editSelectionProvider).edgeIndex, -1);
         expect(container.read(detachCycleIndexProvider), 0);
         expect(container.read(isTessellatingProvider), isFalse);
       },

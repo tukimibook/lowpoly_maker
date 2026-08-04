@@ -52,8 +52,7 @@ void clearEditSelectionUi(
   read(detachCycleIndexProvider.notifier).state = 0;
   read(weldArmedProvider.notifier).state = false;
   if (resetWholeShapeCycles) {
-    read(polygonCycleIndexProvider.notifier).state = -1;
-    read(edgeCycleIndexProvider.notifier).state = -1;
+    read(editSelectionProvider.notifier).clearBoth();
   }
 }
 
