@@ -1,4 +1,5 @@
 import 'dart:collection';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
@@ -13,6 +14,20 @@ const int kShadingRampStops = 6;
 /// Floor for HSL lightness on the darkest ramp stop. Prevents near-black
 /// collapses that are hard to tell apart on a dark canvas.
 const double kShadingMinLightness = 0.12;
+
+/// Power for the distance→lightness ease-out curve. Values &gt; 1 drop lightness
+/// faster near the origin and more gently at far stops (stronger near contrast).
+const double kShadingGamma = 1.6;
+
+/// Far-stop saturation scale: final stop keeps this fraction of base saturation
+/// (`1.0 - kShadingSaturationFalloff` at `t == 1`).
+const double kShadingSaturationFalloff = 0.15;
+
+/// Amplitude of deterministic lightness jitter as a fraction of one ramp step.
+const double kShadingLightnessJitter = 0.55;
+
+/// Amplitude of deterministic saturation jitter (absolute HSL saturation units).
+const double kShadingSaturationJitter = 0.04;
 
 /// Output of [computeDistanceShading]: per-polygon solid fills plus the
 /// discrete ramp used to assign them (for the Shade toolbar hand-tune UI).
@@ -40,6 +55,7 @@ class ShadingResult {
 
   /// Length [kShadingRampStops] (or empty when this is [empty]): index 0 is
   /// the base / lightest stop, later indices are progressively darker.
+  /// Stops are **pre-jitter** reference colors for the Shade palette UI.
   final List<Color> ramp;
 
   /// Largest BFS hop count among reachable polygons, or `-1` when nothing
@@ -52,8 +68,10 @@ class ShadingResult {
 /// Pure: no providers, no mutation of [polygons]. Adjacency is **shared
 /// vertex id** (weld model) within [targetIds] only — two rings are neighbors
 /// when their `vertexIds` sets intersect. BFS distance from [originId]
-/// (must be in [targetIds]) maps to [kShadingRampStops] HSL-lightness steps
-/// derived from [baseColor]: `color = ramp[min(distance, rampStops − 1)]`.
+/// (must be in [targetIds]) maps to [kShadingRampStops] HSL steps derived
+/// from [baseColor] with a gamma ease-out curve and mild far-stop desaturation.
+/// Non-origin polygons get a deterministic id-based lightness/saturation
+/// jitter so same-distance neighbors rarely look identical.
 ///
 /// Returns [ShadingResult.empty] when [originId] is not in [targetIds],
 /// [targetIds] is empty, or [originId] is absent from [polygons].
@@ -64,6 +82,7 @@ ShadingResult computeDistanceShading({
   required Color baseColor,
   int rampStops = kShadingRampStops,
   double minLightness = kShadingMinLightness,
+  double gamma = kShadingGamma,
 }) {
   if (targetIds.isEmpty || !targetIds.contains(originId) || rampStops < 1) {
     return ShadingResult.empty;
@@ -81,7 +100,13 @@ ShadingResult computeDistanceShading({
     baseColor,
     rampStops: rampStops,
     minLightness: minLightness,
+    gamma: gamma,
   );
+
+  final baseHsl = HSLColor.fromColor(baseColor);
+  final startL = baseHsl.lightness;
+  final endL = minLightness.clamp(0.0, startL);
+  final step = rampStops > 1 ? (startL - endL) / (rampStops - 1) : 0.0;
 
   final colors = <String, Color>{};
   var maxDistance = 0;
@@ -89,7 +114,21 @@ ShadingResult computeDistanceShading({
     final distance = entry.value;
     if (distance > maxDistance) maxDistance = distance;
     final rampIndex = distance >= rampStops ? rampStops - 1 : distance;
-    colors[entry.key] = ramp[rampIndex];
+    final id = entry.key;
+
+    // Origin keeps the artist's base color exactly (no facet jitter).
+    if (distance == 0) {
+      colors[id] = ramp[0];
+      continue;
+    }
+
+    colors[id] = _applyDeterministicJitter(
+      ramp[rampIndex],
+      polygonId: id,
+      step: step,
+      minLightness: endL,
+      maxLightness: startL,
+    );
   }
 
   return ShadingResult(
@@ -148,23 +187,70 @@ Map<String, int> _bfsDistances(
   return distances;
 }
 
+/// Builds the pre-jitter reference ramp: gamma ease-out on lightness plus a
+/// mild far-stop saturation falloff for depth.
 List<Color> _buildLightnessRamp(
   Color baseColor, {
   required int rampStops,
   required double minLightness,
+  required double gamma,
 }) {
   final hsl = HSLColor.fromColor(baseColor);
   final start = hsl.lightness;
   final end = minLightness.clamp(0.0, start);
+  final baseSat = hsl.saturation;
   if (rampStops == 1) {
     return [hsl.withLightness(start).toColor()];
   }
-  return [
-    for (var i = 0; i < rampStops; i++)
+  final safeGamma = gamma <= 0 ? 1.0 : gamma;
+  final ramp = <Color>[];
+  for (var i = 0; i < rampStops; i++) {
+    final t = i / (rampStops - 1);
+    // Ease-out: larger ΔL near the origin, gentler toward the far stop.
+    final curved = 1.0 - math.pow(1.0 - t, safeGamma).toDouble();
+    final lightness = start - (start - end) * curved;
+    final saturation =
+        (baseSat * (1.0 - kShadingSaturationFalloff * curved)).clamp(0.0, 1.0);
+    ramp.add(
       hsl
-          .withLightness(
-            start - (start - end) * (i / (rampStops - 1)),
-          )
+          .withLightness(lightness.clamp(0.0, 1.0))
+          .withSaturation(saturation)
           .toColor(),
-  ];
+    );
+  }
+  return ramp;
+}
+
+/// FNV-1a 32-bit over UTF-16 code units — stable across runs / isolates.
+int _stableHash(String id) {
+  var hash = 2166136261;
+  for (final unit in id.codeUnits) {
+    hash ^= unit;
+    hash = (hash * 16777619) & 0xffffffff;
+  }
+  return hash;
+}
+
+/// Deterministic noise in approximately `[-1.0, 1.0]` from [id] + [salt].
+double _unitNoise(String id, {required int salt}) {
+  final hash = _stableHash('$salt:$id');
+  return ((hash & 0xffff) / 0xffff) * 2.0 - 1.0;
+}
+
+Color _applyDeterministicJitter(
+  Color base, {
+  required String polygonId,
+  required double step,
+  required double minLightness,
+  required double maxLightness,
+}) {
+  final hsl = HSLColor.fromColor(base);
+  final nL = _unitNoise(polygonId, salt: 1);
+  final nS = _unitNoise(polygonId, salt: 2);
+  final lightness =
+      (hsl.lightness + nL * step * kShadingLightnessJitter)
+          .clamp(minLightness, maxLightness);
+  final saturation =
+      (hsl.saturation + nS * kShadingSaturationJitter).clamp(0.0, 1.0);
+  return hsl.withLightness(lightness).withSaturation(saturation).toColor();
 }

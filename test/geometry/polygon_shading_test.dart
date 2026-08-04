@@ -14,6 +14,8 @@ PolygonShape _polygon(String id, List<String> vertexIds) {
   );
 }
 
+double _lightness(Color color) => HSLColor.fromColor(color).lightness;
+
 void main() {
   const baseColor = Color(0xFFFFAA00);
 
@@ -37,17 +39,44 @@ void main() {
       expect(result.maxDistance, 2);
       expect(result.ramp, hasLength(kShadingRampStops));
 
-      // Origin uses the lightest ramp stop; farther hops are darker.
+      // Origin keeps the pre-jitter base ramp stop exactly.
       expect(result.colorsByPolygonId['p0'], result.ramp[0]);
-      expect(result.colorsByPolygonId['p1'], result.ramp[1]);
-      expect(result.colorsByPolygonId['p2'], result.ramp[2]);
 
-      final lightnesses = result.ramp
-          .map((c) => HSLColor.fromColor(c).lightness)
-          .toList();
+      // Farther hops are darker than the origin (jittered, so not exact ramp equals).
+      expect(
+        _lightness(result.colorsByPolygonId['p1']!),
+        lessThan(_lightness(result.colorsByPolygonId['p0']!)),
+      );
+      expect(
+        _lightness(result.colorsByPolygonId['p2']!),
+        lessThan(_lightness(result.colorsByPolygonId['p0']!)),
+      );
+
+      final lightnesses = result.ramp.map(_lightness).toList();
       for (var i = 1; i < lightnesses.length; i++) {
         expect(lightnesses[i], lessThanOrEqualTo(lightnesses[i - 1]));
       }
+    });
+
+    test('same inputs yield identical colors (deterministic jitter)', () {
+      final polygons = [
+        _polygon('p0', const ['a', 'x0', 'y0']),
+        _polygon('p1', const ['a', 'b', 'y1']),
+        _polygon('p2', const ['b', 'x2', 'y2']),
+      ];
+
+      ShadingResult run() => computeDistanceShading(
+            originId: 'p0',
+            targetIds: {'p0', 'p1', 'p2'},
+            polygons: polygons,
+            baseColor: baseColor,
+          );
+
+      final a = run();
+      final b = run();
+      expect(a.colorsByPolygonId, b.colorsByPolygonId);
+      expect(a.ramp, b.ramp);
+      expect(a.maxDistance, b.maxDistance);
     });
 
     test('omits disconnected islands from colorsByPolygonId (existing fill kept by caller)', () {
@@ -102,7 +131,7 @@ void main() {
       expect(result.maxDistance, -1);
     });
 
-    test('clamps distances beyond rampStops to the darkest stop', () {
+    test('clamps distances beyond rampStops toward the darkest stop band', () {
       // Chain of 8 polygons sharing consecutive vertices → max distance 7.
       final polygons = <PolygonShape>[
         _polygon('p0', const ['v0', 'a0', 'b0']),
@@ -119,9 +148,15 @@ void main() {
       );
 
       expect(result.maxDistance, 7);
-      expect(result.colorsByPolygonId['p5'], result.ramp[5]);
-      expect(result.colorsByPolygonId['p6'], result.ramp[5]);
-      expect(result.colorsByPolygonId['p7'], result.ramp[5]);
+      // Beyond the last stop: still in the darkest band (not as light as mid ramp).
+      final midL = _lightness(result.ramp[3]);
+      for (final id in ['p5', 'p6', 'p7']) {
+        expect(
+          _lightness(result.colorsByPolygonId[id]!),
+          lessThan(midL),
+          reason: '$id should sit in the far (dark) band',
+        );
+      }
     });
 
     test('polygons that only share coordinates but not vertex ids are not adjacent', () {
@@ -141,6 +176,23 @@ void main() {
 
       expect(result.colorsByPolygonId.keys, unorderedEquals(['left']));
       expect(result.colorsByPolygonId.containsKey('right'), isFalse);
+    });
+
+    test('gamma ramp drops faster near the origin than a linear ramp would', () {
+      final result = computeDistanceShading(
+        originId: 'solo',
+        targetIds: {'solo'},
+        polygons: [_polygon('solo', const ['a', 'b', 'c'])],
+        baseColor: baseColor,
+      );
+
+      final lightnesses = result.ramp.map(_lightness).toList();
+      final start = lightnesses.first;
+      final end = lightnesses.last;
+      final range = start - end;
+      // First step (index 1) should consume more than 1/(N-1) of the range.
+      final firstStepShare = (start - lightnesses[1]) / range;
+      expect(firstStepShare, greaterThan(1 / (kShadingRampStops - 1)));
     });
   });
 }
