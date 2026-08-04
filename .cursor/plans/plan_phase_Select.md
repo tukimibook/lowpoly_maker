@@ -55,4 +55,77 @@
 
 ## 検討メモ（直近）
 
-（Phase Select 着手後の日付付きエントリをここに積み上げる。）
+### アーキテクチャ確定仕様（2026-08-04）— Step 3.0
+
+シニアレビューで指摘された死角を塞ぎ、Wave 1〜3 の実装規約を確定した記録。  
+**モデル／JSON／`schemaVersion`（`PolygonShape.fillColor` 単色）は変更しない。** 実装着手は本記録の後、別指示で行う。
+
+#### Wave 1〜2 の死角対策（規約の追加）
+
+1. **セーブ処理の重複排除（死角1）**  
+   `ArtworkDocument.fromSession` を組み立てて `flush` する処理が `auto_save_provider.dart` と `editor_screen.dart` の2箇所に重複している。ギャラリーへ戻るボタン等でさらに増えるのを防ぐため、ヘルパー（例: `saveAndFlushCurrentDocument(WidgetRef)`）を1箇所に切り出し、各所からそれを呼ぶルールとする。
+
+2. **ナビゲーションの明確化（死角2）**  
+   `_SaveAndExitButton` などの「戻る」は現状 `popUntil(isFirst)`（Home へ戻る）だが、Gallery 経由遷移とドキュメントコメントが矛盾しうる。実装前に「戻り先は常に Gallery（存在しなければ push）」か「既存どおり常に Home」かを **1文で仕様確定**し、該当コードのコメントに明記すること。
+
+3. **描画定数の波及範囲（死角3）**  
+   頂点ドット縮小時、`_vertexRadius` は選択リング・磁石スナップ・クローズヒント等にも波及する。要望が「編集ハンドルのみ」か「描画中の点も含む」かを確認してから、対象定数（`_continuationHandleRadius` 等）を修正すること。ヒット半径（`kVertexHitRadius`）とは独立。
+
+4. **Wave 3A/3B 厳格ルール**  
+   - 彩色 API は対象を **ID 渡し**とする（例: `CanvasNotifier.setPolygonFillColor(String polygonId, Color color)`）。セッションプロバイダを Notifier 内で直接読ませない。  
+   - 辺ヒットの純関数は新規ファイルを作らず、`polygon_hit_test.dart` に追記して正本を保つ。  
+   - テストは「頂点 > 辺 > 塗り」の優先順位を widget test で **先に赤にしてから**実装する。  
+   - **Wave 3C（辺維持）は今回見送る**（状態管理を増やさない判断）。
+
+#### Wave 3（彩色・距離ベースシェーディング）確定仕様
+
+単一図形内の Shader グラデーションではなく、**複数ポリゴンへの距離ベース単色シェーディング（バッチ塗り）**。`fillColor` 一括更新のみ。Undo はバッチ前 `_recordUndo()` 1回。
+
+1. **モードとツールの分離**  
+   - `CanvasMode.shade` を新設。ツールバーで `ShadeTool`: `solid` / `select` / `light` を切り替える（`DrawMode` と同型のサブツール）。  
+   - `solid`: タップした1図形に現在色を即適用（1タップ = Undo 1回）。  
+   - `select`: タップまたはなぞり（ドラッグ）で対象図形を Set に追加（add-only）。  
+   - `light`: 選択範囲内の図形を1つタップし、起点として距離グラフ計算→グラデーション色をバッチ適用。生成ランプ（5〜6色）を UI に展開し、`solid` で手直し可能にする。
+
+2. **状態管理とジェスチャー（既存規約の遵守）**  
+   - 高頻度（〜60fps）で更新するドラッグ選択状態を `StateProvider` に置くことは **禁止**。  
+   - `SelectionDragController extends ValueNotifier<Set<String>>` を新設し、`PolygonPainter` が `repaint` ソースとして直接監視する（`DragPreviewController` 等と同列）。  
+   - ドラッグ中の選択は「プレビューして離した時にコミット」ではなく、**その場で即座に Set へ add**する（2本指混入で選択が消える事故を防ぐ）。  
+   - 1本指 = 選択ブラシ、2本指 = パン/ピンチ。既存の `onScale*` + `ViewportGestureBaseline` / `hadMultiFinger` サブサイクルに載せる（新規ジェスチャー機構は作らない）。  
+   - `polygonCycleIndexProvider`（edit 単一ターゲット）とは **完全分離**。Shade 中は辺トグル等の単一ターゲット UI を更新しない。
+
+3. **モード離脱時のライフサイクル管理**  
+   状態残留防止のため、`SelectionDragController` と `lastShadingRamp`（および関連 Shade session 状態）のクリアを、次の **2箇所に明示的に直書き**する（共有ヘルパー任せで漏れないこと）:  
+   1. `lib/widgets/toolbar/editor_toolbar.dart` の `selectMode`  
+   2. `lib/providers/gallery_provider.dart` の作品 Open / New 時  
+   あわせて Row0 の `SegmentedButton<CanvasMode>` の `selected` 判定が Draw/Edit の2値フォールバックのままにならないよう、Shade 追加時に直す。
+
+4. **ヒットテストとエッジケース**  
+   - **頂点ヒット無効化**: Shade モード中は頂点ハンドルを非表示にし、タップ判定は `findPolygonContaining` のみとする。  
+   - **no-op**: `light` で選択 Set 外をタップした場合は何も起きない。  
+   - **非連結図形**: 共有頂点ベースの隣接グラフで光源から BFS 到達できない図形は Map に含めず、既存 `fillColor` を維持する（ベース色で上書きしない）。  
+   - **`hadMultiFinger` UX**: 2本指パン直後に1本指へ戻っても、同一物理ジェスチャー内では選択ブラシが再開されない挙動は **仕様として許容**する。  
+   - 隣接定義: 選択 Set 内で `vertexIds` 交差が非空なら隣接。ランプは先に 5〜6色生成し、`distance → ramp[min(distance, rampStops-1)]` で割当。
+
+5. **ハイライトの疎結合**  
+   - `PolygonHighlightStyle` を導入。有彩色・破線は使わず **alpha（透過度）変更のみ**で選択状態を描画する。見た目定数はコア／純関数から参照しない。差し替えはこのスタイル（および必要なら小さな描画ヘルパー）に閉じる。
+
+6. **コア API（実装時の境界）**  
+   - 純関数 `computeDistanceShading` → `ShadingResult(colorsByPolygonId, ramp)`（provider 非依存）。  
+   - `CanvasNotifier.applyPolygonColors(Map<String, Color>)` — `_recordUndo()` 1回のあと一括 `copyWith(fillColor: …)`。未知 ID は無視、変化なしなら no-op。  
+   - パレット: Shade 中のスウォッチタップは `selectedFillColorProvider` の更新のみ（即時塗りしない）。手動適用は `solid` で図形タップ。
+
+#### 実装ステップ（記録・未着手）
+
+| Step | 内容 |
+|------|------|
+| 3.0 | 本エントリ（仕様固定）— **完了** |
+| 3.1 | `computeDistanceShading` + 単体テスト |
+| 3.2 | `applyPolygonColors`（Undo 1回） |
+| 3.3 | `CanvasMode.shade` / `ShadeTool` / `SelectionDragController` / ramp + クリア2箇所 |
+| 3.4 | `PolygonHighlightStyle` + Painter（Set / repaint） |
+| 3.5 | ツールバー（Row0 Shade、Row1 3ツール、Row2 既定＋生成ランプ） |
+| 3.6 | キャンバス入力（solid / select / light、既存 onScale*） |
+| 3.7 | 結合（光源→バッチ→ランプ→solid 手直し、Undo 回帰） |
+
+Wave 1〜2（セーブヘルパー・ナビ仕様確定・描画定数・Select ヒットテスト基盤）は上記規約に従い、Wave 3 本体より前または並行で進める。
