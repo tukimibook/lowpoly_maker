@@ -73,7 +73,18 @@ class GalleryScreen extends ConsumerWidget {
     final indexAsync = ref.watch(artworkIndexProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Gallery')),
+      appBar: AppBar(
+        title: const Text('Gallery'),
+        // Prefer a home icon over the default back arrow so artists do not
+        // mistake this control for "return to the editor" after save-and-exit
+        // (real-device feedback). Behavior is unchanged: pop to Home.
+        leading: IconButton(
+          key: const Key('gallery-return-home-button'),
+          tooltip: 'Return to Home',
+          onPressed: () => Navigator.of(context).maybePop(),
+          icon: const Icon(Icons.home, semanticLabel: 'Return to Home'),
+        ),
+      ),
       floatingActionButton: FloatingActionButton(
         key: const Key('gallery-new-fab'),
         tooltip: 'New Artwork',
