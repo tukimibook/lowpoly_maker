@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../geometry/trace_point_generator.dart';
 import '../../geometry/viewport_pinch.dart';
+import '../../geometry/polygon_shading.dart';
 import '../../models/canvas_mode.dart';
 import '../../models/draw_mode.dart';
 import '../../models/shade_tool.dart';
@@ -686,12 +687,38 @@ class _PolygonCanvasState extends ConsumerState<PolygonCanvas> {
             if (changed) HapticFeedback.selectionClick();
           }
 
-          void applySolidFill(Offset localPosition) {
-            final polygonId =
-                notifier.findPolygonContaining(worldPosition(localPosition));
-            if (polygonId == null) return;
+          void commitSolidFill() {
+            final selected = selectionDrag.value;
+            if (selected.isEmpty) return;
             final color = ref.read(selectedFillColorProvider);
-            notifier.changePolygonColor(polygonId, color);
+            final applied = notifier.applyPolygonColors({
+              for (final id in selected) id: color,
+            });
+            selectionDrag.clear();
+            if (applied) HapticFeedback.selectionClick();
+          }
+
+          void commitLightOrigin(Offset localPosition) {
+            final originId =
+                notifier.findPolygonContaining(worldPosition(localPosition));
+            if (originId == null) return;
+            final targetIds = selectionDrag.value;
+            // Plan: light tap outside the selection set is a no-op.
+            if (!targetIds.contains(originId)) return;
+
+            final result = computeDistanceShading(
+              originId: originId,
+              targetIds: targetIds,
+              polygons: artwork.polygons,
+              baseColor: ref.read(selectedFillColorProvider),
+            );
+            if (result.colorsByPolygonId.isEmpty) return;
+
+            final applied =
+                notifier.applyPolygonColors(result.colorsByPolygonId);
+            ref.read(lastShadingRampProvider.notifier).state = result.ramp;
+            selectionDrag.clear();
+            if (applied) HapticFeedback.mediumImpact();
           }
 
           return GestureDetector(
@@ -736,14 +763,12 @@ class _PolygonCanvasState extends ConsumerState<PolygonCanvas> {
               if (!shouldCommit || focal == null) return;
               switch (shadeTool) {
                 case ShadeTool.solid:
-                  applySolidFill(focal);
+                  commitSolidFill();
                 case ShadeTool.select:
                   // Membership already updated during the gesture.
                   break;
                 case ShadeTool.light:
-                  // Light → computeDistanceShading / applyPolygonColors in
-                  // the next Phase Select step.
-                  break;
+                  commitLightOrigin(focal);
               }
             },
             child: content,

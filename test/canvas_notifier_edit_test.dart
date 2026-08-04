@@ -904,4 +904,61 @@ void main() {
       expect(notifier.canUndo, couldUndoBefore);
     });
   });
+
+  group('CanvasNotifier applyPolygonColors (Phase Select shade batch)', () {
+    test('updates multiple fills in one undo entry', () {
+      final notifier = CanvasNotifier();
+      // Two separate triangles sharing no vertices.
+      notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.red);
+      notifier.handleDrawTap(const Offset(40, 0), fillColor: Colors.red);
+      notifier.handleDrawTap(const Offset(20, 40), fillColor: Colors.red);
+      notifier.closePolygon(Colors.red);
+      final idA = notifier.state.polygons.single.id;
+
+      notifier.handleDrawTap(const Offset(100, 0), fillColor: Colors.red);
+      notifier.handleDrawTap(const Offset(140, 0), fillColor: Colors.red);
+      notifier.handleDrawTap(const Offset(120, 40), fillColor: Colors.red);
+      notifier.closePolygon(Colors.red);
+      final idB =
+          notifier.state.polygons.firstWhere((p) => p.id != idA).id;
+      final before = notifier.state;
+
+      final applied = notifier.applyPolygonColors({
+        idA: Colors.blue,
+        idB: Colors.green,
+      });
+
+      expect(applied, isTrue);
+      expect(
+        notifier.state.polygons.firstWhere((p) => p.id == idA).fillColor,
+        Colors.blue,
+      );
+      expect(
+        notifier.state.polygons.firstWhere((p) => p.id == idB).fillColor,
+        Colors.green,
+      );
+
+      expect(notifier.undo(), isTrue);
+      expect(notifier.state, before);
+    });
+
+    test('ignores unknown ids and no-ops when nothing would change', () {
+      final notifier = CanvasNotifier();
+      notifier.handleDrawTap(const Offset(0, 0), fillColor: Colors.orange);
+      notifier.handleDrawTap(const Offset(40, 0), fillColor: Colors.orange);
+      notifier.handleDrawTap(const Offset(20, 40), fillColor: Colors.orange);
+      notifier.closePolygon(Colors.orange);
+      final id = notifier.state.polygons.single.id;
+      final before = notifier.state;
+      final couldUndoBefore = notifier.canUndo;
+
+      expect(
+        notifier.applyPolygonColors({'missing': Colors.black}),
+        isFalse,
+      );
+      expect(notifier.applyPolygonColors({id: Colors.orange}), isFalse);
+      expect(notifier.state, before);
+      expect(notifier.canUndo, couldUndoBefore);
+    });
+  });
 }

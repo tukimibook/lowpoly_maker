@@ -598,6 +598,7 @@ class _PaletteRow extends ConsumerWidget {
     final artwork = ref.watch(canvasProvider);
     final polygonIndex = ref.watch(polygonCycleIndexProvider);
     final penColor = ref.watch(selectedFillColorProvider);
+    final shadingRamp = ref.watch(lastShadingRampProvider);
 
     final targetPolygonId = resolvePolygonTarget(
       polygons: artwork.polygons,
@@ -616,6 +617,11 @@ class _PaletteRow extends ConsumerWidget {
         ? penColor
         : targetPolygon?.fillColor;
 
+    // Shade: default swatches plus the last light-tool ramp for hand-tuning.
+    final paletteColors = showShadePalette && shadingRamp.isNotEmpty
+        ? <Color>[...kDefaultPolygonPalette, ...shadingRamp]
+        : kDefaultPolygonPalette;
+
     return SizedBox(
       height: _kPaletteRowHeight,
       child: Padding(
@@ -624,7 +630,7 @@ class _PaletteRow extends ConsumerWidget {
             ? const SizedBox.expand()
             : FillColorPalette(
                 key: const Key('fill-color-palette'),
-                colors: kDefaultPolygonPalette,
+                colors: paletteColors,
                 highlightedColor: highlighted,
                 onColorSelected: (color) {
                   if (showDrawPalette || showShadePalette) {

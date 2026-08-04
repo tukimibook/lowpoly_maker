@@ -875,15 +875,38 @@ class CanvasNotifier extends StateNotifier<Artwork> {
   /// one [_recordUndo] entry — same D0 pattern as [deletePolygon] /
   /// [translatePolygon]. Stroke style is intentionally untouched (v1.1).
   void changePolygonColor(String polygonId, Color newColor) {
-    final index = state.polygons.indexWhere((p) => p.id == polygonId);
-    if (index < 0) return;
-    final polygon = state.polygons[index];
-    if (polygon.fillColor == newColor) return;
+    applyPolygonColors({polygonId: newColor});
+  }
+
+  /// Applies each entry of [colorsByPolygonId] as a solid [PolygonShape.fillColor].
+  ///
+  /// One [_recordUndo] for the whole batch (Phase Select shade solid / light).
+  /// Unknown ids are ignored. Returns `false` (and does not push undo) when
+  /// every known target already has the requested color or the map is empty.
+  bool applyPolygonColors(Map<String, Color> colorsByPolygonId) {
+    if (colorsByPolygonId.isEmpty) return false;
+
+    var anyChange = false;
+    for (final entry in colorsByPolygonId.entries) {
+      final polygon =
+          state.polygons.where((p) => p.id == entry.key).firstOrNull;
+      if (polygon != null && polygon.fillColor != entry.value) {
+        anyChange = true;
+        break;
+      }
+    }
+    if (!anyChange) return false;
 
     _recordUndo();
-    final updated = List<PolygonShape>.of(state.polygons);
-    updated[index] = polygon.copyWith(fillColor: newColor);
+    final updated = [
+      for (final polygon in state.polygons)
+        if (colorsByPolygonId.containsKey(polygon.id))
+          polygon.copyWith(fillColor: colorsByPolygonId[polygon.id]!)
+        else
+          polygon,
+    ];
     state = state.copyWith(polygons: updated);
+    return true;
   }
 
   /// Deletes [polygonId] entirely (the edit mode's "🗑️ 図形の削除" button).
