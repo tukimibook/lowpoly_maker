@@ -1,16 +1,18 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-/// Live shade multi-selection: polygon ids added by the select brush.
+/// Live shade multi-selection: polygon ids touched by the select brush.
 ///
 /// A [ValueNotifier] (like `DragPreviewController`) rather than Riverpod
-/// [StateProvider], so [PolygonCanvas] can call [add] on every
+/// [StateProvider], so [PolygonCanvas] can call [add] / [remove] on every
 /// `onScaleUpdate` (~60/sec) without rebuilding the widget tree, and only
 /// [PolygonPainter] — which listens to this as a `repaint` source —
 /// repaints when membership changes.
 ///
-/// Add-only during a drag (Phase Select): never remove mid-gesture. Clear
-/// via [clear] on mode / artwork session reset.
+/// Stroke polarity (Phase Select / Wave 3.2.1): the canvas locks Add vs
+/// Remove for the whole stroke from the **first hit**; blank starts stay
+/// undecided until a polygon is hit. [clear] empties the set (toolbar
+/// deselect-all / mode / artwork session reset).
 class SelectionDragController extends ValueNotifier<Set<String>> {
   SelectionDragController() : super(const {});
 
@@ -19,6 +21,16 @@ class SelectionDragController extends ValueNotifier<Set<String>> {
   bool add(String polygonId) {
     if (value.contains(polygonId)) return false;
     value = {...value, polygonId};
+    return true;
+  }
+
+  /// Removes [polygonId] if present. Returns `true` when membership
+  /// changed (and listeners were notified). No Set copy / notify when
+  /// the id was not selected (Wave 3.2.1 / 死角 C).
+  bool remove(String polygonId) {
+    if (!value.contains(polygonId)) return false;
+    final next = {...value}..remove(polygonId);
+    value = next;
     return true;
   }
 

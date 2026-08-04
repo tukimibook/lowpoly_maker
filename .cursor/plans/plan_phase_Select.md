@@ -88,13 +88,15 @@ v1.0 における UI 言語（Tooltip、SemanticLabel、SnackBar、ダイアロ�
 1. **モードとツールの分離**  
    - `CanvasMode.shade` を新設。ツールバーで `ShadeTool`: `solid` / `select` / `light` を切り替える（`DrawMode` と同型のサブツール）。  
    - `solid`: タップした1図形に現在色を即適用（1タップ = Undo 1回）。  
-   - `select`: タップまたはなぞり（ドラッグ）で対象図形を Set に追加（add-only）。  
+   - `select`: タップまたはなぞり（ドラッグ）で対象図形を選択／解除。**ストローク極性**（Wave 3.2.1）: そのストローク内で**最初にヒットした図形**の状態で Add/Remove を固定する。空白開始はヒットまで極性未決定（図形に触れるまで no-op）。選択済み開始 → Remove、未選択開始 → Add。ストローク中にモード反転しない。  
+   - 全解除ボタン: Shade ツールバー（Row 1）右端に配置。アイコンは **`Icons.deselect`**、tooltip `"Clear selection"`。選択 Set が空のときは非活性。  
    - `light`: 選択範囲内の図形を1つタップし、起点として距離グラフ計算→グラデーション色をバッチ適用。生成ランプ（5〜6色）を UI に展開し、`solid` で手直し可能にする。
 
 2. **状態管理とジェスチャー（既存規約の遵守）**  
    - 高頻度（〜60fps）で更新するドラッグ選択状態を `StateProvider` に置くことは **禁止**。  
-   - `SelectionDragController extends ValueNotifier<Set<String>>` を新設し、`PolygonPainter` が `repaint` ソースとして直接監視する（`DragPreviewController` 等と同列）。  
-   - ドラッグ中の選択は「プレビューして離した時にコミット」ではなく、**その場で即座に Set へ add**する（2本指混入で選択が消える事故を防ぐ）。  
+   - `SelectionDragController extends ValueNotifier<Set<String>>` を新設し、`PolygonPainter` が `repaint` ソースとして直接監視する（`DragPreviewController` 等と同列）。`add` / `remove` は**変化があったときだけ** notify（死角 C 回避）。  
+   - ドラッグ中の選択変更は「プレビューして離した時にコミット」ではなく、**その場で即座に Set へ add/remove**する（2本指混入で選択が消える事故を防ぐ）。  
+   - **マルチセレクトのストローク極性**（Wave 3.2.1）: 最初のヒットで Add/Remove を固定。空白開始はヒットまで極性未決定。2本指混入時は極性を破棄し既存パン／ズームへ切替。  
    - 1本指 = 選択ブラシ、2本指 = パン/ピンチ。既存の `onScale*` + `ViewportGestureBaseline` / `hadMultiFinger` サブサイクルに載せる（新規ジェスチャー機構は作らない）。  
    - `polygonCycleIndexProvider`（edit 単一ターゲット）とは **完全分離**。Shade 中は辺トグル等の単一ターゲット UI を更新しない。
 
@@ -127,9 +129,10 @@ v1.0 における UI 言語（Tooltip、SemanticLabel、SnackBar、ダイアロ�
 | 3.1 | `computeDistanceShading` + 単体テスト |
 | 3.2 | `applyPolygonColors`（Undo 1回） |
 | 3.3 | `CanvasMode.shade` / `ShadeTool` / `SelectionDragController` / ramp + クリア2箇所 |
+| 3.2.1 | UX改善: ストローク極性 + `remove` + 全解除（`Icons.deselect`）— ステップ分割実施中 |
 | 3.4 | `PolygonHighlightStyle` + Painter（Set / repaint） |
-| 3.5 | ツールバー（Row0 Shade、Row1 3ツール、Row2 既定＋生成ランプ） |
-| 3.6 | キャンバス入力（solid / select / light、既存 onScale*） |
+| 3.5 | ツールバー（Row0 Shade、Row1 3ツール＋全解除、Row2 既定＋生成ランプ） |
+| 3.6 | キャンバス入力（solid / select 極性 / light、既存 onScale*） |
 | 3.7 | 結合（光源→バッチ→ランプ→solid 手直し、Undo 回帰） |
 
 Wave 1〜2（セーブヘルパー・ナビ仕様確定・描画定数・Select ヒットテスト基盤）は上記規約に従い、Wave 3 本体より前または並行で進める。

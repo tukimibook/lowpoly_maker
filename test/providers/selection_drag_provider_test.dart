@@ -42,5 +42,28 @@ void main() {
       controller.clear();
       expect(notifications, 1);
     });
+
+    test('remove drops a selected id and notifies listeners once', () {
+      final controller = SelectionDragController();
+      controller.add('p1');
+      controller.add('p2');
+      var notifications = 0;
+      controller.addListener(() => notifications++);
+
+      expect(controller.remove('p1'), isTrue);
+      expect(controller.value, {'p2'});
+      expect(notifications, 1);
+    });
+
+    test('remove is idempotent — unknown id does not notify', () {
+      final controller = SelectionDragController();
+      controller.add('p1');
+      var notifications = 0;
+      controller.addListener(() => notifications++);
+
+      expect(controller.remove('missing'), isFalse);
+      expect(controller.value, {'p1'});
+      expect(notifications, 0);
+    });
   });
 }
