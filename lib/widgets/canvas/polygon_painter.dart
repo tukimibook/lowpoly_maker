@@ -89,7 +89,7 @@ class PolygonPainter extends CustomPainter {
   /// brush adds never rebuild [PolygonCanvas] — only this painter.
   final ValueListenable<Set<String>> selectionDrag;
 
-  /// Alpha-only selection chrome; swap without touching core logic.
+  /// Draw/Edit underlay fill alpha; unused in Shade / preview (opaque fills).
   final PolygonHighlightStyle highlightStyle;
 
   /// When true, only polygon fills are painted (no strokes or edit chrome).
@@ -116,13 +116,20 @@ class PolygonPainter extends CustomPainter {
     canvas.translate(transform.offset.dx, transform.offset.dy);
     canvas.scale(transform.scale);
 
+    // Reused by shade selection outlines (pass 2) so Path geometry is built once.
+    final pathCache = <String, Path>{};
+
     for (final polygon in artwork.polygons) {
-      _paintPolygon(canvas, polygon);
+      _paintPolygon(canvas, polygon, pathCache);
     }
 
     if (isPreviewMode) {
       canvas.restore();
       return;
+    }
+
+    if (mode == CanvasMode.shade) {
+      _paintShadeSelectionOutlines(canvas, pathCache);
     }
 
     _paintTargetEdge(canvas);
@@ -151,10 +158,9 @@ class PolygonPainter extends CustomPainter {
     canvas.restore();
   }
 
+  /// Draw/Edit fill alpha only. Shade / preview short-circuit to 255 in
+  /// [_paintPolygon] and never call this.
   int _fillAlphaFor(String polygonId) {
-    if (selectionDrag.value.contains(polygonId)) {
-      return highlightStyle.selectedFillAlpha;
-    }
     if (polygonId == highlightedPolygonId) {
       return _editHighlightedFillAlpha;
     }
@@ -177,7 +183,11 @@ class PolygonPainter extends CustomPainter {
     return [for (final id in vertexIds) _positionFor(id)];
   }
 
-  void _paintPolygon(Canvas canvas, PolygonShape polygon) {
+  void _paintPolygon(
+    Canvas canvas,
+    PolygonShape polygon,
+    Map<String, Path> pathCache,
+  ) {
     if (polygon.vertexIds.length < 3) return;
     final positions = _resolvePositions(polygon.vertexIds);
 
@@ -186,8 +196,13 @@ class PolygonPainter extends CustomPainter {
       path.lineTo(position.dx, position.dy);
     }
     path.close();
+    pathCache[polygon.id] = path;
 
-    final alpha = _fillAlphaFor(polygon.id);
+    // Shade / preview: always opaque so painted colors match the model.
+    // Draw / Edit keep translucent underlay via [_fillAlphaFor].
+    final alpha = (mode == CanvasMode.shade || isPreviewMode)
+        ? 255
+        : _fillAlphaFor(polygon.id);
     final fillPaint = Paint()
       ..color = polygon.fillColor.withAlpha(alpha)
       ..style = PaintingStyle.fill;
@@ -201,6 +216,30 @@ class PolygonPainter extends CustomPainter {
       ..strokeWidth = polygon.strokeWidth
       ..strokeJoin = StrokeJoin.round;
     canvas.drawPath(path, strokePaint);
+  }
+
+  /// Shade-mode selection chrome: accent stroke on top of all polygon fills
+  /// (pass 2), so overlapping shapes never hide the outline. Reuses [pathCache]
+  /// from pass 1 — no second [_resolvePositions]. Same [Colors.blueAccent] /
+  /// 3.0 width language as [_paintTargetEdge].
+  void _paintShadeSelectionOutlines(
+    Canvas canvas,
+    Map<String, Path> pathCache,
+  ) {
+    final selected = selectionDrag.value;
+    if (selected.isEmpty) return;
+
+    final accentPaint = Paint()
+      ..color = Colors.blueAccent
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3.0
+      ..strokeJoin = StrokeJoin.round;
+
+    for (final id in selected) {
+      final path = pathCache[id];
+      if (path == null) continue;
+      canvas.drawPath(path, accentPaint);
+    }
   }
 
   /// Overwrites [targetEdge] with a thicker, accent-colored stroke, on top
