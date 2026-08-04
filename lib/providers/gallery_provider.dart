@@ -101,6 +101,9 @@ class GalleryController {
     _ref.read(edgeCycleIndexProvider.notifier).state = -1;
     _ref.read(detachCycleIndexProvider.notifier).state = 0;
     _ref.read(isTessellatingProvider.notifier).state = false;
+    // Phase Select: clear shade selection + ramp at gallery open/new
+    // (paired with editor_toolbar selectMode).
+    clearShadeSessionUi(_ref.read);
   }
 }
 

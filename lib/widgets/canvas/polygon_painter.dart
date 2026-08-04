@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../models/artwork.dart';
 import '../../models/canvas_mode.dart';
+import '../../models/polygon_highlight_style.dart';
 import '../../models/polygon_shape.dart';
 import '../../providers/canvas_provider.dart' show kMinPolygonVertices;
 import '../../providers/drag_preview_provider.dart';
@@ -30,6 +31,8 @@ class PolygonPainter extends CustomPainter {
     required this.targetEdge,
     required this.canvasBrightness,
     required this.tracePreview,
+    required this.selectionDrag,
+    this.highlightStyle = PolygonHighlightStyle.neutral,
     this.isPreviewMode = false,
   }) : super(
          repaint: Listenable.merge([
@@ -38,6 +41,7 @@ class PolygonPainter extends CustomPainter {
            vertexDragPreview,
            polygonDragPreview,
            tracePreview,
+           selectionDrag,
          ]),
        );
 
@@ -60,10 +64,10 @@ class PolygonPainter extends CustomPainter {
   /// when no vertex is selected). These two never apply at once — vertex
   /// selection state alone decides which — so both features share this one
   /// field rather than duplicating the highlight rendering. Painted at
-  /// [_highlightedFillAlpha] instead of [_fillAlpha] either way, so the
-  /// artist can see, at a glance, which shape a toolbar action would
-  /// currently affect — this is the *only* signal for that; the toolbar
-  /// buttons themselves carry no per-target label.
+  /// [_editHighlightedFillAlpha] instead of [PolygonHighlightStyle.fillAlpha]
+  /// either way, so the artist can see, at a glance, which shape a toolbar
+  /// action would currently affect — this is the *only* signal for that;
+  /// the toolbar buttons themselves carry no per-target label.
   final String? highlightedPolygonId;
 
   /// The one edge of [highlightedPolygonId] currently targeted by the edit
@@ -81,6 +85,13 @@ class PolygonPainter extends CustomPainter {
   /// (Phase F, `.cursor/plans/plan_phase_F.md`).
   final TraceStrokePreviewController tracePreview;
 
+  /// Shade multi-selection (Phase Select). Listened as a [repaint] source so
+  /// brush adds never rebuild [PolygonCanvas] — only this painter.
+  final ValueListenable<Set<String>> selectionDrag;
+
+  /// Alpha-only selection chrome; swap without touching core logic.
+  final PolygonHighlightStyle highlightStyle;
+
   /// When true, only polygon fills are painted (no strokes or edit chrome).
   final bool isPreviewMode;
 
@@ -89,8 +100,8 @@ class PolygonPainter extends CustomPainter {
   static const double _vertexRadius = 4;
   static const double _continuationHandleRadius = 3;
 
-  static const int _fillAlpha = 77; // ~30%
-  static const int _highlightedFillAlpha = 153; // ~60%
+  /// Edit-mode single-target emphasis (legacy path for 図形切替).
+  static const int _editHighlightedFillAlpha = 153;
 
   Color get _onCanvasColor =>
       canvasBrightness == Brightness.dark ? Colors.white : Colors.black;
@@ -118,7 +129,7 @@ class PolygonPainter extends CustomPainter {
 
     if (mode == CanvasMode.edit) {
       _paintEditVertexHandles(canvas);
-    } else {
+    } else if (mode != CanvasMode.shade) {
       _paintVertexHints(
         canvas,
         artwork.polygons,
@@ -138,6 +149,16 @@ class PolygonPainter extends CustomPainter {
     }
 
     canvas.restore();
+  }
+
+  int _fillAlphaFor(String polygonId) {
+    if (selectionDrag.value.contains(polygonId)) {
+      return highlightStyle.selectedFillAlpha;
+    }
+    if (polygonId == highlightedPolygonId) {
+      return _editHighlightedFillAlpha;
+    }
+    return highlightStyle.fillAlpha;
   }
 
   Offset _positionFor(String vertexId) {
@@ -166,7 +187,7 @@ class PolygonPainter extends CustomPainter {
     }
     path.close();
 
-    final alpha = polygon.id == highlightedPolygonId ? _highlightedFillAlpha : _fillAlpha;
+    final alpha = _fillAlphaFor(polygon.id);
     final fillPaint = Paint()
       ..color = polygon.fillColor.withAlpha(alpha)
       ..style = PaintingStyle.fill;
@@ -371,6 +392,8 @@ class PolygonPainter extends CustomPainter {
         oldDelegate.targetEdge != targetEdge ||
         oldDelegate.canvasBrightness != canvasBrightness ||
         oldDelegate.tracePreview != tracePreview ||
+        oldDelegate.selectionDrag != selectionDrag ||
+        oldDelegate.highlightStyle != highlightStyle ||
         oldDelegate.isPreviewMode != isPreviewMode;
   }
 }

@@ -4,6 +4,8 @@ import 'detach_cycle_provider.dart';
 import 'drag_preview_provider.dart';
 import 'polygon_drag_preview_provider.dart';
 import 'polygon_edit_target_provider.dart';
+import 'selection_drag_provider.dart';
+import 'shade_session_provider.dart';
 import 'trace_gesture_provider.dart';
 import 'trace_stroke_preview_provider.dart';
 import 'vertex_drag_preview_provider.dart';
@@ -53,4 +55,13 @@ void clearEditSelectionUi(
     read(polygonCycleIndexProvider.notifier).state = -1;
     read(edgeCycleIndexProvider.notifier).state = -1;
   }
+}
+
+/// Clears shade-session UI: multi-selection ([SelectionDragController]) and
+/// the last generated ramp. Call from mode switches leaving shade and from
+/// gallery open/new — Phase Select requires explicit writes at those two
+/// call sites (not helper-only reliance).
+void clearShadeSessionUi(EditorSessionRead read) {
+  read(selectionDragProvider).clear();
+  read(lastShadingRampProvider.notifier).state = const [];
 }

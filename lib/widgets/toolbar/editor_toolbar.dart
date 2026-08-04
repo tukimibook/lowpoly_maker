@@ -4,11 +4,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../geometry/tessellation_input.dart';
 import '../../models/canvas_mode.dart';
 import '../../models/draw_mode.dart';
+import '../../models/shade_tool.dart';
 import '../../providers/canvas_provider.dart';
 import '../../providers/detach_cycle_provider.dart';
 import '../../providers/polygon_edit_target_provider.dart';
 import '../../providers/preview_mode_provider.dart';
 import '../../providers/selected_vertex_provider.dart';
+import '../../providers/shade_session_provider.dart';
 import '../../providers/tessellation_provider.dart';
 import '../../providers/viewport_provider.dart';
 import 'fill_color_palette.dart';
@@ -43,6 +45,7 @@ class EditorToolbar extends ConsumerWidget {
             CanvasMode.draw => const _DrawModeContextRow(),
             CanvasMode.eraser => const _EraserModeRow(),
             CanvasMode.edit => const _EditModeContextRow(),
+            CanvasMode.shade => const _ShadeModeContextRow(),
           },
           const _PaletteRow(),
         ],
@@ -70,7 +73,15 @@ class _CommonRow extends ConsumerWidget {
       } else {
         ref.read(weldArmedProvider.notifier).state = false;
       }
+      // Phase Select: clear shade selection + ramp when leaving shade
+      // (paired with gallery_provider open/new).
+      if (newMode != CanvasMode.shade) {
+        clearShadeSessionUi(ref.read);
+      }
     }
+
+    // Eraser is no longer offered in the UI; map it to Draw for the chip.
+    final selectedMode = mode == CanvasMode.eraser ? CanvasMode.draw : mode;
 
     return SizedBox(
       height: _kRowHeight,
@@ -93,12 +104,13 @@ class _CommonRow extends ConsumerWidget {
                       icon: Icon(Icons.open_with),
                       tooltip: 'Edit',
                     ),
+                    ButtonSegment(
+                      value: CanvasMode.shade,
+                      icon: Icon(Icons.gradient),
+                      tooltip: 'Shade',
+                    ),
                   ],
-                  // Eraser is no longer offered in the UI; if session state
-                  // still holds it (tests / leftover), show Draw as selected.
-                  selected: {
-                    mode == CanvasMode.edit ? CanvasMode.edit : CanvasMode.draw,
-                  },
+                  selected: {selectedMode},
                   showSelectedIcon: false,
                   onSelectionChanged: (selection) => selectMode(selection.first),
                 ),
@@ -506,8 +518,53 @@ class _DetachControls extends ConsumerWidget {
   }
 }
 
+/// Row 1 while in [CanvasMode.shade]: solid / select / light sub-tools.
+class _ShadeModeContextRow extends ConsumerWidget {
+  const _ShadeModeContextRow();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final shadeTool = ref.watch(shadeToolProvider);
+
+    return SizedBox(
+      height: _kRowHeight,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: SegmentedButton<ShadeTool>(
+            segments: const [
+              ButtonSegment(
+                value: ShadeTool.solid,
+                icon: Icon(Icons.format_color_fill),
+                tooltip: 'Solid fill',
+              ),
+              ButtonSegment(
+                value: ShadeTool.select,
+                icon: Icon(Icons.touch_app_outlined),
+                tooltip: 'Select range',
+              ),
+              ButtonSegment(
+                value: ShadeTool.light,
+                icon: Icon(Icons.wb_sunny_outlined),
+                tooltip: 'Light origin',
+              ),
+            ],
+            selected: {shadeTool},
+            showSelectedIcon: false,
+            onSelectionChanged: (selection) {
+              ref.read(shadeToolProvider.notifier).state = selection.first;
+            },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Row 2: fill palette when draw mode, or edit with a polygon target and
-/// no vertex selected. Always reserves [_kPaletteRowHeight].
+/// no vertex selected, or shade (base / solid color). Always reserves
+/// [_kPaletteRowHeight].
 class _PaletteRow extends ConsumerWidget {
   const _PaletteRow();
 
@@ -527,11 +584,12 @@ class _PaletteRow extends ConsumerWidget {
         artwork.polygons.where((p) => p.id == targetPolygonId).firstOrNull;
 
     final showDrawPalette = mode == CanvasMode.draw;
+    final showShadePalette = mode == CanvasMode.shade;
     final showEditPalette = mode == CanvasMode.edit &&
         selectedVertexId == null &&
         targetPolygon != null;
 
-    final highlighted = showDrawPalette
+    final highlighted = (showDrawPalette || showShadePalette)
         ? penColor
         : targetPolygon?.fillColor;
 
@@ -539,14 +597,14 @@ class _PaletteRow extends ConsumerWidget {
       height: _kPaletteRowHeight,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-        child: (!showDrawPalette && !showEditPalette)
+        child: (!showDrawPalette && !showEditPalette && !showShadePalette)
             ? const SizedBox.expand()
             : FillColorPalette(
                 key: const Key('fill-color-palette'),
                 colors: kDefaultPolygonPalette,
                 highlightedColor: highlighted,
                 onColorSelected: (color) {
-                  if (showDrawPalette) {
+                  if (showDrawPalette || showShadePalette) {
                     ref.read(selectedFillColorProvider.notifier).state = color;
                     return;
                   }

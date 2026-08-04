@@ -6,6 +6,7 @@ import '../../geometry/trace_point_generator.dart';
 import '../../geometry/viewport_pinch.dart';
 import '../../models/canvas_mode.dart';
 import '../../models/draw_mode.dart';
+import '../../models/shade_tool.dart';
 import '../../providers/canvas_background_provider.dart';
 import '../../providers/canvas_capture_provider.dart';
 import '../../providers/canvas_provider.dart';
@@ -16,6 +17,8 @@ import '../../providers/polygon_drag_preview_provider.dart';
 import '../../providers/polygon_edit_target_provider.dart';
 import '../../providers/preview_mode_provider.dart';
 import '../../providers/selected_vertex_provider.dart';
+import '../../providers/selection_drag_provider.dart';
+import '../../providers/shade_session_provider.dart';
 import '../../providers/trace_gesture_provider.dart';
 import '../../providers/trace_stroke_preview_provider.dart';
 import '../../providers/vertex_drag_preview_provider.dart';
@@ -30,6 +33,8 @@ import 'underlay_layer.dart';
 ///   (see [DrawMode.trace]) by tracing a continuous stroke.
 /// - [CanvasMode.eraser]: delete a single touched vertex.
 /// - [CanvasMode.edit]: tap to select a vertex; long-press drag to move it.
+/// - [CanvasMode.shade]: solid fill / multi-select brush / light origin
+///   (select brush adds immediately via [SelectionDragController]).
 ///
 /// Every mode also recognizes a 2-finger pinch/pan as a *viewport* gesture
 /// (Phase Hβ, `.cursor/plans/plan_phase_H_beta.md`) rather than whatever
@@ -63,6 +68,8 @@ class PolygonCanvas extends ConsumerWidget {
     final vertexDragPreview = ref.watch(vertexDragPreviewProvider);
     final polygonDragPreview = ref.watch(polygonDragPreviewProvider);
     final tracePreview = ref.watch(traceStrokePreviewProvider);
+    final selectionDrag = ref.watch(selectionDragProvider);
+    final shadeTool = ref.watch(shadeToolProvider);
     final traceGesture = ref.watch(traceGestureProvider);
     final canvasBrightness = ref.watch(canvasBackgroundProvider);
     final isPreviewMode = ref.watch(isPreviewModeProvider);
@@ -458,6 +465,7 @@ class PolygonCanvas extends ConsumerWidget {
                     targetEdge: targetEdge,
                     canvasBrightness: canvasBrightness,
                     tracePreview: tracePreview,
+                    selectionDrag: selectionDrag,
                     isPreviewMode: isPreviewMode,
                   ),
                 ),
@@ -628,6 +636,71 @@ class PolygonCanvas extends ConsumerWidget {
                 // Not a genuine single-finger release — discard rather
                 // than commit; see `endGestureSubCycle`'s doc.
                 polygonDragPreview.value = null;
+              }
+            },
+            child: content,
+          );
+        }
+
+        if (mode == CanvasMode.shade) {
+          /// Immediate add-only brush (Phase Select): never stage a preview
+          /// set for end-of-gesture commit — a mid-gesture second finger
+          /// must not wipe polygons already added.
+          Offset? lastShadeFocalPoint;
+
+          void addPolygonUnderFinger(Offset localPosition) {
+            final polygonId =
+                notifier.findPolygonContaining(worldPosition(localPosition));
+            if (polygonId == null) return;
+            if (selectionDrag.add(polygonId)) {
+              HapticFeedback.selectionClick();
+            }
+          }
+
+          void applySolidFill(Offset localPosition) {
+            final polygonId =
+                notifier.findPolygonContaining(worldPosition(localPosition));
+            if (polygonId == null) return;
+            final color = ref.read(selectedFillColorProvider);
+            notifier.changePolygonColor(polygonId, color);
+          }
+
+          return GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onScaleStart: (details) {
+              beginGestureSubCycle(details);
+              lastShadeFocalPoint = details.localFocalPoint;
+              if (isViewportGesture()) return;
+              switch (shadeTool) {
+                case ShadeTool.select:
+                  addPolygonUnderFinger(details.localFocalPoint);
+                case ShadeTool.solid:
+                case ShadeTool.light:
+                  break;
+              }
+            },
+            onScaleUpdate: (details) {
+              lastShadeFocalPoint = details.localFocalPoint;
+              if (applyViewportUpdate(details)) return;
+              if (shadeTool == ShadeTool.select) {
+                addPolygonUnderFinger(details.localFocalPoint);
+              }
+            },
+            onScaleEnd: (details) {
+              final shouldCommit = endGestureSubCycle(details);
+              final focal = lastShadeFocalPoint;
+              lastShadeFocalPoint = null;
+              if (!shouldCommit || focal == null) return;
+              switch (shadeTool) {
+                case ShadeTool.solid:
+                  applySolidFill(focal);
+                case ShadeTool.select:
+                  // Already added during the gesture.
+                  break;
+                case ShadeTool.light:
+                  // Light → computeDistanceShading / applyPolygonColors in
+                  // the next Phase Select step.
+                  break;
               }
             },
             child: content,
