@@ -34,6 +34,7 @@ class PolygonPainter extends CustomPainter {
     required this.selectionDrag,
     this.highlightStyle = PolygonHighlightStyle.neutral,
     this.isPreviewMode = false,
+    this.isShadeXRay = false,
   }) : super(
          repaint: Listenable.merge([
            viewport,
@@ -89,11 +90,16 @@ class PolygonPainter extends CustomPainter {
   /// brush adds never rebuild [PolygonCanvas] — only this painter.
   final ValueListenable<Set<String>> selectionDrag;
 
-  /// Draw/Edit underlay fill alpha; unused in Shade / preview (opaque fills).
+  /// Draw/Edit underlay fill alpha; also used when [isShadeXRay] is true.
   final PolygonHighlightStyle highlightStyle;
 
   /// When true, only polygon fills are painted (no strokes or edit chrome).
   final bool isPreviewMode;
+
+  /// Shade Select tool: translucent fills so the underlay stays readable.
+  /// Resolved in [PolygonCanvas] (`mode == shade && tool == select`); this
+  /// painter never sees [ShadeTool] directly.
+  final bool isShadeXRay;
 
   // Visual marker sizes only (Phase Select / 死角3). Hit testing stays on
   // `kVertexHitRadius` in canvas_provider — do not shrink that with these.
@@ -158,8 +164,11 @@ class PolygonPainter extends CustomPainter {
     canvas.restore();
   }
 
-  /// Draw/Edit fill alpha only. Shade / preview short-circuit to 255 in
-  /// [_paintPolygon] and never call this.
+  /// Fill opacity for Draw/Edit underlays, and for Shade X-Ray (Select tool).
+  ///
+  /// Draw/Edit and Shade X-Ray intentionally share [PolygonHighlightStyle.fillAlpha]
+  /// so underlay readability uses one visual language. Preview and Shade
+  /// Solid/Light never call this (they force opaque 255 in [_paintPolygon]).
   int _fillAlphaFor(String polygonId) {
     if (polygonId == highlightedPolygonId) {
       return _editHighlightedFillAlpha;
@@ -198,11 +207,16 @@ class PolygonPainter extends CustomPainter {
     path.close();
     pathCache[polygon.id] = path;
 
-    // Shade / preview: always opaque so painted colors match the model.
-    // Draw / Edit keep translucent underlay via [_fillAlphaFor].
-    final alpha = (mode == CanvasMode.shade || isPreviewMode)
-        ? 255
-        : _fillAlphaFor(polygon.id);
+    // Preview always opaque (final look). Shade Solid/Light opaque;
+    // Shade Select (X-Ray) and Draw/Edit use underlay alpha via [_fillAlphaFor].
+    final int alpha;
+    if (isPreviewMode) {
+      alpha = 255;
+    } else if (mode == CanvasMode.shade) {
+      alpha = isShadeXRay ? _fillAlphaFor(polygon.id) : 255;
+    } else {
+      alpha = _fillAlphaFor(polygon.id);
+    }
     final fillPaint = Paint()
       ..color = polygon.fillColor.withAlpha(alpha)
       ..style = PaintingStyle.fill;
@@ -433,6 +447,7 @@ class PolygonPainter extends CustomPainter {
         oldDelegate.tracePreview != tracePreview ||
         oldDelegate.selectionDrag != selectionDrag ||
         oldDelegate.highlightStyle != highlightStyle ||
-        oldDelegate.isPreviewMode != isPreviewMode;
+        oldDelegate.isPreviewMode != isPreviewMode ||
+        oldDelegate.isShadeXRay != isShadeXRay;
   }
 }

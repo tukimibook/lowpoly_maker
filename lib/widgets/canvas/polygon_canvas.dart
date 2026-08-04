@@ -93,6 +93,10 @@ class _PolygonCanvasState extends ConsumerState<PolygonCanvas> {
     final tracePreview = ref.watch(traceStrokePreviewProvider);
     final selectionDrag = ref.watch(selectionDragProvider);
     final shadeTool = ref.watch(shadeToolProvider);
+    // Select tool only: translucent fills so the underlay stays visible.
+    // Derived here so PolygonPainter stays free of ShadeTool vocabulary.
+    final isShadeXRay =
+        mode == CanvasMode.shade && shadeTool == ShadeTool.select;
     final traceGesture = ref.watch(traceGestureProvider);
     final canvasBrightness = ref.watch(canvasBackgroundProvider);
     final isPreviewMode = ref.watch(isPreviewModeProvider);
@@ -490,6 +494,7 @@ class _PolygonCanvasState extends ConsumerState<PolygonCanvas> {
                     tracePreview: tracePreview,
                     selectionDrag: selectionDrag,
                     isPreviewMode: isPreviewMode,
+                    isShadeXRay: isShadeXRay,
                   ),
                 ),
               ),
