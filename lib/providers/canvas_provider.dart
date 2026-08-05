@@ -115,17 +115,15 @@ const int kUndoStackLimit = 100;
 Set<String> draftVertexSnapExclusions(List<String> draftVertexIds) =>
     draftVertexIds.skip(1).toSet();
 
-/// Preset fill colors offered in Phase 1. A full color picker / palette
-/// manager is introduced in a later phase.
+/// Preset fill colors for Draw / Shade solid. Mid-chroma Material hues chosen
+/// for social-feed readability (Phase UI).
 const List<Color> kDefaultPolygonPalette = [
-  Color(0xFF783F33),
-  Color(0xFF8C6239),
-  Color(0xFF4A533E),
-  Color(0xFF2D4255),
-  Color(0xFF5E5A55),
-  Color(0xFF3B2F2F),
-  Color(0xFF7A6A53),
-  Color(0xFF4C6271),
+  Color(0xFF2196F3), // Azure Blue
+  Color(0xFF26A69A), // Mint Teal
+  Color(0xFFFF7043), // Coral Orange
+  Color(0xFFFFCA28), // Amber Yellow
+  Color(0xFF7E57C2), // Amethyst Purple
+  Color(0xFF9CCC65), // Lawn Green
 ];
 
 /// Currently selected fill color for the next polygon to be closed.
