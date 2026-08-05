@@ -17,17 +17,74 @@ const double kShadingMinLightness = 0.12;
 
 /// Power for the distance→lightness ease-out curve. Values &gt; 1 drop lightness
 /// faster near the origin and more gently at far stops (stronger near contrast).
-const double kShadingGamma = 1.6;
+const double kShadingGamma = 1.75;
 
 /// Far-stop saturation scale: final stop keeps this fraction of base saturation
 /// (`1.0 - kShadingSaturationFalloff` at `t == 1`).
 const double kShadingSaturationFalloff = 0.15;
 
 /// Amplitude of deterministic lightness jitter as a fraction of one ramp step.
-const double kShadingLightnessJitter = 0.55;
+/// Tuned for social-feed contrast without collapsing facets to near-black.
+const double kShadingLightnessJitter = 0.7;
 
 /// Amplitude of deterministic saturation jitter (absolute HSL saturation units).
 const double kShadingSaturationJitter = 0.04;
+
+/// Shade palette accordion: one lighter stop + several darker stops around a
+/// base swatch (left = lighter, right = darker). Does not include the base.
+@immutable
+class AccordionPaletteExpansion {
+  const AccordionPaletteExpansion({
+    required this.lighter,
+    required this.darkers,
+  });
+
+  /// One step brighter than the base (clamped below pure white).
+  final Color lighter;
+
+  /// Progressively darker stops (gamma ease-out toward [kShadingMinLightness]).
+  final List<Color> darkers;
+}
+
+/// Builds accordion lightness stops around [baseColor] for the Shade palette.
+///
+/// [darkerCount] defaults to 3. Lighter uses one mirrored step toward white;
+/// darkers reuse the same gamma / saturation falloff as the Light tool ramp.
+AccordionPaletteExpansion buildAccordionPaletteExpansion(
+  Color baseColor, {
+  int darkerCount = 3,
+  double minLightness = kShadingMinLightness,
+  double gamma = kShadingGamma,
+}) {
+  final hsl = HSLColor.fromColor(baseColor);
+  final startL = hsl.lightness;
+  final endL = minLightness.clamp(0.0, startL);
+  final span = startL - endL;
+  final safeGamma = gamma <= 0 ? 1.0 : gamma;
+  final step = darkerCount > 0 ? span / (darkerCount + 1) : 0.12;
+
+  final lighterL = (startL + step).clamp(0.0, 0.96);
+  final lighter = hsl.withLightness(lighterL).toColor();
+
+  final darkers = <Color>[];
+  if (darkerCount > 0) {
+    for (var i = 1; i <= darkerCount; i++) {
+      final t = i / darkerCount;
+      final curved = 1.0 - math.pow(1.0 - t, safeGamma).toDouble();
+      final lightness = startL - span * curved;
+      final saturation =
+          (hsl.saturation * (1.0 - kShadingSaturationFalloff * curved))
+              .clamp(0.0, 1.0);
+      darkers.add(
+        hsl
+            .withLightness(lightness.clamp(minLightness, 1.0))
+            .withSaturation(saturation)
+            .toColor(),
+      );
+    }
+  }
+  return AccordionPaletteExpansion(lighter: lighter, darkers: darkers);
+}
 
 /// Output of [computeDistanceShading]: per-polygon solid fills plus the
 /// discrete ramp used to assign them (for the Shade toolbar hand-tune UI).

@@ -740,7 +740,6 @@ class _PolygonCanvasState extends ConsumerState<PolygonCanvas> {
 
             final applied =
                 notifier.applyPolygonColors(result.colorsByPolygonId);
-            ref.read(lastShadingRampProvider.notifier).state = result.ramp;
             selectionDrag.clear();
             if (applied) HapticFeedback.mediumImpact();
           }

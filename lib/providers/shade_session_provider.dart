@@ -9,8 +9,7 @@ final shadeToolProvider = StateProvider<ShadeTool>((ref) {
   return ShadeTool.select;
 });
 
-/// Last shade ramp from `computeDistanceShading` for the toolbar hand-tune
-/// strip. Low-frequency; empty until a light apply runs (later step).
-final lastShadingRampProvider = StateProvider<List<Color>>((ref) {
-  return const [];
-});
+/// Last tapped preset from [kDefaultPolygonPalette] while in Shade mode.
+/// Drives the inline accordion (lighter left / darker right of that base).
+/// `null` = collapsed. Cleared by [clearShadeSessionUi].
+final activeBaseColorProvider = StateProvider<Color?>((ref) => null);

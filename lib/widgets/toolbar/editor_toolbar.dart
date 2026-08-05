@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../geometry/polygon_shading.dart';
 import '../../geometry/tessellation_input.dart';
 import '../../models/canvas_mode.dart';
 import '../../models/draw_mode.dart';
@@ -585,7 +586,7 @@ class _PaletteRow extends ConsumerWidget {
     final artwork = ref.watch(canvasProvider);
     final editTarget = ref.watch(editTargetProvider);
     final penColor = ref.watch(selectedFillColorProvider);
-    final shadingRamp = ref.watch(lastShadingRampProvider);
+    final activeBase = ref.watch(activeBaseColorProvider);
 
     final targetPolygonId = editTarget.polygonId;
     final targetPolygon =
@@ -601,17 +602,26 @@ class _PaletteRow extends ConsumerWidget {
         ? penColor
         : targetPolygon?.fillColor;
 
-    // Shade: clear swatch first, then presets, then last light-tool ramp.
+    // Shade: clear + presets, with optional accordion around activeBase.
     // Draw/Edit never include [kClearFillColor] (pen / recolor only).
     final List<Color> paletteColors;
+    final List<Key>? itemKeys;
+    int? familyStart;
+    int? familyEnd;
+    int? scrollToIndex;
+
     if (showShadePalette) {
-      paletteColors = <Color>[
-        kClearFillColor,
-        ...kDefaultPolygonPalette,
-        if (shadingRamp.isNotEmpty) ...shadingRamp,
-      ];
+      final built = _buildShadePalette(activeBase);
+      paletteColors = built.colors;
+      itemKeys = built.keys;
+      familyStart = built.familyStart;
+      familyEnd = built.familyEnd;
+      scrollToIndex = built.anchorIndex;
     } else {
       paletteColors = kDefaultPolygonPalette;
+      itemKeys = [
+        for (final c in kDefaultPolygonPalette) ValueKey(('base', c)),
+      ];
     }
 
     return SizedBox(
@@ -623,10 +633,18 @@ class _PaletteRow extends ConsumerWidget {
             : FillColorPalette(
                 key: const Key('fill-color-palette'),
                 colors: paletteColors,
+                itemKeys: itemKeys,
+                familyStart: familyStart,
+                familyEnd: familyEnd,
+                scrollToIndex: scrollToIndex,
                 highlightedColor: highlighted,
                 onColorSelected: (color) {
                   if (showDrawPalette || showShadePalette) {
                     ref.read(selectedFillColorProvider.notifier).state = color;
+                    if (showShadePalette &&
+                        kDefaultPolygonPalette.contains(color)) {
+                      ref.read(activeBaseColorProvider.notifier).state = color;
+                    }
                     return;
                   }
                   final id = targetPolygonId;
@@ -637,6 +655,57 @@ class _PaletteRow extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// Shade strip: `[clear, …bases…]` with optional
+/// `[…, lighter, base, dark…, …]` accordion around [activeBase].
+({
+  List<Color> colors,
+  List<Key> keys,
+  int? familyStart,
+  int? familyEnd,
+  int? anchorIndex,
+}) _buildShadePalette(Color? activeBase) {
+  final colors = <Color>[kClearFillColor];
+  final keys = <Key>[const ValueKey('clear')];
+
+  AccordionPaletteExpansion? expansion;
+  if (activeBase != null && kDefaultPolygonPalette.contains(activeBase)) {
+    expansion = buildAccordionPaletteExpansion(activeBase);
+  }
+
+  int? familyStart;
+  int? familyEnd;
+  int? anchorIndex;
+
+  for (final base in kDefaultPolygonPalette) {
+    if (expansion != null && base == activeBase) {
+      familyStart = colors.length;
+      colors.add(expansion.lighter);
+      keys.add(ValueKey(('ramp', base, 'L')));
+
+      anchorIndex = colors.length;
+      colors.add(base);
+      keys.add(ValueKey(('base', base)));
+
+      for (var i = 0; i < expansion.darkers.length; i++) {
+        colors.add(expansion.darkers[i]);
+        keys.add(ValueKey(('ramp', base, i)));
+      }
+      familyEnd = colors.length - 1;
+    } else {
+      colors.add(base);
+      keys.add(ValueKey(('base', base)));
+    }
+  }
+
+  return (
+    colors: colors,
+    keys: keys,
+    familyStart: familyStart,
+    familyEnd: familyEnd,
+    anchorIndex: anchorIndex,
+  );
 }
 
 String _describeTessellationRejection(TessellationRejectReason reason) {

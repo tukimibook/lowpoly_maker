@@ -195,4 +195,23 @@ void main() {
       expect(firstStepShare, greaterThan(1 / (kShadingRampStops - 1)));
     });
   });
+
+  group('buildAccordionPaletteExpansion', () {
+    test('places one lighter stop left of base and three darker to the right', () {
+      final expansion = buildAccordionPaletteExpansion(baseColor);
+
+      expect(expansion.darkers, hasLength(3));
+      expect(_lightness(expansion.lighter), greaterThan(_lightness(baseColor)));
+      expect(
+        _lightness(expansion.darkers.first),
+        lessThan(_lightness(baseColor)),
+      );
+      for (var i = 1; i < expansion.darkers.length; i++) {
+        expect(
+          _lightness(expansion.darkers[i]),
+          lessThanOrEqualTo(_lightness(expansion.darkers[i - 1])),
+        );
+      }
+    });
+  });
 }

@@ -74,7 +74,6 @@ void main() {
           container.read(canvasProvider).polygons.single.fillColor,
           before,
         );
-        expect(container.read(lastShadingRampProvider), isEmpty);
         // Selection must remain (no successful commit cleared it).
         expect(container.read(selectionDragProvider).value, isNotEmpty);
       },
@@ -90,11 +89,44 @@ void main() {
 
         expect(find.byKey(const Key('fill-color-palette')), findsOneWidget);
         expect(find.byTooltip('No fill'), findsOneWidget);
+        expect(container.read(activeBaseColorProvider), isNull);
 
         await tester.tap(find.byTooltip('No fill'));
         await tester.pump();
 
         expect(container.read(selectedFillColorProvider), kClearFillColor);
+        // Clear is not a base — accordion stays collapsed.
+        expect(container.read(activeBaseColorProvider), isNull);
+      },
+    );
+
+    testWidgets(
+      'tapping a preset expands accordion; ramp tap keeps the base anchor',
+      (tester) async {
+        final container = await pumpEditor(tester);
+
+        await tester.tap(find.byTooltip('Shade'));
+        await tester.pump();
+
+        final base = kDefaultPolygonPalette[2];
+        await tester.tap(find.byKey(ValueKey(('base', base))));
+        await tester.pumpAndSettle();
+
+        expect(container.read(activeBaseColorProvider), base);
+        expect(container.read(selectedFillColorProvider), base);
+        expect(find.byKey(ValueKey(('ramp', base, 'L'))), findsOneWidget);
+        expect(find.byKey(ValueKey(('ramp', base, 0))), findsOneWidget);
+
+        await tester.tap(find.byKey(ValueKey(('ramp', base, 'L'))));
+        await tester.pump();
+
+        expect(container.read(activeBaseColorProvider), base);
+        expect(
+          container.read(selectedFillColorProvider),
+          isNot(equals(base)),
+        );
+        // Family stays expanded.
+        expect(find.byKey(ValueKey(('ramp', base, 'L'))), findsOneWidget);
       },
     );
   });

@@ -19,13 +19,8 @@ Finder _iconButtonByTooltip(String tooltip) {
   });
 }
 
-Finder _paletteSwatch(int index) {
-  return find
-      .descendant(
-        of: find.byKey(const Key('fill-color-palette')),
-        matching: find.byType(GestureDetector),
-      )
-      .at(index);
+Finder _paletteSwatchByColor(Color color) {
+  return find.byKey(ValueKey(('base', color)));
 }
 
 void main() {
@@ -57,7 +52,7 @@ void main() {
         );
 
         final nextColor = kDefaultPolygonPalette[1];
-        await tester.tap(_paletteSwatch(1));
+        await tester.tap(_paletteSwatchByColor(nextColor));
         await tester.pump();
 
         expect(container.read(selectedFillColorProvider), nextColor);
@@ -101,7 +96,7 @@ void main() {
         expect(find.byKey(const Key('fill-color-palette')), findsOneWidget);
 
         final paintColor = kDefaultPolygonPalette[2];
-        await tester.tap(_paletteSwatch(2));
+        await tester.tap(_paletteSwatchByColor(paintColor));
         await tester.pump();
 
         expect(

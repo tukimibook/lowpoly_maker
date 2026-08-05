@@ -57,10 +57,10 @@ void clearEditSelectionUi(
 }
 
 /// Clears shade-session UI: multi-selection ([SelectionDragController]) and
-/// the last generated ramp. Call from mode switches leaving shade and from
-/// gallery open/new — Phase Select requires explicit writes at those two
-/// call sites (not helper-only reliance).
+/// the Shade palette accordion anchor. Call from mode switches leaving shade
+/// and from gallery open/new — Phase Select requires explicit writes at those
+/// two call sites (not helper-only reliance).
 void clearShadeSessionUi(EditorSessionRead read) {
   read(selectionDragProvider).clear();
-  read(lastShadingRampProvider.notifier).state = const [];
+  read(activeBaseColorProvider.notifier).state = null;
 }
