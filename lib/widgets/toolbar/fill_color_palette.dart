@@ -1,6 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 
 import '../../providers/canvas_provider.dart' show kClearFillColor;
+
+/// Rough per-item stride for the Stage-2 scroll fallback only.
+/// Intentionally not a precise layout model — [Scrollable.ensureVisible]
+/// owns the final pixel position after the target is built.
+const double _kRoughSwatchStride = 40.0;
+
+/// Expanded [ListView] cache so accordion members near the viewport are
+/// usually already laid out when Stage-1 [Scrollable.ensureVisible] runs.
+const double _kPaletteCacheExtentPixels = 500.0;
 
 /// Horizontal strip of circular fill-color swatches.
 ///
@@ -16,11 +26,8 @@ import '../../providers/canvas_provider.dart' show kClearFillColor;
 /// the list inserts/removes accordion stops mid-strip. Optional
 /// [familyStart]/[familyEnd] tighten separators and paint a shared chip
 /// behind the expanded Shade accordion; [scrollToIndex] scrolls that
-/// family into view after expansion.
-///
-/// Uses a [Row] inside [SingleChildScrollView] (not [ListView]) so every
-/// swatch is always built — the strip is short (≤ ~12 items) and tests /
-/// [Scrollable.ensureVisible] need stable element keys off-screen.
+/// family into view after expansion via a two-stage strategy (ensureVisible
+/// when built, else rough [ScrollController.animateTo] then ensureVisible).
 class FillColorPalette extends StatefulWidget {
   const FillColorPalette({
     super.key,
@@ -60,6 +67,13 @@ class _FillColorPaletteState extends State<FillColorPalette> {
   /// Single anchor for [Scrollable.ensureVisible] — not used as identity
   /// for every row (that would fight index shifts).
   final GlobalKey _scrollAnchorKey = GlobalKey();
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
 
   @override
   void didUpdateWidget(covariant FillColorPalette oldWidget) {
@@ -68,7 +82,7 @@ class _FillColorPaletteState extends State<FillColorPalette> {
         widget.scrollToIndex != oldWidget.scrollToIndex) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        _ensureScrollAnchorVisible();
+        _scrollAnchorIntoView(widget.scrollToIndex!);
       });
     }
   }
@@ -79,20 +93,44 @@ class _FillColorPaletteState extends State<FillColorPalette> {
     if (widget.scrollToIndex != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        _ensureScrollAnchorVisible();
+        _scrollAnchorIntoView(widget.scrollToIndex!);
       });
     }
   }
 
-  void _ensureScrollAnchorVisible() {
+  /// Two-stage scroll: prefer measured [Scrollable.ensureVisible]; if the
+  /// anchor is not built yet, rough-jump then ensureVisible once. No retry
+  /// loop — missing context after the jump is a quiet no-op.
+  Future<void> _scrollAnchorIntoView(int index) async {
+    if (_tryEnsureVisible()) return;
+
+    if (!_scrollController.hasClients) return;
+
+    final max = _scrollController.position.maxScrollExtent;
+    final rough = (index * _kRoughSwatchStride).clamp(0.0, max);
+    await _scrollController.animateTo(
+      rough,
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOut,
+    );
+    if (!mounted) return;
+
+    // One more frame so the ListView can build the newly nearby children.
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return;
+    _tryEnsureVisible();
+  }
+
+  bool _tryEnsureVisible() {
     final ctx = _scrollAnchorKey.currentContext;
-    if (ctx == null) return;
+    if (ctx == null) return false;
     Scrollable.ensureVisible(
       ctx,
       alignment: 0.5,
       duration: const Duration(milliseconds: 180),
       curve: Curves.easeOut,
     );
+    return true;
   }
 
   bool _inFamily(int index) {
@@ -167,28 +205,22 @@ class _FillColorPaletteState extends State<FillColorPalette> {
 
   @override
   Widget build(BuildContext context) {
-    final children = <Widget>[];
-    for (var i = 0; i < widget.colors.length; i++) {
-      if (i > 0) {
-        final tight = _inFamily(i - 1) && _inFamily(i);
-        final gap = tight ? 4.0 : 10.0;
-        children.add(
-          SizedBox(
-            width: gap,
-            child: tight
-                ? const ColoredBox(color: Color(0x14000000))
-                : null,
-          ),
-        );
-      }
-      children.add(_buildSwatch(i));
-    }
-
-    return SingleChildScrollView(
+    return ListView.separated(
+      controller: _scrollController,
       scrollDirection: Axis.horizontal,
-      child: Row(
-        children: children,
-      ),
+      scrollCacheExtent: const ScrollCacheExtent.pixels(_kPaletteCacheExtentPixels),
+      itemCount: widget.colors.length,
+      separatorBuilder: (context, index) {
+        final tight = _inFamily(index) && _inFamily(index + 1);
+        final gap = tight ? 4.0 : 10.0;
+        return SizedBox(
+          width: gap,
+          child: tight
+              ? const ColoredBox(color: Color(0x14000000))
+              : null,
+        );
+      },
+      itemBuilder: (context, index) => _buildSwatch(index),
     );
   }
 }
