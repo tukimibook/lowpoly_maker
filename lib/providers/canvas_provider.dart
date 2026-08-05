@@ -126,6 +126,11 @@ const List<Color> kDefaultPolygonPalette = [
   Color(0xFF9CCC65), // Lawn Green
 ];
 
+/// Shade-mode "no fill" swatch (Figma-style clear). Not part of
+/// [kDefaultPolygonPalette] so Draw never closes a polygon with a
+/// transparent default pen. Same ARGB as `Colors.transparent`.
+const Color kClearFillColor = Color(0x00000000);
+
 /// Currently selected fill color for the next polygon to be closed.
 final selectedFillColorProvider = StateProvider<Color>((ref) {
   return kDefaultPolygonPalette.first;

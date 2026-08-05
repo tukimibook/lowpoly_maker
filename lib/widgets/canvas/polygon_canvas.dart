@@ -718,6 +718,11 @@ class _PolygonCanvasState extends ConsumerState<PolygonCanvas> {
           }
 
           void commitLightOrigin(Offset localPosition) {
+            final baseColor = ref.read(selectedFillColorProvider);
+            // Clear / no-fill is not a valid light base — HSL ramp would
+            // collapse to meaningless blacks.
+            if (baseColor == kClearFillColor) return;
+
             final originId =
                 notifier.findPolygonContaining(worldPosition(localPosition));
             if (originId == null) return;
@@ -729,7 +734,7 @@ class _PolygonCanvasState extends ConsumerState<PolygonCanvas> {
               originId: originId,
               targetIds: targetIds,
               polygons: artwork.polygons,
-              baseColor: ref.read(selectedFillColorProvider),
+              baseColor: baseColor,
             );
             if (result.colorsByPolygonId.isEmpty) return;
 

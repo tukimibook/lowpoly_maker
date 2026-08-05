@@ -13,6 +13,17 @@ import '../../providers/trace_stroke_preview_provider.dart';
 import '../../providers/vertex_drag_preview_provider.dart';
 import '../../services/coordinate_transform.dart';
 
+/// Multiplies a fill's own alpha by a chrome/UI alpha (preview, X-Ray,
+/// Draw/Edit underlay), rounding half-up. Used by [PolygonPainter] so a
+/// future translucent palette color is never clobbered by absolute
+/// [Color.withAlpha] overwrite.
+///
+/// Identity: when either operand is 255 the other value is returned
+/// unchanged (existing opaque artwork is bit-identical to the old path).
+int blendFillChromeAlpha(int fillAlpha, int chromeAlpha) {
+  return (fillAlpha * chromeAlpha + 127) ~/ 255;
+}
+
 /// Paints all confirmed polygons plus the in-progress draft (points and
 /// connecting preview lines) for [artwork]. The vertex hint markers change
 /// appearance depending on [mode] so it's clear whether tapping a vertex
@@ -207,20 +218,29 @@ class PolygonPainter extends CustomPainter {
     path.close();
     pathCache[polygon.id] = path;
 
-    // Preview always opaque (final look). Shade Solid/Light opaque;
-    // Shade Select (X-Ray) and Draw/Edit use underlay alpha via [_fillAlphaFor].
-    final int alpha;
+    // Chrome alpha: Preview and Shade Solid/Light leave the fill's own
+    // opacity untouched (chrome = 255). Shade X-Ray and Draw/Edit apply
+    // underlay darkening via [_fillAlphaFor]. The fill's intrinsic alpha
+    // is then multiplied in — never absolute-overwritten — so clear /
+    // translucent palette colors stay correct.
+    final int chromeAlpha;
     if (isPreviewMode) {
-      alpha = 255;
+      chromeAlpha = 255;
     } else if (mode == CanvasMode.shade) {
-      alpha = isShadeXRay ? _fillAlphaFor(polygon.id) : 255;
+      chromeAlpha = isShadeXRay ? _fillAlphaFor(polygon.id) : 255;
     } else {
-      alpha = _fillAlphaFor(polygon.id);
+      chromeAlpha = _fillAlphaFor(polygon.id);
     }
-    final fillPaint = Paint()
-      ..color = polygon.fillColor.withAlpha(alpha)
-      ..style = PaintingStyle.fill;
-    canvas.drawPath(path, fillPaint);
+    final blendedAlpha = blendFillChromeAlpha(
+      (polygon.fillColor.a * 255.0).round().clamp(0, 255),
+      chromeAlpha,
+    );
+    if (blendedAlpha != 0) {
+      final fillPaint = Paint()
+        ..color = polygon.fillColor.withAlpha(blendedAlpha)
+        ..style = PaintingStyle.fill;
+      canvas.drawPath(path, fillPaint);
+    }
 
     if (isPreviewMode) return;
 

@@ -601,10 +601,18 @@ class _PaletteRow extends ConsumerWidget {
         ? penColor
         : targetPolygon?.fillColor;
 
-    // Shade: default swatches plus the last light-tool ramp for hand-tuning.
-    final paletteColors = showShadePalette && shadingRamp.isNotEmpty
-        ? <Color>[...kDefaultPolygonPalette, ...shadingRamp]
-        : kDefaultPolygonPalette;
+    // Shade: clear swatch first, then presets, then last light-tool ramp.
+    // Draw/Edit never include [kClearFillColor] (pen / recolor only).
+    final List<Color> paletteColors;
+    if (showShadePalette) {
+      paletteColors = <Color>[
+        kClearFillColor,
+        ...kDefaultPolygonPalette,
+        if (shadingRamp.isNotEmpty) ...shadingRamp,
+      ];
+    } else {
+      paletteColors = kDefaultPolygonPalette;
+    }
 
     return SizedBox(
       height: _kPaletteRowHeight,
