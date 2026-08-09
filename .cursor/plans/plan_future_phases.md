@@ -1,14 +1,14 @@
 # 未来フェーズ仕様・技術的負債・検討メモアーカイブ
 
-> **正本の位置づけ**: 全体像・確定した設計判断・品質方針・リリース要件は [ポリゴンアプリ再設計_e54196e6.plan.md](ポリゴンアプリ再設計_e54196e6.plan.md)（マスター）を参照。現在着手中のフェーズ（Select）の詳細・着手前チェックリストは [plan_phase_Select.md](plan_phase_Select.md) を参照。着手時の進捗・次ステップは同ファイル冒頭の **現在のステータス** を参照。完了済みフェーズ（A〜E+、G-spike、Hα、Hβ、F、G、Hγ）の実装済み仕様と、過去の検討メモは [plan_archive_history.md](plan_archive_history.md) を参照（2026-07-17、コンテキスト肥大化防止のため本ファイルから分離）。
+> **正本の位置づけ**: 全体像・確定した設計判断・品質方針・リリース要件は [ポリゴンアプリ再設計_e54196e6.plan.md](ポリゴンアプリ再設計_e54196e6.plan.md)（マスター）を参照。現在着手中のフェーズ（Hδ）の詳細・着手前チェックリストは [plan_phase_H_delta.md](plan_phase_H_delta.md) を参照。着手時の進捗・次ステップは同ファイル冒頭の **現在のステータス** を参照。完了済みフェーズ（A〜E+、G-spike、Hα、Hβ、F、G、Hγ、Select）の実装済み仕様と、過去の検討メモは [plan_archive_history.md](plan_archive_history.md) を参照（2026-07-17、コンテキスト肥大化防止のため本ファイルから分離）。
 >
-> 本ファイルには **未着手フェーズ（Hδ / R）の詳細仕様**、**コード品質・技術的負債表**、**テスト方針**、**リスクと対策**を格納する。完了済みフェーズの仕様・過去の検討メモは本ファイルには置かない（[plan_archive_history.md](plan_archive_history.md) が正本）。Select の詳細も本ファイルには置かない（[plan_phase_Select.md](plan_phase_Select.md) が正本）。
+> 本ファイルには **未着手フェーズ（R）の詳細仕様**、**コード品質・技術的負債表**、**テスト方針**、**リスクと対策**を格納する。完了済みフェーズの仕様・過去の検討メモは本ファイルには置かない（[plan_archive_history.md](plan_archive_history.md) が正本）。Hδ の詳細も本ファイルには置かない（[plan_phase_H_delta.md](plan_phase_H_delta.md) が正本）。
 >
-> **2026-07-27 改定**: 図形タップ選択（Hit-Testing）＋彩色基盤を **Phase Select** として Hγ 前／並行の重要マイルストーンへ前倒し。**2026-08-03**: Hγ 完了、Select を現在着手中フェーズへ引き込み（[plan_phase_Select.md](plan_phase_Select.md)）。
+> **2026-07-27 改定**: 図形タップ選択（Hit-Testing）＋彩色基盤を **Phase Select** として Hγ 前／並行の重要マイルストーンへ前倒し。**2026-08-03**: Hγ 完了、Select を現在着手中フェーズへ引き込み。**2026-08-09**: Select 完了、Hδ を現在着手中フェーズへ引き込み（[plan_phase_H_delta.md](plan_phase_H_delta.md)）。
 
 ## 完了済みフェーズ仕様
 
-> 完了済みフェーズ（A〜E+、G-spike、Hα、Hβ、F、G、Hγ）の実装済み仕様・検討メモは [plan_archive_history.md](plan_archive_history.md) に隔離しました。現在着手中の詳細は [plan_phase_Select.md](plan_phase_Select.md) を参照してください。
+> 完了済みフェーズ（A〜E+、G-spike、Hα、Hβ、F、G、Hγ、Select）の実装済み仕様・検討メモは [plan_archive_history.md](plan_archive_history.md) に隔離しました。現在着手中の詳細は [plan_phase_H_delta.md](plan_phase_H_delta.md) を参照してください。
 
 ## 未着手フェーズ仕様
 
@@ -38,17 +38,19 @@
 
 下絵（Hα）・ズーム（Hβ）を G より前に切り出し。保存・PNG は v1 必須。**図形タップ選択（Hit-Testing）と彩色の土台は、v1.1 待ちにせず Hγ の前または並行の重要マイルストーンへ前倒し**（2026-07-27、ユーザー要望・編集 UX／彩色アルゴリズムの前提として）。
 
-##### Phase Select: 図形タップ選択（Hit-Testing）＋彩色基盤（現在着手中）
+##### Phase Select: 図形タップ選択（Hit-Testing）＋彩色基盤（完了）
 
-> **現在着手中のため本ファイルには詳細を置かない。詳細仕様は [plan_phase_Select.md](plan_phase_Select.md) を参照してください。**
+> **完了済み（2026-08-09）。詳細仕様・完了記録・検討メモは [plan_archive_history.md](plan_archive_history.md) の「Phase Select」および「検討メモ（Select）」を参照してください。**
 
 ##### Phase Hγ: 保存・作品一覧（v1 必須）（完了）
 
 > **完了済み（2026-08-03）。詳細仕様・完了記録・検討メモは [plan_archive_history.md](plan_archive_history.md) の「検討メモ（Hγ）」を参照してください。**
 
-##### Phase Hδ: PNG エクスポート（v1 必須）
+##### Phase Hδ: PNG エクスポート（v1 必須）（現在着手中）
 
-- 標準 PNG をギャラリー保存（`gal` 等）。下絵なし出力で可。共有シート経由。
+> **現在着手中のため本ファイルには詳細を置かない。詳細仕様は [plan_phase_H_delta.md](plan_phase_H_delta.md) を参照してください。**
+>
+> 要約: 標準 PNG をギャラリー保存（`gal` 等）。下絵なし出力で可。共有シート経由。
 
 #### v1.1 以降（H+ 残り）
 
@@ -118,7 +120,7 @@ Phase A〜E 完了時点のコードレビュー（2件）を統合した、**�
 
 ### 着手前チェックリスト（統合、Select を除く）
 
-> **Select の着手前チェックリストは [plan_phase_Select.md](plan_phase_Select.md) を参照**（現在着手中フェーズのため分離）。Hα・Hβ・G-spike・F・G・Hγ の着手前チェックリストは完了済み（[plan_archive_history.md](plan_archive_history.md) 参照）。
+> **Hδ の着手前チェックリストは [plan_phase_H_delta.md](plan_phase_H_delta.md) を参照**（現在着手中フェーズのため分離）。Hα・Hβ・G-spike・F・G・Hγ・Select の着手前チェックリストは完了済み（[plan_archive_history.md](plan_archive_history.md) 参照）。
 
 **E+（完了済み）**
 
@@ -134,7 +136,7 @@ Phase A〜E 完了時点のコードレビュー（2件）を統合した、**�
 - [x] `schemaVersion` v1 スキーマ確定
 - [x] 下絵実体コピー＋相対パス、kill 後復元・破損 JSON スキップの実機検証
 
-**Phase R 準備の並行推奨（Select / Hδ と並行可）**
+**Phase R 準備の並行推奨（Hδ と並行可）**
 
 - [ ] `applicationId`・署名（Phase R の一部を並行推奨）
 
@@ -170,11 +172,17 @@ Phase A〜E 完了時点のコードレビュー（2件）を統合した、**�
 
 > **G 該当項目は実装・テスト済み**（`compute()` ラッパー #17、テッセレーション出力で maxEdge 超え辺が残らないこと #20。詳細は [plan_archive_history.md](plan_archive_history.md) 参照）。F 該当項目も実装・テスト済み（同ファイル参照）。
 
-**中（Phase Select — 詳細は [plan_phase_Select.md](plan_phase_Select.md)）**
+**中（Phase Select — 完了、詳細は [plan_archive_history.md](plan_archive_history.md)）**
 
-- AABB + `isPointInPolygon` の図形ヒット（重なり時は最前面）
-- タップ選択と辺トグル／テッセレーション対象のターゲット一致
-- 選択図形の塗り変更が Undo 1 回で戻ること（彩色最小入口）
+- AABB + `isPointInPolygon` の図形ヒット（重なり時は最前面）— 実装・テスト済み
+- タップ選択と辺トグル／テッセレーション対象のターゲット一致 — 実装・テスト済み
+- 選択図形の塗り変更が Undo 1 回で戻ること（彩色最小入口）— 実装・テスト済み
+- Shade 結合（select → light → solid → Undo）— `shade_workflow_test.dart`
+
+**中（Phase Hδ — 詳細は [plan_phase_H_delta.md](plan_phase_H_delta.md)）**
+
+- PNG ギャラリー保存 / 共有シート
+- 権限拒否・失敗系でクラッシュしない（#19）
 
 **低（v1.1 / QA）**
 
@@ -229,5 +237,5 @@ Phase A〜E 完了時点のコードレビュー（2件）を統合した、**�
 
 ## 検討メモ（過去アーカイブ）
 
-> 過去の実装履歴と検討メモは [plan_archive_history.md](plan_archive_history.md) に隔離しました。現在着手中の詳細は [plan_phase_Select.md](plan_phase_Select.md) を参照してください。
+> 過去の実装履歴と検討メモは [plan_archive_history.md](plan_archive_history.md) に隔離しました。現在着手中の詳細は [plan_phase_H_delta.md](plan_phase_H_delta.md) を参照してください。
 

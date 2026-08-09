@@ -1,8 +1,8 @@
 # 完了済みフェーズ仕様・検討メモ アーカイブ
 
-> **正本の位置づけ**: 全体像・確定した設計判断・品質方針・リリース要件は [ポリゴンアプリ再設計_e54196e6.plan.md](ポリゴンアプリ再設計_e54196e6.plan.md)（マスター）を参照。未着手フェーズ（Hδ/R）の詳細仕様・技術的負債表・テスト方針・リスクと対策は [plan_future_phases.md](plan_future_phases.md) を参照。現在着手中のフェーズの詳細・直近の検討メモは [plan_phase_Select.md](plan_phase_Select.md) を参照。
+> **正本の位置づけ**: 全体像・確定した設計判断・品質方針・リリース要件は [ポリゴンアプリ再設計_e54196e6.plan.md](ポリゴンアプリ再設計_e54196e6.plan.md)（マスター）を参照。未着手フェーズ（R）の詳細仕様・技術的負債表・テスト方針・リスクと対策は [plan_future_phases.md](plan_future_phases.md) を参照。現在着手中のフェーズの詳細・直近の検討メモは [plan_phase_H_delta.md](plan_phase_H_delta.md) を参照。
 >
-> **運用**: 本ファイルは「完了済みフェーズの実装済み仕様」と「過去の検討メモ」専用のアーカイブ（2026-07-17 新設。[plan_future_phases.md](plan_future_phases.md) が肥大化し、開発チャットでのコンテキスト消費を圧迫していたため分離した）。現在着手中フェーズ（`plan_phase_<フェーズ>.md`）が完了し次フェーズへ差し替わる際、その完了フェーズの「📍 現在のステータス」の完了記録と「検討メモ（直近）」の全内容を、本ファイル末尾へそのまま追記していく運用とする。（2026-08-03 追記: 現在着手中フェーズの正本は [plan_phase_Select.md](plan_phase_Select.md)。）
+> **運用**: 本ファイルは「完了済みフェーズの実装済み仕様」と「過去の検討メモ」専用のアーカイブ（2026-07-17 新設。[plan_future_phases.md](plan_future_phases.md) が肥大化し、開発チャットでのコンテキスト消費を圧迫していたため分離した）。現在着手中フェーズ（`plan_phase_<フェーズ>.md`）が完了し次フェーズへ差し替わる際、その完了フェーズの「📍 現在のステータス」の完了記録と「検討メモ（直近）」の全内容を、本ファイル末尾へそのまま追記していく運用とする。（2026-08-09 追記: 現在着手中フェーズの正本は [plan_phase_H_delta.md](plan_phase_H_delta.md)。）
 
 ## 完了済みフェーズ仕様（アーカイブ）
 
@@ -275,6 +275,32 @@
 - poly2tri CDT コア（四角形・穴付き）およびアダプター経由の Steiner 精錬・穴制約（`test/geometry/vendor/poly2tri/`・`test/services/tessellation_service_test.dart`・`tessellation_holes_test.dart`）
 
 詳細な設計経緯・実装内容は本ファイル末尾の「検討メモ（G、2026-07-20）」および「2026-07-25: Phase G エンジン刷新」を参照。
+
+### Phase Select: 図形タップ選択（Hit-Testing）＋彩色基盤（完了、2026-08-09）
+
+> 詳細な確定仕様・Wave 3 実装ステップは本ファイル末尾の「検討メモ（Select）」を参照。
+
+**Hit-Testing / Edit**
+
+- AABB 事前フィルタ + `isPointInPolygon`（`polygon_hit_test.dart`）。Z-Order は `Artwork.polygons` の後ろほど手前。
+- Edit: 図形タップ選択 → 辺ドリルダウン（`findNearestRingEdgeIndex`）。選択状態は `editSelectionProvider` + `editTargetProvider` に一元化（旧 cycle index プロバイダは廃止）。
+- 優先順位: 頂点 > 辺 > 塗り（widget test で固定）。
+
+**Shade / 彩色**
+
+- `CanvasMode.shade` + `ShadeTool`（`solid` / `select` / `light`）。`SelectionDragController`（高頻度は `ValueNotifier`）。
+- **`solid`（正式仕様）**: 選択 Set 全体へ `applyPolygonColors` で一括適用（Undo 1回）。当初案の「1図形タップ即適用」は採用せず。
+- `select`: ストローク極性・全解除（`Icons.deselect`）・オート X-Ray。
+- `light`: `computeDistanceShading`（gamma / jitter）→ バッチ塗り。クリア色ベースは no-op。
+- パレット: `kClearFillColor` + 基本6色 + **`activeBaseColorProvider` による左右アコーディオン**（旧 `lastShadingRampProvider` は廃止）。`FillColorPalette` は `ListView.separated` + 役割 `Key` + 二段階スクロール。
+- Alpha 乗算（`blendFillChromeAlpha`）で透明塗りを安全に扱う。
+
+**判断事項（見送り）**
+
+- Wave 1〜2 死角3（頂点ドット縮小）: **見送り（現状維持）**。将来 UX 調整で再検討。
+- Wave 3C（辺維持）: 見送る。
+
+**完了条件達成**: 結合テスト `test/widgets/toolbar/shade_workflow_test.dart`（select → light → solid → Undo）。`flutter analyze` / 全テストパス。
 
 ## 検討メモ（過去アーカイブ: 2026-07-10〜07-15）
 
@@ -946,3 +972,60 @@ Phase Hγ の実装・実機検証がすべて完了。次フェーズ（Select:
 - `plan_phase_H_gamma.md` を `plan_phase_Select.md` にリネームし、内容を Phase Select 専用に再構築（詳細仕様・着手前チェックリストを `plan_future_phases.md` から移行）。
 - `plan_future_phases.md` は未着手フェーズ（Hδ/R）の詳細・技術的負債表・テスト方針・リスクと対策の正本として残置し、移動元の跡地にはリンク案内のみを残した。Hγ は完了案内に更新。
 - [ポリゴンアプリ再設計_e54196e6.plan.md](ポリゴンアプリ再設計_e54196e6.plan.md)（マスター）のファイル分割案内・frontmatter todos（Hγ 完了反映、現在フェーズを Select に更新）も追随。
+
+## 検討メモ（Select、2026-08-04〜08-09）
+
+> Phase Select 着手時点（旧 `plan_phase_Select.md`）の「📍 現在のステータス（完了記録）」と「検討メモ（直近）」を、Phase Hδ への差し替え時に本節へ移動（運用ルール、2026-08-09）。
+
+### 📍 現在のステータス (2026-08-09) — Phase Select 完了記録
+
+- **完了フェーズ**: Phase A〜E+・G-spike・Hα・Hβ・F・G・Hγ・**Select** がすべて完了。
+- **現在のフェーズ**: Phase Select（図形タップ選択＋彩色基盤）**完了**。次フェーズは Phase Hδ（PNG エクスポート）。
+- **Select 完了実績**:
+  - Hit-Testing: AABB + PIP、Z-Order 最前面、Edit タップ選択・辺ドリルダウン、`editSelectionProvider` / `editTargetProvider` 一元化。
+  - Shade Wave 3.1〜3.7: `computeDistanceShading`、`applyPolygonColors`、`CanvasMode.shade` / `ShadeTool`、ストローク極性・全解除、`PolygonHighlightStyle` / X-Ray、ツールバー、キャンバス入力、結合テスト `shade_workflow_test.dart`。
+  - パレット: クリア塗り + 基本6色 + `activeBaseColorProvider` アコーディオン（左右インライン展開）。ListView 二段階スクロール。`lastShadingRampProvider` 廃止。
+  - **正式仕様**: `solid` = 選択 Set バッチ適用（Undo 1回）。
+  - **見送り**: 頂点ドット縮小（死角3）、Wave 3C（辺維持）。
+  - Wave 1〜2: `saveAndFlushCurrentDocument`、Home/Gallery 退出ナビ明確化は実装済み。
+
+### アーキテクチャ確定仕様（2026-08-04）— Step 3.0（実装完了後の正本要約）
+
+シニアレビューで指摘された死角を塞ぎ、Wave 1〜3 の実装規約を確定した記録。**モデル／JSON／`schemaVersion`（`PolygonShape.fillColor` 単色）は変更しない。**
+
+#### UI言語のグローバル規約（v1.0）
+
+v1.0 における UI 言語はすべて **英語**。多言語化は v1.1 以降。
+
+#### Wave 1〜2 の死角対策
+
+1. **セーブ処理の重複排除** — 実装済み（`saveAndFlushCurrentDocument`）。
+2. **ナビゲーションの明確化** — 実装済み（Home / Gallery 二ボタン）。
+3. **描画定数の波及範囲（頂点ドット縮小）** — **見送り（現状維持）**。
+4. **Wave 3A/3B**: 彩色は ID 渡し、辺ヒットは `polygon_hit_test.dart` に追記、頂点>辺>塗りをテスト固定。Wave 3C（辺維持）は見送る。
+
+#### Wave 3（彩色・距離ベースシェーディング）— 実装済み仕様
+
+- `solid`: 選択 Set 全体へ一括適用（正式仕様）。
+- `select`: ストローク極性、全解除、オート X-Ray。
+- `light`: 距離ベースバッチ。クリア色ベースは no-op。
+- Session: `clearShadeSessionUi` が選択 + `activeBaseColorProvider` をクリア（toolbar / gallery の2箇所）。
+- パレット: `activeBaseColorProvider` アコーディオン（旧 `lastShadingRamp` 廃止）。
+- Alpha 乗算（`blendFillChromeAlpha`）、クリア塗りは drawPath スキップ。
+
+#### 実装ステップ（最終）
+
+| Step | 状態 |
+|------|------|
+| 3.0〜3.6 | **実装完了** |
+| 3.2.1 | **実装完了** |
+| 3.7 | **完了**（`shade_workflow_test.dart`） |
+
+### 2026-08-09: Phase Select 完了、Phase Hδ へ移行（ドキュメント整理）
+
+Phase Select の実装・結合テストがすべて完了。次フェーズ（Hδ: PNG エクスポート）着手にあたり、ドキュメント構成を整理した。
+
+- 本ファイル（`plan_archive_history.md`）に、完了した Phase Select の仕様要約と「検討メモ（Select）」を、旧 `plan_phase_Select.md` から移動。
+- `plan_phase_Select.md` を `plan_phase_H_delta.md` に差し替え・リネームし、内容を Phase Hδ 専用に再構築（詳細要件を `plan_future_phases.md` から移行）。
+- `plan_future_phases.md` は未着手フェーズ（R）の詳細・技術的負債表・テスト方針・リスクと対策の正本として残置し、Select / Hδ の跡地にはリンク案内のみを残した。
+- [ポリゴンアプリ再設計_e54196e6.plan.md](ポリゴンアプリ再設計_e54196e6.plan.md)（マスター）のファイル分割案内・frontmatter todos も追随。
