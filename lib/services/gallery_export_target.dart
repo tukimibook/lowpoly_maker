@@ -9,6 +9,14 @@ import 'package:gal/gal.dart';
 /// same reasoning as `UnderlayPicker` being injected into `UnderlayController`
 /// rather than `image_picker` being called inline.
 abstract class GalleryExportTarget {
+  /// Whether the app already has gallery write access.
+  Future<bool> hasAccess();
+
+  /// Prompts the OS permission dialog if needed. Returns whether access was
+  /// granted. Callers must treat a `false` return as denial (do not proceed
+  /// to a heavy render / `saveImageBytes`).
+  Future<bool> requestAccess();
+
   /// Saves [bytes] (already PNG-encoded) to the gallery under [name].
   ///
   /// [name] must NOT include a file extension: the real ([Gal]-backed)
@@ -25,9 +33,27 @@ abstract class GalleryExportTarget {
   Future<void> saveImageBytes(Uint8List bytes, {required String name});
 }
 
+/// Thrown when [GalleryExportTarget.requestAccess] returns `false` (or
+/// [hasAccess] is false and the request is denied). [ExportController]
+/// maps this to a stable English SnackBar string via `_describeError`.
+class ExportPermissionDeniedException implements Exception {
+  const ExportPermissionDeniedException([this.message = 'Permission denied']);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 /// The real, production [GalleryExportTarget] — a thin pass-through to the
 /// `gal` plugin.
 class GalGalleryExportTarget implements GalleryExportTarget {
+  @override
+  Future<bool> hasAccess() => Gal.hasAccess();
+
+  @override
+  Future<bool> requestAccess() => Gal.requestAccess();
+
   @override
   Future<void> saveImageBytes(Uint8List bytes, {required String name}) {
     return Gal.putImageBytes(bytes, name: name);

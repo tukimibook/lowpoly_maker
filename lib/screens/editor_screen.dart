@@ -11,6 +11,7 @@ import '../providers/gallery_provider.dart';
 import '../providers/preview_mode_provider.dart';
 import '../providers/tessellation_provider.dart';
 import '../providers/underlay_provider.dart';
+import '../services/artwork_png_renderer.dart';
 import '../widgets/canvas/polygon_canvas.dart';
 import '../widgets/toolbar/editor_toolbar.dart';
 import '../widgets/toolbar/underlay_menu_button.dart';
@@ -71,17 +72,77 @@ class EditorScreen extends ConsumerWidget {
       }
     });
     final isExporting = ref.watch(exportControllerProvider.select((s) => s.isExporting));
+    final isWorking = ref.watch(exportControllerProvider.select((s) => s.isWorking));
 
     Future<void> handleExport(_ExportAction action) async {
+      final controller = ref.read(exportControllerProvider.notifier);
+      // Claim the lock before the background dialog so a second menu tap
+      // during the dialog cannot start another export (re-entrancy window
+      // that `_runExport` alone cannot cover).
+      if (!controller.beginExport()) return;
+
+      final backgroundColor = await showDialog<Color>(
+        context: context,
+        builder: (dialogContext) {
+          return SimpleDialog(
+            key: const Key('export-background-dialog'),
+            title: const Text('Export background'),
+            children: [
+              SimpleDialogOption(
+                key: const Key('export-background-white'),
+                onPressed: () => Navigator.of(dialogContext).pop(kExportBackgroundColor),
+                child: const ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.crop_square),
+                  title: Text('White'),
+                ),
+              ),
+              SimpleDialogOption(
+                key: const Key('export-background-transparent'),
+                onPressed: () =>
+                    Navigator.of(dialogContext).pop(kExportTransparentBackgroundColor),
+                child: const ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.grid_on_outlined),
+                  title: Text('Transparent'),
+                ),
+              ),
+            ],
+          );
+        },
+      );
+      // Dialog / OS permission windows can dispose this route — never touch
+      // context or ref after an await without a mounted check.
+      if (!context.mounted) {
+        controller.abortExport();
+        return;
+      }
+      if (backgroundColor == null) {
+        controller.abortExport();
+        return;
+      }
+
       final currentArtwork = ref.read(canvasProvider);
       final canvasSize = ref.read(canvasSizeProvider).value;
-      final controller = ref.read(exportControllerProvider.notifier);
       switch (action) {
         case _ExportAction.gallery:
-          await controller.exportToGallery(currentArtwork, canvasSize);
+          await controller.exportToGallery(
+            currentArtwork,
+            canvasSize,
+            backgroundColor: backgroundColor,
+            lockAlreadyHeld: true,
+          );
         case _ExportAction.share:
-          await controller.exportViaShareSheet(currentArtwork, canvasSize);
+          await controller.exportViaShareSheet(
+            currentArtwork,
+            canvasSize,
+            backgroundColor: backgroundColor,
+            lockAlreadyHeld: true,
+          );
       }
+      // Activity may have been killed during Gal.requestAccess — ignore
+      // further UI work if this route did not survive.
+      if (!context.mounted) return;
     }
 
     Future<void> handleRename() async {
@@ -151,7 +212,7 @@ class EditorScreen extends ConsumerWidget {
             tooltip: 'Export PNG',
             enabled: !isEmpty && !isExporting,
             onSelected: handleExport,
-            icon: isExporting
+            icon: isWorking
                 ? const SizedBox(
                     width: 20,
                     height: 20,

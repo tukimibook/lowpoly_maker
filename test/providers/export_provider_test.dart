@@ -33,6 +33,7 @@ class _FakeRenderer implements ArtworkPngRenderer {
   int callCount = 0;
   Artwork? lastArtwork;
   Size? lastCanvasSize;
+  Color? lastBackgroundColor;
 
   @override
   Future<Uint8List?> render(
@@ -43,6 +44,7 @@ class _FakeRenderer implements ArtworkPngRenderer {
     callCount++;
     lastArtwork = artwork;
     lastCanvasSize = canvasSize;
+    lastBackgroundColor = backgroundColor;
     if (onRender != null) await onRender!();
     if (error != null) throw error!;
     return bytes;
@@ -54,6 +56,24 @@ class _RecordingGalleryTarget implements GalleryExportTarget {
   Uint8List? savedBytes;
   String? savedName;
   int callCount = 0;
+  int hasAccessCallCount = 0;
+  int requestAccessCallCount = 0;
+  bool hasAccessResult = true;
+  bool requestAccessResult = true;
+  Completer<void>? requestAccessGate;
+
+  @override
+  Future<bool> hasAccess() async {
+    hasAccessCallCount++;
+    return hasAccessResult;
+  }
+
+  @override
+  Future<bool> requestAccess() async {
+    requestAccessCallCount++;
+    if (requestAccessGate != null) await requestAccessGate!.future;
+    return requestAccessResult;
+  }
 
   @override
   Future<void> saveImageBytes(Uint8List bytes, {required String name}) async {
@@ -120,6 +140,71 @@ void main() {
       expect(controller.state.successMessage, 'Saved to gallery');
     });
 
+    test('forwards backgroundColor to the renderer (one-shot, not persisted)', () async {
+      final renderer = _FakeRenderer(bytes: _pngBytes);
+      final controller = ExportController(
+        renderer,
+        _RecordingGalleryTarget(),
+        _RecordingShareTarget(),
+      );
+      addTearDown(controller.dispose);
+
+      await controller.exportToGallery(
+        _artwork(),
+        _canvasSize,
+        backgroundColor: kExportTransparentBackgroundColor,
+      );
+
+      expect(renderer.lastBackgroundColor, kExportTransparentBackgroundColor);
+    });
+
+    test('checks gallery access before rendering, and skips render on denial', () async {
+      final renderer = _FakeRenderer(bytes: _pngBytes);
+      final galleryTarget = _RecordingGalleryTarget()
+        ..hasAccessResult = false
+        ..requestAccessResult = false;
+      final controller = ExportController(renderer, galleryTarget, _RecordingShareTarget());
+      addTearDown(controller.dispose);
+
+      final result = await controller.exportToGallery(_artwork(), _canvasSize);
+
+      expect(result, isFalse);
+      expect(galleryTarget.hasAccessCallCount, 1);
+      expect(galleryTarget.requestAccessCallCount, 1);
+      expect(renderer.callCount, 0);
+      expect(galleryTarget.callCount, 0);
+      expect(controller.state.errorMessage, 'Permission denied');
+    });
+
+    test('requests access when hasAccess is false, then renders if granted', () async {
+      final renderer = _FakeRenderer(bytes: _pngBytes);
+      final galleryTarget = _RecordingGalleryTarget()
+        ..hasAccessResult = false
+        ..requestAccessResult = true;
+      final controller = ExportController(renderer, galleryTarget, _RecordingShareTarget());
+      addTearDown(controller.dispose);
+
+      final result = await controller.exportToGallery(_artwork(), _canvasSize);
+
+      expect(result, isTrue);
+      expect(galleryTarget.requestAccessCallCount, 1);
+      expect(renderer.callCount, 1);
+      expect(galleryTarget.callCount, 1);
+    });
+
+    test('does not request access again when hasAccess is already true', () async {
+      final renderer = _FakeRenderer(bytes: _pngBytes);
+      final galleryTarget = _RecordingGalleryTarget()..hasAccessResult = true;
+      final controller = ExportController(renderer, galleryTarget, _RecordingShareTarget());
+      addTearDown(controller.dispose);
+
+      await controller.exportToGallery(_artwork(), _canvasSize);
+
+      expect(galleryTarget.hasAccessCallCount, 1);
+      expect(galleryTarget.requestAccessCallCount, 0);
+      expect(renderer.callCount, 1);
+    });
+
     test('sanitizes filesystem-unsafe characters out of the artwork title', () async {
       final renderer = _FakeRenderer(bytes: _pngBytes);
       final galleryTarget = _RecordingGalleryTarget();
@@ -153,18 +238,78 @@ void main() {
       addTearDown(controller.dispose);
 
       final future = controller.exportToGallery(_artwork(), _canvasSize);
-      // Let the microtask that sets `isExporting = true` run before the
+      // Let the microtask that sets `isExporting` / `isWorking` run before the
       // still-pending render gate is checked.
       await Future<void>.delayed(Duration.zero);
       expect(controller.state.isExporting, isTrue);
+      expect(controller.state.isWorking, isTrue);
 
       renderGate.complete();
       await future;
       expect(controller.state.isExporting, isFalse);
+      expect(controller.state.isWorking, isFalse);
+    });
+
+    test('rejects a second export while one is already in flight', () async {
+      final renderGate = Completer<void>();
+      final renderer = _FakeRenderer(bytes: _pngBytes, onRender: () => renderGate.future);
+      final galleryTarget = _RecordingGalleryTarget();
+      final controller = ExportController(renderer, galleryTarget, _RecordingShareTarget());
+      addTearDown(controller.dispose);
+
+      final first = controller.exportToGallery(_artwork(), _canvasSize);
+      await Future<void>.delayed(Duration.zero);
+      final second = await controller.exportToGallery(_artwork(), _canvasSize);
+
+      expect(second, isFalse);
+      expect(renderer.callCount, 1);
+
+      renderGate.complete();
+      await first;
+    });
+
+    test('beginExport holds the lock through a dialog; abortExport releases it', () {
+      final controller = ExportController(
+        _FakeRenderer(bytes: _pngBytes),
+        _RecordingGalleryTarget(),
+        _RecordingShareTarget(),
+      );
+      addTearDown(controller.dispose);
+
+      expect(controller.beginExport(), isTrue);
+      expect(controller.state.isExporting, isTrue);
+      expect(controller.state.isWorking, isFalse);
+      expect(controller.beginExport(), isFalse);
+
+      controller.abortExport();
+      expect(controller.state.isExporting, isFalse);
+      expect(controller.beginExport(), isTrue);
+      controller.abortExport();
+    });
+
+    test('lockAlreadyHeld continues an export started with beginExport', () async {
+      final renderer = _FakeRenderer(bytes: _pngBytes);
+      final controller = ExportController(
+        renderer,
+        _RecordingGalleryTarget(),
+        _RecordingShareTarget(),
+      );
+      addTearDown(controller.dispose);
+
+      expect(controller.beginExport(), isTrue);
+      final result = await controller.exportToGallery(
+        _artwork(),
+        _canvasSize,
+        lockAlreadyHeld: true,
+      );
+
+      expect(result, isTrue);
+      expect(renderer.callCount, 1);
+      expect(controller.state.isExporting, isFalse);
     });
 
     test(
-      'does not call the gallery target and reports a Japanese error when rendering '
+      'does not call the gallery target and reports an error when rendering '
       'returns null (e.g. a zero canvas size)',
       () async {
         final renderer = _FakeRenderer(bytes: null);
@@ -286,6 +431,21 @@ void main() {
       expect(shareTarget.sharedFileName, 'Sunset.png');
       expect(controller.state.successMessage, isNull);
       expect(controller.state.errorMessage, isNull);
+    });
+
+    test('does not call gallery hasAccess / requestAccess on the share path', () async {
+      final galleryTarget = _RecordingGalleryTarget();
+      final controller = ExportController(
+        _FakeRenderer(bytes: _pngBytes),
+        galleryTarget,
+        _RecordingShareTarget(),
+      );
+      addTearDown(controller.dispose);
+
+      await controller.exportViaShareSheet(_artwork(), _canvasSize);
+
+      expect(galleryTarget.hasAccessCallCount, 0);
+      expect(galleryTarget.requestAccessCallCount, 0);
     });
 
     test('never throws when the share sheet itself fails — surfaces a message instead', () async {

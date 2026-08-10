@@ -49,16 +49,29 @@ Future<void> _drawOneTriangle(WidgetTester tester) async {
 /// about *which* target gets called with what, never about pixel content
 /// (that's `test/services/artwork_png_renderer_test.dart`'s job).
 class _FakeRenderer implements ArtworkPngRenderer {
+  Color? lastBackgroundColor;
+
   @override
   Future<Uint8List?> render(
     Artwork artwork,
     Size canvasSize, {
     Color backgroundColor = kExportBackgroundColor,
-  }) async => Uint8List.fromList([1, 2, 3]);
+  }) async {
+    lastBackgroundColor = backgroundColor;
+    return Uint8List.fromList([1, 2, 3]);
+  }
 }
 
 class _RecordingGalleryTarget implements GalleryExportTarget {
   int callCount = 0;
+  bool hasAccessResult = true;
+  bool requestAccessResult = true;
+
+  @override
+  Future<bool> hasAccess() async => hasAccessResult;
+
+  @override
+  Future<bool> requestAccess() async => requestAccessResult;
 
   @override
   Future<void> saveImageBytes(Uint8List bytes, {required String name}) async {
@@ -86,14 +99,15 @@ class _HangingShareTarget implements ShareSheetTarget {
 }
 
 void main() {
-  Future<ProviderContainer> pumpEditor(
+  Future<({ProviderContainer container, _FakeRenderer renderer})> pumpEditor(
     WidgetTester tester, {
     GalleryExportTarget? galleryTarget,
     ShareSheetTarget? shareTarget,
   }) async {
+    final renderer = _FakeRenderer();
     final container = ProviderContainer(
       overrides: [
-        artworkPngRendererProvider.overrideWithValue(_FakeRenderer()),
+        artworkPngRendererProvider.overrideWithValue(renderer),
         galleryExportTargetProvider.overrideWithValue(
           galleryTarget ?? _RecordingGalleryTarget(),
         ),
@@ -107,10 +121,24 @@ void main() {
     );
     await tester.tap(find.text('New Artwork'));
     await tester.pumpAndSettle();
-    return container;
+    return (container: container, renderer: renderer);
   }
 
   Finder exportMenuButton() => find.byKey(const Key('export-menu-button'));
+
+  Future<void> chooseExportAndBackground(
+    WidgetTester tester, {
+    required Key menuItemKey,
+    required Key backgroundKey,
+  }) async {
+    await tester.tap(exportMenuButton());
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(menuItemKey));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('export-background-dialog')), findsOneWidget);
+    await tester.tap(find.byKey(backgroundKey));
+    await tester.pumpAndSettle();
+  }
 
   group('EditorScreen export menu', () {
     testWidgets('is disabled while the canvas is empty', (tester) async {
@@ -121,35 +149,53 @@ void main() {
     });
 
     testWidgets(
-      'drawing a polygon enables it, and choosing "ギャラリーに保存" calls the gallery '
-      'target then shows a success SnackBar',
+      'drawing a polygon enables it, and choosing gallery + White calls the '
+      'gallery target then shows a success SnackBar',
       (tester) async {
         final galleryTarget = _RecordingGalleryTarget();
-        await pumpEditor(tester, galleryTarget: galleryTarget);
+        final pumped = await pumpEditor(tester, galleryTarget: galleryTarget);
         await _drawOneTriangle(tester);
 
         final button = tester.widget<PopupMenuButton<Object?>>(exportMenuButton());
         expect(button.enabled, isTrue);
 
-        await tester.tap(exportMenuButton());
-        await tester.pumpAndSettle();
-        await tester.tap(find.byKey(const Key('export-menu-gallery')));
-        await tester.pumpAndSettle();
+        await chooseExportAndBackground(
+          tester,
+          menuItemKey: const Key('export-menu-gallery'),
+          backgroundKey: const Key('export-background-white'),
+        );
 
         expect(galleryTarget.callCount, 1);
+        expect(pumped.renderer.lastBackgroundColor, kExportBackgroundColor);
         expect(find.text('Saved to gallery'), findsOneWidget);
       },
     );
 
-    testWidgets('choosing "共有" calls the share target', (tester) async {
+    testWidgets('choosing Transparent passes the transparent background to the renderer', (
+      tester,
+    ) async {
+      final pumped = await pumpEditor(tester);
+      await _drawOneTriangle(tester);
+
+      await chooseExportAndBackground(
+        tester,
+        menuItemKey: const Key('export-menu-share'),
+        backgroundKey: const Key('export-background-transparent'),
+      );
+
+      expect(pumped.renderer.lastBackgroundColor, kExportTransparentBackgroundColor);
+    });
+
+    testWidgets('choosing Share + White calls the share target', (tester) async {
       final shareTarget = _RecordingShareTarget();
       await pumpEditor(tester, shareTarget: shareTarget);
       await _drawOneTriangle(tester);
 
-      await tester.tap(exportMenuButton());
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('export-menu-share')));
-      await tester.pumpAndSettle();
+      await chooseExportAndBackground(
+        tester,
+        menuItemKey: const Key('export-menu-share'),
+        backgroundKey: const Key('export-background-white'),
+      );
 
       expect(shareTarget.callCount, 1);
     });
@@ -164,6 +210,8 @@ void main() {
         await tester.tap(exportMenuButton());
         await tester.pumpAndSettle();
         await tester.tap(find.byKey(const Key('export-menu-share')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const Key('export-background-white')));
         await tester.pump(); // Don't settle: the share target never completes.
 
         expect(find.byType(CircularProgressIndicator), findsOneWidget);
@@ -171,5 +219,30 @@ void main() {
         expect(button.enabled, isFalse);
       },
     );
+
+    testWidgets('cancelling the background dialog does not call any export target', (
+      tester,
+    ) async {
+      final galleryTarget = _RecordingGalleryTarget();
+      final shareTarget = _RecordingShareTarget();
+      final pumped = await pumpEditor(
+        tester,
+        galleryTarget: galleryTarget,
+        shareTarget: shareTarget,
+      );
+      await _drawOneTriangle(tester);
+
+      await tester.tap(exportMenuButton());
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('export-menu-gallery')));
+      await tester.pumpAndSettle();
+      // Dismiss by tapping outside / barrier — use Navigator.pop via back.
+      await tester.tapAt(const Offset(1, 1));
+      await tester.pumpAndSettle();
+
+      expect(galleryTarget.callCount, 0);
+      expect(shareTarget.callCount, 0);
+      expect(pumped.container.read(exportControllerProvider).isExporting, isFalse);
+    });
   });
 }
