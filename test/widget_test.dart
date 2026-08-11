@@ -523,7 +523,7 @@ void main() {
     // `commitTessellationResult`) but never actually wired to any control —
     // discovered during real-device testing (2026-07-21). These two guard
     // against that regressing again now that Tessellate is exposed on the
-    // edit bar (Delete Shape trails it at the scroll end).
+    // edit bar (Delete Shape is pinned at the absolute trailing edge).
     testWidgets(
       'Tessellate control appears only after Cycle Shape picks a target',
       (tester) async {

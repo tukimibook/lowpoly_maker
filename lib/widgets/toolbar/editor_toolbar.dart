@@ -231,9 +231,10 @@ class _EraserModeRow extends StatelessWidget {
 ///   remain reachable via cycling (Z-order rescue).
 /// - Center ([Expanded] + horizontal scroll): hint / edge tools / vertex
 ///   tools depending on selection. When a polygon is targeted (no vertex),
-///   Tessellate and Delete Shape trail the edge tools (Delete last).
-/// - Right (fixed): Clear selection while a vertex is selected; empty
-///   otherwise.
+///   Tessellate trails the edge tools inside the scroll region.
+/// - Right (fixed): Clear selection (✖) while a vertex is selected, then
+///   Delete Shape while a polygon is targeted — mutually exclusive today,
+///   ordered so Delete stays at the absolute trailing edge if both ever show.
 class _EditModeContextRow extends ConsumerWidget {
   const _EditModeContextRow();
 
@@ -373,16 +374,6 @@ class _EditModeContextRow extends ConsumerWidget {
           onPressed: isTessellating ? null : tessellateTargetPolygon,
           icon: const Icon(Icons.change_history),
         ),
-        // Physical gap so Tessellate and Delete are harder to mis-tap.
-        const SizedBox(width: 32),
-        IconButton(
-          key: const Key('delete-target-polygon-button'),
-          tooltip: 'Delete Shape',
-          iconSize: 28,
-          color: colorScheme.error,
-          onPressed: deleteTargetPolygon,
-          icon: const Icon(Icons.delete_outline),
-        ),
       ];
     } else {
       middleChildren = [
@@ -423,6 +414,15 @@ class _EditModeContextRow extends ConsumerWidget {
                   clearEditSelectionUi(ref.read, resetWholeShapeCycles: false);
                 },
                 icon: const Icon(Icons.close),
+              ),
+            if (hasPolygon)
+              IconButton(
+                key: const Key('delete-target-polygon-button'),
+                tooltip: 'Delete Shape',
+                iconSize: 28,
+                color: colorScheme.error,
+                onPressed: deleteTargetPolygon,
+                icon: const Icon(Icons.delete_outline),
               ),
           ],
         ),
