@@ -62,13 +62,12 @@ void main() {
     );
 
     testWidgets(
-      'edit mode with a targeted polygon: tapping a swatch calls '
-      'changePolygonColor without changing the pen color',
+      'edit mode with a targeted polygon: palette stays hidden '
+      '(no accidental recolor)',
       (tester) async {
         final container = await pumpEditor(tester);
         final canvasTopLeft = tester.getTopLeft(_canvasCustomPaintFinder());
 
-        // Close a triangle in the default pen color (palette[0]).
         await tester.tapAt(canvasTopLeft + const Offset(40, 40));
         await tester.pump();
         await tester.tapAt(canvasTopLeft + const Offset(160, 40));
@@ -77,12 +76,6 @@ void main() {
         await tester.pump();
         await tester.tap(_iconButtonByTooltip('Close shape'));
         await tester.pump();
-
-        final penBefore = container.read(selectedFillColorProvider);
-        expect(
-          container.read(canvasProvider).polygons.single.fillColor,
-          penBefore,
-        );
 
         await tester.tap(find.byTooltip('Edit'));
         await tester.pump();
@@ -93,25 +86,8 @@ void main() {
         await tester.tap(_iconButtonByTooltip('Cycle Shape'));
         await tester.pump();
         expect(container.read(editSelectionProvider).polygonIndex, 0);
-        expect(find.byKey(const Key('fill-color-palette')), findsOneWidget);
-
-        final paintColor = kDefaultPolygonPalette[2];
-        await tester.tap(_paletteSwatchByColor(paintColor));
-        await tester.pump();
-
-        expect(
-          container.read(canvasProvider).polygons.single.fillColor,
-          paintColor,
-        );
-        // Pen color is independent of recoloring an existing shape.
-        expect(container.read(selectedFillColorProvider), penBefore);
-        expect(container.read(canvasProvider.notifier).canUndo, isTrue);
-
-        container.read(canvasProvider.notifier).undo();
-        expect(
-          container.read(canvasProvider).polygons.single.fillColor,
-          penBefore,
-        );
+        // Targeted polygon still must not expose a recolor palette.
+        expect(find.byKey(const Key('fill-color-palette')), findsNothing);
       },
     );
   });

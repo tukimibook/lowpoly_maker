@@ -381,7 +381,7 @@ void main() {
 
       expect(currentPainter(tester).highlightedPolygonId, polygonId);
       expect(_iconButtonByTooltip('Cycle Edge'), findsOneWidget);
-      expect(find.byKey(const Key('fill-color-palette')), findsOneWidget);
+      expect(find.byKey(const Key('fill-color-palette')), findsNothing);
     });
 
     testWidgets(

@@ -373,6 +373,8 @@ class _EditModeContextRow extends ConsumerWidget {
           onPressed: isTessellating ? null : tessellateTargetPolygon,
           icon: const Icon(Icons.change_history),
         ),
+        // Physical gap so Tessellate and Delete are harder to mis-tap.
+        const SizedBox(width: 32),
         IconButton(
           key: const Key('delete-target-polygon-button'),
           tooltip: 'Delete Shape',
@@ -553,37 +555,25 @@ class _ShadeModeContextRow extends ConsumerWidget {
   }
 }
 
-/// Row 2: fill palette when draw mode, or edit with a polygon target and
-/// no vertex selected, or shade (base / solid color). Always reserves
-/// [_kPaletteRowHeight].
+/// Row 2: fill palette in Draw (pen) or Shade (base / solid). Edit never
+/// shows a palette — recoloring existing shapes is Shade-only, so an
+/// accidental Edit-mode swatch tap cannot change a targeted polygon.
+/// Always reserves [_kPaletteRowHeight].
 class _PaletteRow extends ConsumerWidget {
   const _PaletteRow();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final mode = ref.watch(canvasModeProvider);
-    final selectedVertexId = ref.watch(selectedVertexProvider);
-    final artwork = ref.watch(canvasProvider);
-    final editTarget = ref.watch(editTargetProvider);
     final penColor = ref.watch(selectedFillColorProvider);
     final activeBase = ref.watch(activeBaseColorProvider);
 
-    final targetPolygonId = editTarget.polygonId;
-    final targetPolygon =
-        artwork.polygons.where((p) => p.id == targetPolygonId).firstOrNull;
-
     final showDrawPalette = mode == CanvasMode.draw;
     final showShadePalette = mode == CanvasMode.shade;
-    final showEditPalette = mode == CanvasMode.edit &&
-        selectedVertexId == null &&
-        targetPolygon != null;
-
-    final highlighted = (showDrawPalette || showShadePalette)
-        ? penColor
-        : targetPolygon?.fillColor;
+    final showPalette = showDrawPalette || showShadePalette;
 
     // Shade: clear + presets, with optional accordion around activeBase.
-    // Draw/Edit never include [kClearFillColor] (pen / recolor only).
+    // Draw never includes [kClearFillColor] (pen color only).
     final List<Color> paletteColors;
     final List<Key>? itemKeys;
     int? familyStart;
@@ -608,7 +598,7 @@ class _PaletteRow extends ConsumerWidget {
       height: _kPaletteRowHeight,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-        child: (!showDrawPalette && !showEditPalette && !showShadePalette)
+        child: !showPalette
             ? const SizedBox.expand()
             : FillColorPalette(
                 key: const Key('fill-color-palette'),
@@ -617,19 +607,13 @@ class _PaletteRow extends ConsumerWidget {
                 familyStart: familyStart,
                 familyEnd: familyEnd,
                 scrollToIndex: scrollToIndex,
-                highlightedColor: highlighted,
+                highlightedColor: penColor,
                 onColorSelected: (color) {
-                  if (showDrawPalette || showShadePalette) {
-                    ref.read(selectedFillColorProvider.notifier).state = color;
-                    if (showShadePalette &&
-                        kDefaultPolygonPalette.contains(color)) {
-                      ref.read(activeBaseColorProvider.notifier).state = color;
-                    }
-                    return;
+                  ref.read(selectedFillColorProvider.notifier).state = color;
+                  if (showShadePalette &&
+                      kDefaultPolygonPalette.contains(color)) {
+                    ref.read(activeBaseColorProvider.notifier).state = color;
                   }
-                  final id = targetPolygonId;
-                  if (id == null) return;
-                  ref.read(canvasProvider.notifier).changePolygonColor(id, color);
                 },
               ),
       ),
