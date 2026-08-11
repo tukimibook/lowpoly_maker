@@ -68,10 +68,22 @@ class UnderlayMenuButton extends ConsumerWidget {
           valueListenable: layoutController,
           builder: (context, layout, _) {
             final percent = (layout.opacity * 100).round();
-            return MenuItemButton(
+            return SubmenuButton(
               key: const Key('underlay-opacity-button'),
               leadingIcon: const Icon(Icons.opacity),
-              onPressed: hasUnderlay ? layoutController.cycleOpacity : null,
+              menuChildren: [
+                for (final step in kUnderlayOpacitySteps)
+                  MenuItemButton(
+                    key: Key('underlay-opacity-step-${(step * 100).round()}'),
+                    onPressed: hasUnderlay
+                        ? () => layoutController.setOpacity(step)
+                        : null,
+                    trailingIcon: (layout.opacity - step).abs() < 0.001
+                        ? const Icon(Icons.check, size: 18)
+                        : null,
+                    child: Text('${(step * 100).round()}%'),
+                  ),
+              ],
               child: Text('Opacity $percent%'),
             );
           },

@@ -230,9 +230,10 @@ class _EraserModeRow extends StatelessWidget {
 /// - Left (fixed): Cycle Shape — always present so buried polygons
 ///   remain reachable via cycling (Z-order rescue).
 /// - Center ([Expanded] + horizontal scroll): hint / edge tools / vertex
-///   tools depending on selection.
-/// - Right (fixed): More (⋯) while a polygon is targeted with no vertex;
-///   empty while a vertex is selected.
+///   tools depending on selection. When a polygon is targeted (no vertex),
+///   Tessellate and Delete Shape trail the edge tools (Delete last).
+/// - Right (fixed): Clear selection while a vertex is selected; empty
+///   otherwise.
 class _EditModeContextRow extends ConsumerWidget {
   const _EditModeContextRow();
 
@@ -365,6 +366,21 @@ class _EditModeContextRow extends ConsumerWidget {
           onPressed: targetEdge == null ? null : addVertexAtEdge,
           icon: const Icon(Icons.add_circle_outline),
         ),
+        IconButton(
+          key: const Key('tessellate-target-polygon-button'),
+          tooltip: 'Tessellate',
+          iconSize: 28,
+          onPressed: isTessellating ? null : tessellateTargetPolygon,
+          icon: const Icon(Icons.change_history),
+        ),
+        IconButton(
+          key: const Key('delete-target-polygon-button'),
+          tooltip: 'Delete Shape',
+          iconSize: 28,
+          color: colorScheme.error,
+          onPressed: deleteTargetPolygon,
+          icon: const Icon(Icons.delete_outline),
+        ),
       ];
     } else {
       middleChildren = [
@@ -397,40 +413,6 @@ class _EditModeContextRow extends ConsumerWidget {
                 ),
               ),
             ),
-            if (hasPolygon)
-              PopupMenuButton<_PolygonMoreAction>(
-                key: const Key('polygon-more-menu-button'),
-                tooltip: 'More',
-                icon: const Icon(Icons.more_horiz),
-                onSelected: (action) {
-                  switch (action) {
-                    case _PolygonMoreAction.delete:
-                      deleteTargetPolygon();
-                    case _PolygonMoreAction.tessellate:
-                      tessellateTargetPolygon();
-                  }
-                },
-                itemBuilder: (context) => [
-                  const PopupMenuItem(
-                    value: _PolygonMoreAction.delete,
-                    child: ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Icon(Icons.delete_outline),
-                      title: Text('Delete Shape'),
-                    ),
-                  ),
-                  PopupMenuItem(
-                    key: const Key('tessellate-target-polygon-button'),
-                    value: _PolygonMoreAction.tessellate,
-                    enabled: !isTessellating,
-                    child: const ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Icon(Icons.change_history),
-                      title: Text('Tessellate'),
-                    ),
-                  ),
-                ],
-              ),
             if (hasVertex)
               IconButton(
                 tooltip: 'Clear selection',
@@ -446,8 +428,6 @@ class _EditModeContextRow extends ConsumerWidget {
     );
   }
 }
-
-enum _PolygonMoreAction { delete, tessellate }
 
 /// Detach cycle/execute pair for a shared selected vertex.
 class _DetachControls extends ConsumerWidget {
@@ -528,11 +508,6 @@ class _ShadeModeContextRow extends ConsumerWidget {
             SegmentedButton<ShadeTool>(
               segments: const [
                 ButtonSegment(
-                  value: ShadeTool.solid,
-                  icon: Icon(Icons.format_color_fill),
-                  tooltip: 'Solid fill',
-                ),
-                ButtonSegment(
                   value: ShadeTool.select,
                   icon: Icon(Icons.touch_app_outlined),
                   tooltip: 'Select range',
@@ -541,6 +516,11 @@ class _ShadeModeContextRow extends ConsumerWidget {
                   value: ShadeTool.light,
                   icon: Icon(Icons.wb_sunny_outlined),
                   tooltip: 'Light origin',
+                ),
+                ButtonSegment(
+                  value: ShadeTool.solid,
+                  icon: Icon(Icons.format_color_fill),
+                  tooltip: 'Solid fill',
                 ),
               ],
               selected: {shadeTool},

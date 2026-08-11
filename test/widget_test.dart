@@ -363,10 +363,11 @@ void main() {
 
         expect(find.text('Tap a shape to select'), findsOneWidget);
         expect(_iconButtonByTooltip('Cycle Shape'), findsOneWidget);
-        // Edge tools / more menu appear only after a polygon is targeted.
+        // Edge tools / tessellate / delete appear only after a polygon is targeted.
         expect(_iconButtonByTooltip('Cycle Edge'), findsNothing);
         expect(_iconButtonByTooltip('Add Vertex'), findsNothing);
-        expect(find.byKey(const Key('polygon-more-menu-button')), findsNothing);
+        expect(find.byKey(const Key('tessellate-target-polygon-button')), findsNothing);
+        expect(find.byKey(const Key('delete-target-polygon-button')), findsNothing);
         expect(currentPainter(tester).highlightedPolygonId, isNull);
       },
     );
@@ -420,9 +421,7 @@ void main() {
 
       await tester.tap(_iconButtonByTooltip('Cycle Shape'));
       await tester.pump();
-      await tester.tap(find.byKey(const Key('polygon-more-menu-button')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Delete Shape'));
+      await tester.tap(find.byKey(const Key('delete-target-polygon-button')));
       await tester.pumpAndSettle();
 
       expect(container.read(canvasProvider).polygons, isEmpty);
@@ -521,30 +520,23 @@ void main() {
 
     // Phase G (plan #17)'s tessellation engine was fully implemented
     // (`TessellationController`, `compute(triangulate, ...)`,
-    // `commitTessellationResult`) but never actually wired to any control ?
+    // `commitTessellationResult`) but never actually wired to any control —
     // discovered during real-device testing (2026-07-21). These two guard
-    // against that regressing again now that the overflow menu item exists.
+    // against that regressing again now that Tessellate is exposed on the
+    // edit bar (Delete Shape trails it at the scroll end).
     testWidgets(
-      '???????? menu item appears only after ??????? picks a target',
+      'Tessellate control appears only after Cycle Shape picks a target',
       (tester) async {
         await pumpEditorWithTriangle(tester);
 
-        expect(find.byKey(const Key('polygon-more-menu-button')), findsNothing);
-        expect(
-          find.byKey(const Key('tessellate-target-polygon-button')),
-          findsNothing,
-        );
+        expect(find.byKey(const Key('tessellate-target-polygon-button')), findsNothing);
+        expect(find.byKey(const Key('delete-target-polygon-button')), findsNothing);
 
         await tester.tap(_iconButtonByTooltip('Cycle Shape'));
         await tester.pump();
 
-        await tester.tap(find.byKey(const Key('polygon-more-menu-button')));
-        await tester.pumpAndSettle();
-
-        final tessellateItem = find.byKey(
-          const Key('tessellate-target-polygon-button'),
-        );
-        expect(tessellateItem, findsOneWidget);
+        expect(find.byKey(const Key('tessellate-target-polygon-button')), findsOneWidget);
+        expect(find.byKey(const Key('delete-target-polygon-button')), findsOneWidget);
       },
     );
 
@@ -559,20 +551,17 @@ void main() {
         await tester.tap(_iconButtonByTooltip('Cycle Shape'));
         await tester.pump();
 
-        await tester.tap(find.byKey(const Key('polygon-more-menu-button')));
-        await tester.pumpAndSettle();
-
         await tester.tap(
           find.byKey(const Key('tessellate-target-polygon-button')),
         );
         await tester.pump();
 
-        // `compute()` spawns a real `Isolate` ? outside `runAsync`, a
+        // `compute()` spawns a real `Isolate` — outside `runAsync`, a
         // `testWidgets` test's fake-clock zone can never let it resolve
         // (see `test/services/thumbnail_capture_service_test.dart`'s doc for
         // the same constraint). Polling `isTessellatingProvider` directly on
         // the container (rather than `pumpAndSettle`, which fights this
-        // exact real-Isolate-vs-fake-clock mismatch ? see 2026-07-20's
+        // exact real-Isolate-vs-fake-clock mismatch — see 2026-07-20's
         // `gallery_screen_test.dart` investigation) sidesteps that
         // entirely: real time actually elapses inside this callback, so a
         // handful of short real delays is enough once the flag flips back.
@@ -586,7 +575,7 @@ void main() {
         expect(container.read(isTessellatingProvider), isFalse);
         final stateAfter = container.read(canvasProvider);
         // The original polygon is gone, replaced by (at least) one new
-        // triangle ? this triangle's edges are all well under the default
+        // triangle — this triangle's edges are all well under the default
         // maxEdge, so no further subdivision should have happened.
         expect(stateAfter.polygons.any((p) => p.id == originalPolygonId), isFalse);
         expect(stateAfter.polygons, isNotEmpty);
@@ -596,9 +585,10 @@ void main() {
         container.read(canvasProvider.notifier).undo();
         expect(container.read(canvasProvider), stateBefore);
 
-        // Cycle counters were reset ? back to the unselected hint row.
+        // Cycle counters were reset — back to the unselected hint row.
         expect(find.text('Tap a shape to select'), findsOneWidget);
-        expect(find.byKey(const Key('polygon-more-menu-button')), findsNothing);
+        expect(find.byKey(const Key('tessellate-target-polygon-button')), findsNothing);
+        expect(find.byKey(const Key('delete-target-polygon-button')), findsNothing);
       },
     );
   });
