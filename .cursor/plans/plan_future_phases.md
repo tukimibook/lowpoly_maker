@@ -1,14 +1,14 @@
 # 未来フェーズ仕様・技術的負債・検討メモアーカイブ
 
-> **正本の位置づけ**: 全体像・確定した設計判断・品質方針・リリース要件は [ポリゴンアプリ再設計_e54196e6.plan.md](ポリゴンアプリ再設計_e54196e6.plan.md)（マスター）を参照。現在着手中のフェーズ（Hδ）の詳細・着手前チェックリストは [plan_phase_H_delta.md](plan_phase_H_delta.md) を参照。着手時の進捗・次ステップは同ファイル冒頭の **現在のステータス** を参照。完了済みフェーズ（A〜E+、G-spike、Hα、Hβ、F、G、Hγ、Select）の実装済み仕様と、過去の検討メモは [plan_archive_history.md](plan_archive_history.md) を参照（2026-07-17、コンテキスト肥大化防止のため本ファイルから分離）。
+> **正本の位置づけ**: 全体像・確定した設計判断・品質方針・リリース要件は [ポリゴンアプリ再設計_e54196e6.plan.md](ポリゴンアプリ再設計_e54196e6.plan.md)（マスター）を参照。現在着手中のフェーズ（R）の詳細・着手前チェックリストは [plan_phase_R.md](plan_phase_R.md) を参照。着手時の進捗・次ステップは同ファイル冒頭の **現在のステータス** を参照。完了済みフェーズ（A〜E+、G-spike、Hα、Hβ、F、G、Hγ、Select、Hδ）の実装済み仕様と、過去の検討メモは [plan_archive_history.md](plan_archive_history.md) を参照（2026-07-17、コンテキスト肥大化防止のため本ファイルから分離）。
 >
-> 本ファイルには **未着手フェーズ（R）の詳細仕様**、**コード品質・技術的負債表**、**テスト方針**、**リスクと対策**を格納する。完了済みフェーズの仕様・過去の検討メモは本ファイルには置かない（[plan_archive_history.md](plan_archive_history.md) が正本）。Hδ の詳細も本ファイルには置かない（[plan_phase_H_delta.md](plan_phase_H_delta.md) が正本）。
+> 本ファイルには **技術的負債表**、**テスト方針**、**リスクと対策**を格納する。完了済みフェーズの仕様・過去の検討メモは本ファイルには置かない（[plan_archive_history.md](plan_archive_history.md) が正本）。R の詳細も本ファイルには置かない（[plan_phase_R.md](plan_phase_R.md) が正本）。v1.1 以降の残り項目は下記「v1.1 以降（H+ 残り）」に要約のみ残す。
 >
-> **2026-07-27 改定**: 図形タップ選択（Hit-Testing）＋彩色基盤を **Phase Select** として Hγ 前／並行の重要マイルストーンへ前倒し。**2026-08-03**: Hγ 完了、Select を現在着手中フェーズへ引き込み。**2026-08-09**: Select 完了、Hδ を現在着手中フェーズへ引き込み（[plan_phase_H_delta.md](plan_phase_H_delta.md)）。
+> **2026-07-27 改定**: 図形タップ選択（Hit-Testing）＋彩色基盤を **Phase Select** として Hγ 前／並行の重要マイルストーンへ前倒し。**2026-08-03**: Hγ 完了、Select を現在着手中フェーズへ引き込み。**2026-08-09**: Select 完了、Hδ を現在着手中フェーズへ引き込み。**2026-08-14**: Hδ 完了、R を現在着手中フェーズへ引き込み（[plan_phase_R.md](plan_phase_R.md)）。
 
 ## 完了済みフェーズ仕様
 
-> 完了済みフェーズ（A〜E+、G-spike、Hα、Hβ、F、G、Hγ、Select）の実装済み仕様・検討メモは [plan_archive_history.md](plan_archive_history.md) に隔離しました。現在着手中の詳細は [plan_phase_H_delta.md](plan_phase_H_delta.md) を参照してください。
+> 完了済みフェーズ（A〜E+、G-spike、Hα、Hβ、F、G、Hγ、Select、Hδ）の実装済み仕様・検討メモは [plan_archive_history.md](plan_archive_history.md) に隔離しました。現在着手中の詳細は [plan_phase_R.md](plan_phase_R.md) を参照してください。
 
 ## 未着手フェーズ仕様
 
@@ -46,11 +46,9 @@
 
 > **完了済み（2026-08-03）。詳細仕様・完了記録・検討メモは [plan_archive_history.md](plan_archive_history.md) の「検討メモ（Hγ）」を参照してください。**
 
-##### Phase Hδ: PNG エクスポート（v1 必須）（現在着手中）
+##### Phase Hδ: PNG エクスポート（v1 必須）（完了）
 
-> **現在着手中のため本ファイルには詳細を置かない。詳細仕様は [plan_phase_H_delta.md](plan_phase_H_delta.md) を参照してください。**
->
-> 要約: 標準 PNG をギャラリー保存（`gal` 等）。下絵なし出力で可。共有シート経由。
+> **完了済み（2026-08-10）。詳細仕様・完了記録・追加 UI/UX・検討メモは [plan_archive_history.md](plan_archive_history.md) の「Phase Hδ」および「検討メモ（Hδ）」を参照してください。**
 
 #### v1.1 以降（H+ 残り）
 
@@ -72,14 +70,11 @@
 - キャンバス背景（ライト/ダーク、Phase B3 で session-only 実装済み → ここで永続化）。
 - 触覚フィードバック オン/オフ（Phase C の磁石スナップ吸着時のバイブ）。→ 検討メモ（2026-07-11）参照。強さの多段階選択は作らない（OS側の「タッチ操作時の触覚フィードバック」設定が既にオフスイッチとして機能するため、アプリ内では単純な1個のトグルのみで十分と判断）。
 
-### Phase R: ストア公開準備
+### Phase R: ストア公開準備（現在着手中）
 
-- アプリ識別: `applicationId` を独自ID（例 `com.<owner>.polygonart`）へ変更（現 `com.example.polygon_art_app` は公開不可、[android/app/build.gradle.kts](android/app/build.gradle.kts) 19行目）。アプリ名・アイコン・スプラッシュ、バージョニング運用（`versionName`/`versionCode`）。
-- 署名: リリース用キーストア作成と署名設定（`key.properties` は git 管理外、鍵はコミットしない。現在は release がデバッグ鍵のまま = 同ファイル 30-32行目）。
-- 準拠: Play のターゲットAPIレベル方針に準拠。
-- 広告: AdMob バナー実装（ホーム/ギャラリー、テスト↔本番ID切替）。
-- 法務/プライバシー: プライバシーポリシー公開＋Play「データ安全」申告、Google UMP 同意フォーム、一般向け(13+)設定、OSSライセンス表示（`showLicensePage`）。
-- QA: ユニット/ゴールデンテスト、実機マトリクス確認、空/権限拒否/失敗系（#19）。**統合 smoke フル実行（U2）** を公開前ゲートとする。
+> **現在着手中のため本ファイルには詳細を置かない。詳細仕様は [plan_phase_R.md](plan_phase_R.md) を参照してください。**
+>
+> 要約: `applicationId`・署名・AdMob・プライバシー/UMP・統合 smoke（U2）。
 
 ## コード品質・修正前提（レビュー統合）
 
@@ -120,7 +115,7 @@ Phase A〜E 完了時点のコードレビュー（2件）を統合した、**�
 
 ### 着手前チェックリスト（統合、Select を除く）
 
-> **Hδ の着手前チェックリストは [plan_phase_H_delta.md](plan_phase_H_delta.md) を参照**（現在着手中フェーズのため分離）。Hα・Hβ・G-spike・F・G・Hγ・Select の着手前チェックリストは完了済み（[plan_archive_history.md](plan_archive_history.md) 参照）。
+> **R の着手前チェックリストは [plan_phase_R.md](plan_phase_R.md) を参照**（現在着手中フェーズのため分離）。Hα・Hβ・G-spike・F・G・Hγ・Select・Hδ の着手前チェックリストは完了済み（[plan_archive_history.md](plan_archive_history.md) 参照）。
 
 **E+（完了済み）**
 
@@ -136,9 +131,16 @@ Phase A〜E 完了時点のコードレビュー（2件）を統合した、**�
 - [x] `schemaVersion` v1 スキーマ確定
 - [x] 下絵実体コピー＋相対パス、kill 後復元・破損 JSON スキップの実機検証
 
-**Phase R 準備の並行推奨（Hδ と並行可）**
+**Phase Hδ（完了済み、2026-08-10）**
 
-- [ ] `applicationId`・署名（Phase R の一部を並行推奨）
+- [x] PNG ギャラリー保存 / 共有シート
+- [x] 出力背景 白／透過
+- [x] OOM 長辺ガード（2048）
+- [x] `Gal.hasAccess` / `requestAccess`（#19）
+
+**Phase R 準備**
+
+- [ ] `applicationId`・署名（[plan_phase_R.md](plan_phase_R.md)）
 
 **Phase R QA 前**
 
@@ -179,10 +181,15 @@ Phase A〜E 完了時点のコードレビュー（2件）を統合した、**�
 - 選択図形の塗り変更が Undo 1 回で戻ること（彩色最小入口）— 実装・テスト済み
 - Shade 結合（select → light → solid → Undo）— `shade_workflow_test.dart`
 
-**中（Phase Hδ — 詳細は [plan_phase_H_delta.md](plan_phase_H_delta.md)）**
+**中（Phase Hδ — 完了、詳細は [plan_archive_history.md](plan_archive_history.md)）**
 
-- PNG ギャラリー保存 / 共有シート
-- 権限拒否・失敗系でクラッシュしない（#19）
+- PNG ギャラリー保存 / 共有シート — 実装・実機確認済み
+- 権限拒否・失敗系でクラッシュしない（#19）— 実装済み；Android 13+ 従来型ダイアログは Scoped Storage によりスキップ妥当
+
+**中（Phase R — 詳細は [plan_phase_R.md](plan_phase_R.md)）**
+
+- 統合 smoke フル実行（U2）
+- AdMob バナーがキャンバスに出ないこと
 
 **低（v1.1 / QA）**
 
@@ -237,5 +244,5 @@ Phase A〜E 完了時点のコードレビュー（2件）を統合した、**�
 
 ## 検討メモ（過去アーカイブ）
 
-> 過去の実装履歴と検討メモは [plan_archive_history.md](plan_archive_history.md) に隔離しました。現在着手中の詳細は [plan_phase_H_delta.md](plan_phase_H_delta.md) を参照してください。
+> 過去の実装履歴と検討メモは [plan_archive_history.md](plan_archive_history.md) に隔離しました。現在着手中の詳細は [plan_phase_R.md](plan_phase_R.md) を参照してください。
 

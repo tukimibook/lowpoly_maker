@@ -1,8 +1,8 @@
 # 完了済みフェーズ仕様・検討メモ アーカイブ
 
-> **正本の位置づけ**: 全体像・確定した設計判断・品質方針・リリース要件は [ポリゴンアプリ再設計_e54196e6.plan.md](ポリゴンアプリ再設計_e54196e6.plan.md)（マスター）を参照。未着手フェーズ（R）の詳細仕様・技術的負債表・テスト方針・リスクと対策は [plan_future_phases.md](plan_future_phases.md) を参照。現在着手中のフェーズの詳細・直近の検討メモは [plan_phase_H_delta.md](plan_phase_H_delta.md) を参照。
+> **正本の位置づけ**: 全体像・確定した設計判断・品質方針・リリース要件は [ポリゴンアプリ再設計_e54196e6.plan.md](ポリゴンアプリ再設計_e54196e6.plan.md)（マスター）を参照。未着手フェーズの詳細仕様・技術的負債表・テスト方針・リスクと対策は [plan_future_phases.md](plan_future_phases.md) を参照。現在着手中のフェーズの詳細・直近の検討メモは [plan_phase_R.md](plan_phase_R.md) を参照。
 >
-> **運用**: 本ファイルは「完了済みフェーズの実装済み仕様」と「過去の検討メモ」専用のアーカイブ（2026-07-17 新設。[plan_future_phases.md](plan_future_phases.md) が肥大化し、開発チャットでのコンテキスト消費を圧迫していたため分離した）。現在着手中フェーズ（`plan_phase_<フェーズ>.md`）が完了し次フェーズへ差し替わる際、その完了フェーズの「📍 現在のステータス」の完了記録と「検討メモ（直近）」の全内容を、本ファイル末尾へそのまま追記していく運用とする。（2026-08-09 追記: 現在着手中フェーズの正本は [plan_phase_H_delta.md](plan_phase_H_delta.md)。）
+> **運用**: 本ファイルは「完了済みフェーズの実装済み仕様」と「過去の検討メモ」専用のアーカイブ（2026-07-17 新設。[plan_future_phases.md](plan_future_phases.md) が肥大化し、開発チャットでのコンテキスト消費を圧迫していたため分離した）。現在着手中フェーズ（`plan_phase_<フェーズ>.md`）が完了し次フェーズへ差し替わる際、その完了フェーズの「📍 現在のステータス」の完了記録と「検討メモ（直近）」の全内容を、本ファイル末尾へそのまま追記していく運用とする。（2026-08-14 追記: 現在着手中フェーズの正本は [plan_phase_R.md](plan_phase_R.md)。）
 
 ## 完了済みフェーズ仕様（アーカイブ）
 
@@ -301,6 +301,24 @@
 - Wave 3C（辺維持）: 見送る。
 
 **完了条件達成**: 結合テスト `test/widgets/toolbar/shade_workflow_test.dart`（select → light → solid → Undo）。`flutter analyze` / 全テストパス。
+
+### Phase Hδ: PNG エクスポート（完了、2026-08-10）＋追加 UI/UX（2026-08-14）
+
+> 詳細な監査・完了記録・検討メモは本ファイル末尾の「検討メモ（Hδ）」を参照。
+
+**標準 PNG エクスポート（v1 必須）**
+
+- 下絵・編集クロムなしの専用経路 `ArtworkPngRenderer`（Hγ サムネ用 `RepaintBoundary` とは分離。フラグ追加や載せ替えは不要）。
+- ギャラリー保存（`gal`）＋共有シート（`share_plus`）。`ExportController` が失敗を SnackBar 用メッセージに落とす（#19）。
+- 出力背景は実行時に **White / Transparent** を選択（ドキュメント非永続）。透過＋クリア塗りは穴として見える。
+- OOM ガード: 長辺 `kExportMaxLongEdgePx = 2048`、**単一 scale** で `canvas.scale` 後 `toImage`（幅・高さを別クランプしない）。
+- ギャラリー保存は重い render **前**に `Gal.hasAccess` / `requestAccess`。拒否は `'Permission denied'` 等。
+- 排他: `beginExport` / `abortExport`、`_runExport` 再入防止。`isExporting`（メニュー無効）と `isWorking`（スピナー）を分離。
+- プラットフォーム: **Android 専売**。`WRITE_EXTERNAL_STORAGE`（`maxSdkVersion="29"`）は既存宣言で充足。Android 13+ の従来型権限ダイアログ smoke は Scoped Storage によりスキップ妥当。
+
+**完了条件達成（2026-08-10）**: 実機 Smoke A〜C 合格、D スキップ妥当、E 問題なし。`flutter analyze` / 関連テストパス。
+
+**追加 UI/UX（Hδ 完了後、2026-08-14 記録）** — 下記「検討メモ（Hδ）」の同日エントリ。
 
 ## 検討メモ（過去アーカイブ: 2026-07-10〜07-15）
 
@@ -1028,4 +1046,79 @@ Phase Select の実装・結合テストがすべて完了。次フェーズ（H
 - 本ファイル（`plan_archive_history.md`）に、完了した Phase Select の仕様要約と「検討メモ（Select）」を、旧 `plan_phase_Select.md` から移動。
 - `plan_phase_Select.md` を `plan_phase_H_delta.md` に差し替え・リネームし、内容を Phase Hδ 専用に再構築（詳細要件を `plan_future_phases.md` から移行）。
 - `plan_future_phases.md` は未着手フェーズ（R）の詳細・技術的負債表・テスト方針・リスクと対策の正本として残置し、Select / Hδ の跡地にはリンク案内のみを残した。
+- [ポリゴンアプリ再設計_e54196e6.plan.md](ポリゴンアプリ再設計_e54196e6.plan.md)（マスター）のファイル分割案内・frontmatter todos も追随。
+
+## 検討メモ（Hδ、2026-08-09〜08-14）
+
+> Phase Hδ 着手時点（旧 `plan_phase_H_delta.md`）の「📍 現在のステータス（完了記録）」と「検討メモ（直近）」を、Phase R への差し替え時に本節へ移動（運用ルール、2026-08-14）。
+
+### 📍 現在のステータス (2026-08-10) — Phase Hδ 完了記録
+
+- **完了フェーズ**: Phase A〜E+・G-spike・Hα・Hβ・F・G・Hγ・Select・**Hδ（PNG エクスポート）** がすべて完了。
+- **現在のフェーズ**: **Phase Hδ 完了**（2026-08-10）。実装・単体／ウィジェットテスト・Android 実機 Smoke（A〜C 合格、D は Scoped Storage によりスキップ妥当、E は処理速度上問題なし）まで閉じた。
+- **次フェーズ**: Phase R（ストア公開準備）。
+
+### 2026-08-10: Phase Hδ 完了（実装＋実機 Smoke）
+
+**完了判定**: Phase Hδ の全要件・完了条件を満たし、**Phase Hδ 完了**とする。
+
+**実装（要約）**:
+
+- 出力背景選択 UI（White / Transparent、使い捨て・非永続）→ `ExportController` → `ArtworkPngRenderer`
+- OOM ガード: 長辺 2048・単一 scale（アスペクト維持）＋ `canvas.scale` 後 `toImage`
+- Gal 権限 UX: `hasAccess` / `requestAccess` を重い render **前**に実行。拒否は SnackBar（`Permission denied` 等）
+- 排他: `_runExport` 再入防止、`beginExport` / `abortExport`、`isExporting` / `isWorking` 分離
+- `AndroidManifest.xml` の `WRITE_EXTERNAL_STORAGE`（`maxSdkVersion="29"`）は既存宣言で充足
+
+**実機 Smoke（Android）結果**:
+
+| 項目 | 結果 |
+|------|------|
+| A. 白／透過背景の切り替え | **合格** |
+| B. クリア塗り ＋ 透過背景の抜け | **合格** |
+| C. アスペクト比の維持 | **合格** |
+| D. 権限ダイアログ中の画面離脱 | **スキップ妥当**（Android 13+ Scoped Storage により従来型権限 UI が実質出ない／設定の権限がグレーになり得る） |
+| E. 二重実行 | **問題なし**（処理速度上、問題となる二重実行は確認されず） |
+
+### 2026-08-10: ギャップ監査結果と出力背景（白／透過）要件の合意
+
+**ギャップ監査（要件↔実装）の結論**:
+
+- 必須パッケージ（`gal` / `share_plus`）、専用エクスポート描画（`ArtworkPngRenderer`）、`ExportController`、Editor の Save/Share、失敗時 SnackBar は **既に揃っている**。Hδ は「ゼロから書く」フェーズではなく、差分と品質を閉じるフェーズ。
+- Hγ の `RepaintBoundary` サムネ経路とは分離済み。エクスポート用の下絵非表示フラグ追加や、エクスポートを `RepaintBoundary` へ載せ替える案は **不要**。
+- iOS は本アプリ方針どおり **スコープ外**（Android 専売）。実機検証も Android（13+ 含む）に限定。
+
+**新規合意要件**:
+
+- エクスポート時に背景を **白** または **透過** から選択できる UI を追加し、選択を `ArtworkPngRenderer` に渡す。巨大四角形ポリゴンで背景色を代用する運用案内は、正式な背景色機能の代替にはしない（選択・テッセレーションとの干渉リスクあり。本要件でレンダラ側の背景を直接選ばせる）。
+
+~~**残件（実装・検証）**:~~ → 同日の完了メモでクローズ。
+
+1. ~~背景選択 UI + レンダラ引き渡し~~
+2. ~~`toImage` 長辺上限（OOM）~~
+3. ~~`Gal.hasAccess` / `requestAccess`~~
+4. ~~Android 実機 smoke（権限拒否・ギャラリー・共有）~~
+
+### 2026-08-09: Phase Select 完了、Phase Hδ 着手（ドキュメント整理）
+
+Select 完了に伴い、旧 `plan_phase_Select.md` を当時の着手中ファイル（`plan_phase_H_delta.md`）へ差し替え。Select の完了記録は本ファイルの「検討メモ（Select）」へ移動。Hδ の要件は [plan_future_phases.md](plan_future_phases.md) から引き込み、跡地はリンク案内のみとした。
+
+### 2026-08-14: Hδ 完了後の追加 UI/UX 改修
+
+Phase Hδ 完了直後に実施した編集 UI の誤操作防止・発見性改善。機能コードは既に反映済み。本エントリは計画書への事後記録。
+
+1. **Fill（色塗り）2段目の順序**: `_ShadeModeContextRow` の `SegmentedButton` を `solid → select → light` から **`select → light → solid`**（図形選択 → グラデーション → べた塗り）へ変更。
+2. **下絵透過度 UI**: `UnderlayMenuButton` の `cycleOpacity` トグルを廃止し、`SubmenuButton` で **0 / 25 / 50 / 75 / 100%** を直接選択。Undo 対象外（`UnderlayLayout`）。
+3. **Edit モードのカラーパレット常時非表示**: `_PaletteRow` は Draw / Shade のみ表示。Edit での意図しない `changePolygonColor` を防ぐ。再彩色は Shade 経路。
+4. **ゴミ箱の右端固定**: 3点リーダー（`PopupMenuButton`）廃止。Tessellate は中央横スクロール内、**Delete Shape は行末の固定右ブロック**（Clear selection ✖ のさらに右。現行選択モデルでは排他表示）。
+
+関連テスト（`widget_test.dart` / `fill_color_palette_test.dart` 等）を UI に合わせて更新しパス済み。
+
+### 2026-08-14: Phase Hδ 完了、Phase R へ移行（ドキュメント整理）
+
+Phase Hδ の実装・実機検証および上記追加 UI/UX が完了。次フェーズ（R: ストア公開準備）着手にあたり、ドキュメント構成を整理した。
+
+- 本ファイルに、完了した Phase Hδ の仕様要約と「検討メモ（Hδ）」を、旧 `plan_phase_H_delta.md` から移動。
+- `plan_phase_H_delta.md` を `plan_phase_R.md` に差し替え・リネームし、内容を Phase R 専用に再構築（詳細要件を `plan_future_phases.md` から移行）。
+- `plan_future_phases.md` は技術的負債表・テスト方針・リスクと対策の正本として残置し、Hδ / R の跡地にはリンク案内のみを残した。
 - [ポリゴンアプリ再設計_e54196e6.plan.md](ポリゴンアプリ再設計_e54196e6.plan.md)（マスター）のファイル分割案内・frontmatter todos も追随。
