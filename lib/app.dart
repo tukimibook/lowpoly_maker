@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'screens/editor_screen.dart';
 import 'screens/gallery_screen.dart';
 import 'screens/home_screen.dart';
+import 'services/ad_config.dart';
 
 /// Seed color every [ThemeData] (light and dark alike) is generated from,
 /// so both variants read as the same brand rather than two unrelated
@@ -39,6 +40,10 @@ class PolygonArtApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: _themeFor(Brightness.light),
       darkTheme: _themeFor(Brightness.dark),
+      // Lets `BannerAdBar` (Home/Gallery) know when its route is covered by
+      // another route vs. back on top, so it can tear down/reload instead of
+      // refreshing an ad nobody can see (Phase R memory-management pass).
+      navigatorObservers: [adRouteObserver],
       // No explicit themeMode: this deliberately falls back to the
       // MaterialApp default (ThemeMode.system), so the app chrome follows
       // whatever the OS is set to. An in-app override (light/dark/system)

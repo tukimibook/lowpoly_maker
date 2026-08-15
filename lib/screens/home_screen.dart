@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app.dart';
 import '../providers/gallery_provider.dart';
+import '../widgets/banner_ad_bar.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -13,6 +14,7 @@ class HomeScreen extends ConsumerWidget {
       appBar: AppBar(
         title: const Text('Polygon Art'),
       ),
+      bottomNavigationBar: const BannerAdBar(),
       body: Center(
         child: Padding(
           padding: const EdgeInsets.all(24),

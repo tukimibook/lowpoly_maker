@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/artwork_summary.dart';
 import '../providers/gallery_provider.dart';
+import '../widgets/banner_ad_bar.dart';
 import '../widgets/versioned_file_image.dart';
 import 'editor_screen.dart';
 
@@ -85,6 +86,7 @@ class GalleryScreen extends ConsumerWidget {
           icon: const Icon(Icons.home, semanticLabel: 'Return to Home'),
         ),
       ),
+      bottomNavigationBar: const BannerAdBar(),
       floatingActionButton: FloatingActionButton(
         key: const Key('gallery-new-fab'),
         tooltip: 'New Artwork',

@@ -10,6 +10,8 @@
          不要（gal 側が実行時に判定）。API 23-29 のみ必要 -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="29" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="com.google.android.gms.permission.AD_ID" />
 
     <application
         android:label="Polygon Art"
@@ -43,6 +45,11 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <!-- Phase R: AdMob. Google's official Android TEST App ID only.
+             A production App ID must not be used until store-release wiring. -->
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="ca-app-pub-3940256099942544~3347511713"/>
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and
