@@ -38,12 +38,12 @@ class GalleryQuotaExceededException implements Exception {
       'GalleryQuotaExceededException(currentCount: $currentCount, limit: $limit)';
 }
 
-/// User-facing copy for the quota gates. Japanese matches the Phase R spec.
+/// User-facing copy for the quota gates (English for the v1 store release).
 abstract final class GalleryQuotaMessages {
   static String dialogBody(int limit) =>
-      '保存上限（$limit枚）に達しました。新しく保存するにはギャラリーから不要な作品を削除してください。';
+      'Storage limit reached ($limit artworks). Please delete an existing artwork from the gallery to create a new one.';
 
-  static const String snackBar = '保存上限に達したため保存できません';
+  static const String snackBar = 'Cannot save: Storage limit reached.';
 }
 
 final galleryQuotaProvider = Provider<GalleryQuota>((ref) => const GalleryQuota());
