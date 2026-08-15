@@ -13,6 +13,8 @@ import 'package:polygon_art_app/providers/artwork_repository_provider.dart';
 import 'package:polygon_art_app/providers/canvas_provider.dart';
 import 'package:polygon_art_app/repositories/artwork_repository.dart';
 import 'package:polygon_art_app/screens/gallery_screen.dart';
+import 'package:polygon_art_app/screens/editor_screen.dart';
+import 'package:polygon_art_app/services/gallery_quota.dart';
 
 // UI strings matched by this file (English after the global UI pass).
 const String _testArtworkTitle = 'Test Artwork';
@@ -227,5 +229,32 @@ void main() {
       expect(find.text(_testArtworkTitle), findsOneWidget);
       expect(await repository.readArtwork('a1'), isNotNull);
     });
+  });
+
+  group('GalleryScreen -- quota', () {
+    testWidgets(
+      'tapping the FAB at the save limit shows a dialog and does not open the editor',
+      (tester) async {
+        final repository = await _repositoryWithOneArtwork(MemoryFileSystem());
+
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              artworkRepositoryProvider.overrideWith((ref) async => repository),
+              galleryQuotaProvider.overrideWith((ref) => const GalleryQuota(baseSlotLimit: 1)),
+            ],
+            child: const MaterialApp(home: GalleryScreen()),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const Key('gallery-new-fab')));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('gallery-quota-reached-dialog')), findsOneWidget);
+        expect(find.text(GalleryQuotaMessages.dialogBody(1)), findsOneWidget);
+        expect(find.byType(EditorScreen), findsNothing);
+      },
+    );
   });
 }

@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/artwork_summary.dart';
 import '../providers/gallery_provider.dart';
 import '../widgets/banner_ad_bar.dart';
+import '../widgets/gallery_quota_dialog.dart';
 import '../widgets/versioned_file_image.dart';
 import 'editor_screen.dart';
 
@@ -15,10 +16,17 @@ import 'editor_screen.dart';
 /// (tapping a tile), and 削除 (each tile's overflow-free delete icon, behind
 /// a confirmation dialog so a stray tap can never silently destroy a
 /// finished piece).
-class GalleryScreen extends ConsumerWidget {
+class GalleryScreen extends ConsumerStatefulWidget {
   const GalleryScreen({super.key});
 
-  Future<void> _openEditor(BuildContext context, WidgetRef ref) async {
+  @override
+  ConsumerState<GalleryScreen> createState() => _GalleryScreenState();
+}
+
+class _GalleryScreenState extends ConsumerState<GalleryScreen> {
+  bool _isCreating = false;
+
+  Future<void> _openEditor() async {
     await Navigator.of(context).push<void>(
       MaterialPageRoute(builder: (_) => const EditorScreen()),
     );
@@ -28,24 +36,34 @@ class GalleryScreen extends ConsumerWidget {
     ref.invalidate(artworkIndexProvider);
   }
 
-  Future<void> _handleNew(BuildContext context, WidgetRef ref) async {
-    ref.read(galleryControllerProvider).createNewArtwork();
-    await _openEditor(context, ref);
+  Future<void> _handleNew() async {
+    if (_isCreating) return;
+    setState(() => _isCreating = true);
+    try {
+      final prepared = await prepareNewArtworkIfSlotAvailable(
+        context: context,
+        ref: ref,
+      );
+      if (!prepared || !mounted) return;
+      await _openEditor();
+    } finally {
+      if (mounted) setState(() => _isCreating = false);
+    }
   }
 
-  Future<void> _handleOpen(BuildContext context, WidgetRef ref, String id) async {
+  Future<void> _handleOpen(String id) async {
     final opened = await ref.read(galleryControllerProvider).openArtwork(id);
-    if (!context.mounted) return;
+    if (!mounted) return;
     if (!opened) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Could not open artwork')),
       );
       return;
     }
-    await _openEditor(context, ref);
+    await _openEditor();
   }
 
-  Future<void> _handleDelete(BuildContext context, WidgetRef ref, ArtworkSummary summary) async {
+  Future<void> _handleDelete(ArtworkSummary summary) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) {
@@ -70,7 +88,7 @@ class GalleryScreen extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final indexAsync = ref.watch(artworkIndexProvider);
 
     return Scaffold(
@@ -90,7 +108,7 @@ class GalleryScreen extends ConsumerWidget {
       floatingActionButton: FloatingActionButton(
         key: const Key('gallery-new-fab'),
         tooltip: 'New Artwork',
-        onPressed: () => _handleNew(context, ref),
+        onPressed: _isCreating ? null : _handleNew,
         child: const Icon(Icons.add),
       ),
       body: indexAsync.when(
@@ -114,8 +132,8 @@ class GalleryScreen extends ConsumerWidget {
               return _ArtworkTile(
                 key: Key('gallery-tile-${summary.id}'),
                 summary: summary,
-                onOpen: () => _handleOpen(context, ref, summary.id),
-                onDelete: () => _handleDelete(context, ref, summary),
+                onOpen: () => _handleOpen(summary.id),
+                onDelete: () => _handleDelete(summary),
               );
             },
           );

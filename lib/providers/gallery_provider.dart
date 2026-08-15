@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
@@ -6,6 +7,7 @@ import '../models/artwork_index.dart';
 import '../models/canvas_mode.dart';
 import '../models/draw_mode.dart';
 import '../models/underlay_layout.dart';
+import '../services/gallery_quota.dart';
 import 'artwork_repository_provider.dart';
 import 'auto_save_provider.dart';
 import 'canvas_provider.dart';
@@ -49,6 +51,25 @@ class GalleryController {
     _ref.read(underlayProvider.notifier).setImagePath(null);
     _ref.read(underlayLayoutProvider).setLayout(UnderlayLayout.initial);
     _resetEditorSessionUi();
+  }
+
+  /// Re-reads the on-disk index (not the cached [artworkIndexProvider] value)
+  /// and returns whether a new artwork may be created under [galleryQuotaProvider].
+  ///
+  /// If the repository is not ready yet (startup, or widget tests without a
+  /// `path_provider` mock), this fails *open* without awaiting I/O so the
+  /// New Artwork button stays synchronous. [AutoSaveService] is still the
+  /// authority gate on first persist.
+  Future<bool> hasAvailableSlot() async {
+    final repository = _ref.read(artworkRepositoryProvider);
+    if (!repository.hasValue) return true;
+    try {
+      final index = await _ref.refresh(artworkIndexProvider.future);
+      return _ref.read(galleryQuotaProvider).canSaveNew(index.artworks.length);
+    } catch (error, stackTrace) {
+      debugPrint('GalleryController.hasAvailableSlot: $error\n$stackTrace');
+      return true;
+    }
   }
 
   /// Loads artwork [id]'s saved `ArtworkDocument` and restores every

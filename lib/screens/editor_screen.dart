@@ -12,6 +12,7 @@ import '../providers/preview_mode_provider.dart';
 import '../providers/tessellation_provider.dart';
 import '../providers/underlay_provider.dart';
 import '../services/artwork_png_renderer.dart';
+import '../services/gallery_quota.dart';
 import '../widgets/canvas/polygon_canvas.dart';
 import '../widgets/toolbar/editor_toolbar.dart';
 import '../widgets/toolbar/underlay_menu_button.dart';
@@ -69,6 +70,16 @@ class EditorScreen extends ConsumerWidget {
       final previousMessage = previous?.errorMessage ?? previous?.successMessage;
       if (message != null && message != previousMessage) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+      }
+    });
+
+    // Authority-gate safety net: a quota refusal from AutoSaveService (debounce
+    // or flush) must surface here so unsaved work is never lost silently.
+    ref.listen<Object?>(autoSaveLastErrorProvider, (previous, next) {
+      if (next is GalleryQuotaExceededException) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text(GalleryQuotaMessages.snackBar)),
+        );
       }
     });
     final isExporting = ref.watch(exportControllerProvider.select((s) => s.isExporting));
@@ -361,6 +372,9 @@ class _EditorExitButtonsState extends ConsumerState<_EditorExitButtons> {
             await navigator.pushNamed(PolygonArtApp.galleryRoute);
           }
       }
+    } on GalleryQuotaExceededException {
+      // Stay on the editor. The SnackBar is shown by EditorScreen's
+      // autoSaveLastErrorProvider listener.
     } finally {
       if (mounted) {
         setState(() {

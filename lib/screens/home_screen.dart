@@ -4,12 +4,38 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../app.dart';
 import '../providers/gallery_provider.dart';
 import '../widgets/banner_ad_bar.dart';
+import '../widgets/gallery_quota_dialog.dart';
 
-class HomeScreen extends ConsumerWidget {
+class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends ConsumerState<HomeScreen> {
+  bool _isCreating = false;
+
+  Future<void> _handleNewArtwork() async {
+    if (_isCreating) return;
+    setState(() => _isCreating = true);
+    try {
+      final prepared = await prepareNewArtworkIfSlotAvailable(
+        context: context,
+        ref: ref,
+      );
+      if (!prepared || !mounted) return;
+      await Navigator.of(context).pushNamed(PolygonArtApp.editorRoute);
+    } finally {
+      if (mounted) setState(() => _isCreating = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Prefetch the gallery index so a New Artwork tap can quota-check against
+    // a ready repository instead of fail-opening on the first frame.
+    ref.watch(artworkIndexProvider);
     return Scaffold(
       appBar: AppBar(
         title: const Text('Polygon Art'),
@@ -42,13 +68,8 @@ class HomeScreen extends ConsumerWidget {
               ),
               const SizedBox(height: 32),
               FilledButton.icon(
-                // Same reset path as GalleryScreen's FAB (defect-fix #5):
-                // clear leftover canvas / underlay / tool mode before pushing
-                // the editor, so a previous session cannot leak in.
-                onPressed: () {
-                  ref.read(galleryControllerProvider).createNewArtwork();
-                  Navigator.of(context).pushNamed(PolygonArtApp.editorRoute);
-                },
+                key: const Key('home-new-artwork-button'),
+                onPressed: _isCreating ? null : _handleNewArtwork,
                 icon: const Icon(Icons.add),
                 label: const Text('New Artwork'),
               ),

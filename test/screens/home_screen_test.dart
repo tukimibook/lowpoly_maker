@@ -1,4 +1,4 @@
-import 'dart:ui';
+import 'dart:convert';
 
 import 'package:file/memory.dart';
 import 'package:flutter/material.dart';
@@ -7,6 +7,9 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:polygon_art_app/app.dart';
 import 'package:polygon_art_app/models/artwork.dart';
+import 'package:polygon_art_app/models/artwork_document.dart';
+import 'package:polygon_art_app/models/artwork_index.dart';
+import 'package:polygon_art_app/models/artwork_summary.dart';
 import 'package:polygon_art_app/models/canvas_mode.dart';
 import 'package:polygon_art_app/models/draw_mode.dart';
 import 'package:polygon_art_app/models/polygon_shape.dart';
@@ -16,12 +19,54 @@ import 'package:polygon_art_app/providers/canvas_provider.dart';
 import 'package:polygon_art_app/providers/selected_vertex_provider.dart';
 import 'package:polygon_art_app/repositories/artwork_repository.dart';
 import 'package:polygon_art_app/screens/editor_screen.dart';
+import 'package:polygon_art_app/services/gallery_quota.dart';
 
 /// Inline JSON (no `compute()`) — same rationale as
 /// `test/screens/gallery_screen_test.dart`'s `_TestArtworkRepository`.
 class _TestArtworkRepository extends ArtworkRepository {
   _TestArtworkRepository(MemoryFileSystem fs)
-    : super(fileSystem: fs, documentsPath: '/documents');
+    : _fs = fs,
+      super(fileSystem: fs, documentsPath: '/documents');
+
+  final MemoryFileSystem _fs;
+
+  @override
+  Future<ArtworkIndex> readIndex() async {
+    final file = _fs.file(_fs.path.join('/documents', 'index.json'));
+    if (!await file.exists()) return ArtworkIndex.empty();
+    try {
+      final raw = await file.readAsString();
+      return ArtworkIndex.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+    } catch (_) {
+      return ArtworkIndex.empty();
+    }
+  }
+
+  @override
+  Future<void> writeIndex(ArtworkIndex index) async {
+    final file = _fs.file(_fs.path.join('/documents', 'index.json'));
+    await file.parent.create(recursive: true);
+    await file.writeAsBytes(utf8.encode(jsonEncode(index.toJson())), flush: true);
+  }
+
+  @override
+  Future<ArtworkDocument?> readArtwork(String id) async {
+    final file = _fs.file(documentPathFor(id));
+    if (!await file.exists()) return null;
+    try {
+      final raw = await file.readAsString();
+      return ArtworkDocument.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Future<void> saveArtwork(ArtworkDocument document) async {
+    final file = _fs.file(documentPathFor(document.artwork.id));
+    await file.parent.create(recursive: true);
+    await file.writeAsBytes(utf8.encode(jsonEncode(document.toJson())), flush: true);
+  }
 }
 
 Artwork _dirtyArtwork() {
@@ -81,6 +126,50 @@ void main() {
         expect(container.read(canvasModeProvider), CanvasMode.draw);
         expect(container.read(drawModeProvider), DrawMode.tap);
         expect(container.read(selectedVertexProvider), isNull);
+      },
+    );
+  });
+
+  group('HomeScreen gallery quota', () {
+    testWidgets(
+      'blocks New Artwork with a dialog when the gallery is at the limit',
+      (tester) async {
+        final fs = MemoryFileSystem();
+        final repository = _TestArtworkRepository(fs);
+        await repository.writeIndex(
+          ArtworkIndex(
+            artworks: [
+              ArtworkSummary(
+                id: 'full',
+                title: '既存作品',
+                updatedAt: DateTime.utc(2026, 8, 1),
+                thumbnailPath: repository.thumbnailPathFor('full'),
+                documentPath: repository.documentPathFor('full'),
+              ),
+            ],
+          ),
+        );
+
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              artworkRepositoryProvider.overrideWith((ref) async => repository),
+              galleryQuotaProvider.overrideWith((ref) => const GalleryQuota(baseSlotLimit: 1)),
+            ],
+            child: const PolygonArtApp(),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('New Artwork'));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('gallery-quota-reached-dialog')), findsOneWidget);
+        expect(
+          find.text(GalleryQuotaMessages.dialogBody(1)),
+          findsOneWidget,
+        );
+        expect(find.byType(EditorScreen), findsNothing);
       },
     );
   });

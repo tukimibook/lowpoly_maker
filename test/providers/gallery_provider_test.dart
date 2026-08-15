@@ -20,10 +20,17 @@ import 'package:polygon_art_app/providers/tessellation_provider.dart';
 import 'package:polygon_art_app/providers/underlay_layout_provider.dart';
 import 'package:polygon_art_app/providers/underlay_provider.dart';
 import 'package:polygon_art_app/repositories/artwork_repository.dart';
+import 'package:polygon_art_app/services/gallery_quota.dart';
 
-ProviderContainer _containerWithRepository(ArtworkRepository repository) {
+ProviderContainer _containerWithRepository(
+  ArtworkRepository repository, {
+  GalleryQuota quota = const GalleryQuota(),
+}) {
   final container = ProviderContainer(
-    overrides: [artworkRepositoryProvider.overrideWith((ref) async => repository)],
+    overrides: [
+      artworkRepositoryProvider.overrideWith((ref) async => repository),
+      galleryQuotaProvider.overrideWith((ref) => quota),
+    ],
   );
   return container;
 }
@@ -225,6 +232,66 @@ void main() {
       final index = await container.read(artworkIndexProvider.future);
       expect(index.artworks, isEmpty);
       expect(await repository.readArtwork('to-delete'), isNull);
+    });
+  });
+
+  group('GalleryController.hasAvailableSlot', () {
+    Future<void> seedIndex(int count) async {
+      await repository.writeIndex(
+        ArtworkIndex(
+          artworks: [
+            for (var i = 0; i < count; i++)
+              ArtworkSummary(
+                id: 'a$i',
+                title: '作品$i',
+                updatedAt: DateTime.utc(2026, 8, 1),
+                thumbnailPath: repository.thumbnailPathFor('a$i'),
+                documentPath: repository.documentPathFor('a$i'),
+              ),
+          ],
+        ),
+      );
+    }
+
+    test('returns true when the gallery is below the quota', () async {
+      await seedIndex(1);
+      final container = _containerWithRepository(
+        repository,
+        quota: const GalleryQuota(baseSlotLimit: 2),
+      );
+      addTearDown(container.dispose);
+      await container.read(artworkRepositoryProvider.future);
+
+      expect(await container.read(galleryControllerProvider).hasAvailableSlot(), isTrue);
+    });
+
+    test('returns false when the on-disk index is at the quota', () async {
+      await seedIndex(1);
+      final container = _containerWithRepository(
+        repository,
+        quota: const GalleryQuota(baseSlotLimit: 1),
+      );
+      addTearDown(container.dispose);
+      await container.read(artworkRepositoryProvider.future);
+
+      expect(await container.read(galleryControllerProvider).hasAvailableSlot(), isFalse);
+    });
+
+    test('re-reads disk rather than trusting a stale artworkIndexProvider cache', () async {
+      await seedIndex(0);
+      final container = _containerWithRepository(
+        repository,
+        quota: const GalleryQuota(baseSlotLimit: 1),
+      );
+      addTearDown(container.dispose);
+      await container.read(artworkRepositoryProvider.future);
+
+      expect(await container.read(artworkIndexProvider.future), isNotNull);
+      expect(await container.read(galleryControllerProvider).hasAvailableSlot(), isTrue);
+
+      await seedIndex(1);
+
+      expect(await container.read(galleryControllerProvider).hasAvailableSlot(), isFalse);
     });
   });
 }

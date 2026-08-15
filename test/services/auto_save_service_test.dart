@@ -10,7 +10,10 @@ import 'package:polygon_art_app/models/polygon_shape.dart';
 import 'package:polygon_art_app/models/underlay_ref.dart';
 import 'package:polygon_art_app/models/vertex.dart';
 import 'package:polygon_art_app/repositories/artwork_repository.dart';
+import 'package:polygon_art_app/models/artwork_index.dart';
+import 'package:polygon_art_app/models/artwork_summary.dart';
 import 'package:polygon_art_app/services/auto_save_service.dart';
+import 'package:polygon_art_app/services/gallery_quota.dart';
 
 /// A tiny debounce used throughout so tests don't need to wait seconds —
 /// real production use (`providers/auto_save_provider.dart`) keeps
@@ -78,6 +81,23 @@ ArtworkDocument _documentWithUnderlay({String id = 'artwork-1'}) {
     underlay: UnderlayRef(
       imageRelativePath: 'underlays/$id.jpg',
       layout: UnderlayLayoutPersist.initial,
+    ),
+  );
+}
+
+Future<void> _seedIndex(ArtworkRepository repository, List<String> ids) async {
+  await repository.writeIndex(
+    ArtworkIndex(
+      artworks: [
+        for (final id in ids)
+          ArtworkSummary(
+            id: id,
+            title: id,
+            updatedAt: DateTime.utc(2026, 8, 1),
+            thumbnailPath: repository.thumbnailPathFor(id),
+            documentPath: repository.documentPathFor(id),
+          ),
+      ],
     ),
   );
 }
@@ -512,5 +532,103 @@ void main() {
         );
       },
     );
+  });
+
+  group('AutoSaveService gallery quota', () {
+    const atLimit = GalleryQuota(baseSlotLimit: 1);
+
+    test(
+      'refuses the first persist of a new id when the index is at the limit',
+      () async {
+        await _seedIndex(repository, ['existing']);
+        Object? capturedError;
+        final service = AutoSaveService(
+          repository: repository,
+          debounce: _testDebounce,
+          currentQuota: () => atLimit,
+          onError: (error, stackTrace) => capturedError = error,
+        );
+        addTearDown(service.dispose);
+
+        service.scheduleSave(_documentWithTriangle(id: 'new-id'));
+        await Future<void>.delayed(_afterDebounce);
+
+        expect(capturedError, isA<GalleryQuotaExceededException>());
+        expect(await repository.readArtwork('new-id'), isNull);
+        expect((await repository.readIndex()).artworks.map((a) => a.id), ['existing']);
+      },
+    );
+
+    test(
+      'allows overwriting an id that is already in the on-disk index, even at the limit',
+      () async {
+        await _seedIndex(repository, ['artwork-1']);
+        final service = AutoSaveService(
+          repository: repository,
+          debounce: _testDebounce,
+          currentQuota: () => atLimit,
+        );
+        addTearDown(service.dispose);
+
+        service.scheduleSave(_renamedEmptyDocument(title: '上書き'));
+        await Future<void>.delayed(_afterDebounce);
+
+        final restored = await repository.readArtwork('artwork-1');
+        expect(restored!.artwork.title, '上書き');
+        expect((await repository.readIndex()).artworks, hasLength(1));
+      },
+    );
+
+    test(
+      'treats on-disk index membership as authoritative, not acknowledgePersistedArtwork',
+      () async {
+        await _seedIndex(repository, ['existing']);
+        Object? capturedError;
+        final service = AutoSaveService(
+          repository: repository,
+          debounce: _testDebounce,
+          currentQuota: () => atLimit,
+          onError: (error, stackTrace) => capturedError = error,
+        );
+        addTearDown(service.dispose);
+
+        service.acknowledgePersistedArtwork('new-id');
+        service.scheduleSave(_documentWithTriangle(id: 'new-id'));
+        await Future<void>.delayed(_afterDebounce);
+
+        expect(capturedError, isA<GalleryQuotaExceededException>());
+        expect(await repository.readArtwork('new-id'), isNull);
+      },
+    );
+
+    test('flush rethrows GalleryQuotaExceededException so exit can be blocked', () async {
+      await _seedIndex(repository, ['existing']);
+      final service = AutoSaveService(
+        repository: repository,
+        currentQuota: () => atLimit,
+        onError: (error, stackTrace) {},
+      );
+      addTearDown(service.dispose);
+
+      await expectLater(
+        service.flush(_documentWithTriangle(id: 'new-id')),
+        throwsA(isA<GalleryQuotaExceededException>()),
+      );
+      expect(await repository.readArtwork('new-id'), isNull);
+    });
+
+    test('flush of a blank never-persisted artwork is still a no-op at the limit', () async {
+      await _seedIndex(repository, ['existing']);
+      final service = AutoSaveService(
+        repository: repository,
+        currentQuota: () => atLimit,
+      );
+      addTearDown(service.dispose);
+
+      await service.flush(_blankDocument(id: 'new-id'));
+
+      expect(await repository.readArtwork('new-id'), isNull);
+      expect((await repository.readIndex()).artworks.map((a) => a.id), ['existing']);
+    });
   });
 }

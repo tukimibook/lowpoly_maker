@@ -9,11 +9,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:polygon_art_app/app.dart';
 import 'package:polygon_art_app/models/artwork_document.dart';
 import 'package:polygon_art_app/models/artwork_index.dart';
+import 'package:polygon_art_app/models/artwork_summary.dart';
 import 'package:polygon_art_app/providers/artwork_repository_provider.dart';
+import 'package:polygon_art_app/providers/gallery_provider.dart';
 import 'package:polygon_art_app/repositories/artwork_repository.dart';
 import 'package:polygon_art_app/screens/editor_screen.dart';
 import 'package:polygon_art_app/screens/gallery_screen.dart';
 import 'package:polygon_art_app/screens/home_screen.dart';
+import 'package:polygon_art_app/services/gallery_quota.dart';
 import 'package:polygon_art_app/widgets/canvas/polygon_painter.dart';
 
 /// A widget-test-only [ArtworkRepository] — see the identically-named class
@@ -279,6 +282,62 @@ void main() {
         expect(find.byType(HomeScreen), findsOneWidget);
         expect(repository.saveArtworkCallCount, 0);
         expect((await repository.readIndex()).artworks, isEmpty);
+      },
+    );
+  });
+
+  group('EditorScreen quota safety net', () {
+    testWidgets(
+      'flush at the save limit stays on the editor and shows a SnackBar',
+      (tester) async {
+        final repository = _TestArtworkRepository(MemoryFileSystem());
+        await repository.writeIndex(
+          ArtworkIndex(
+            artworks: [
+              ArtworkSummary(
+                id: 'existing',
+                title: '既存作品',
+                updatedAt: DateTime.utc(2026, 8, 1),
+                thumbnailPath: repository.thumbnailPathFor('existing'),
+                documentPath: repository.documentPathFor('existing'),
+              ),
+            ],
+          ),
+        );
+
+        final container = ProviderContainer(
+          overrides: [
+            artworkRepositoryProvider.overrideWith((ref) async => repository),
+            galleryQuotaProvider.overrideWith((ref) => const GalleryQuota(baseSlotLimit: 1)),
+          ],
+        );
+        addTearDown(container.dispose);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: const PolygonArtApp(),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Bypass the UI primary gate: open a *new* id while the gallery is full.
+        // Do not await pushNamed — that Future only completes when the editor
+        // is popped, which this test must itself perform after drawing.
+        container.read(galleryControllerProvider).createNewArtwork();
+        final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+        navigator.pushNamed(PolygonArtApp.editorRoute);
+        await tester.pumpAndSettle();
+
+        await _drawOneTriangle(tester);
+
+        await tester.tap(_homeExitButtonFinder());
+        await tester.pumpAndSettle();
+
+        expect(find.byType(EditorScreen), findsOneWidget);
+        expect(find.byType(HomeScreen), findsNothing);
+        expect(find.text(GalleryQuotaMessages.snackBar), findsAtLeastNWidgets(1));
+        expect(repository.saveArtworkCallCount, 0);
       },
     );
   });

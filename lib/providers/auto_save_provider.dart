@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/artwork.dart';
@@ -5,6 +6,7 @@ import '../models/artwork_document.dart';
 import '../providers/underlay_layout_provider.dart';
 import '../providers/underlay_provider.dart';
 import '../services/auto_save_service.dart';
+import '../services/gallery_quota.dart';
 import '../services/thumbnail_capture_service.dart';
 import 'artwork_repository_provider.dart';
 import 'canvas_capture_provider.dart';
@@ -33,13 +35,19 @@ ArtworkDocument? currentArtworkDocument(EditorSessionRead read) {
 /// via [AutoSaveService.flush]. No-op when the repository or
 /// [autoSaveServiceProvider] is not ready yet.
 ///
-/// Call as `await saveAndFlushCurrentDocument(ref.read)`.
+/// Rethrows [GalleryQuotaExceededException] so the editor can refuse to
+/// pop. Call as `await saveAndFlushCurrentDocument(ref.read)`.
 Future<void> saveAndFlushCurrentDocument(EditorSessionRead read) async {
   final service = read(autoSaveServiceProvider);
   final document = currentArtworkDocument(read);
   if (service == null || document == null) return;
   await service.flush(document);
 }
+
+/// Most recent auto-save failure (quota, disk, …). [EditorScreen] listens
+/// and surfaces [GalleryQuotaExceededException] as a SnackBar. A new object
+/// is written on every failure so consecutive identical errors still fire.
+final autoSaveLastErrorProvider = StateProvider<Object?>((ref) => null);
 
 /// Wires [AutoSaveService] to every provider a saved `ArtworkDocument`
 /// actually depends on — [canvasProvider] (geometry), [underlayProvider]
@@ -67,8 +75,13 @@ final autoSaveServiceProvider = Provider<AutoSaveService?>((ref) {
 
   final service = AutoSaveService(
     repository: repository,
+    currentQuota: () => ref.read(galleryQuotaProvider),
     captureThumbnail: () => thumbnailService.capture(captureKey),
     allowThumbnailCapture: (document) => _isUnderlayReadyForThumbnail(ref, document),
+    onError: (error, stackTrace) {
+      debugPrint('AutoSaveService: save failed: $error\n$stackTrace');
+      ref.read(autoSaveLastErrorProvider.notifier).state = error;
+    },
   );
 
   void scheduleCurrent() {

@@ -7,6 +7,7 @@ import '../models/artwork_document.dart';
 import '../models/artwork_index.dart';
 import '../models/artwork_summary.dart';
 import '../repositories/artwork_repository.dart';
+import 'gallery_quota.dart';
 
 /// Debounced auto-save (Phase Hγ: "自動保存＋復帰"). [scheduleSave] is meant
 /// to be called once per relevant provider change (see
@@ -40,8 +41,10 @@ class AutoSaveService {
     this.debounce = const Duration(seconds: 2),
     this.captureThumbnail,
     this.allowThumbnailCapture,
+    GalleryQuota Function()? currentQuota,
     void Function(Object error, StackTrace stackTrace)? onError,
   }) : _repository = repository, // ignore: prefer_initializing_formals
+       currentQuota = currentQuota ?? _defaultQuota,
        _onError = onError ?? _defaultOnError;
 
   final ArtworkRepository _repository;
@@ -63,6 +66,11 @@ class AutoSaveService {
   /// decode is still loading or failed — writing a dark canvas would trash
   /// a previously good gallery thumb). `null` means always allow.
   final bool Function(ArtworkDocument document)? allowThumbnailCapture;
+
+  /// Latest slot policy, read on each save so a later [GalleryQuota.bonusSlots]
+  /// change is picked up without recreating this service. Defaults to the v1
+  /// free limit of 8.
+  final GalleryQuota Function() currentQuota;
 
   final void Function(Object error, StackTrace stackTrace) _onError;
 
@@ -119,12 +127,16 @@ class AutoSaveService {
   /// [document] defaults to whatever [scheduleSave] most recently recorded;
   /// a no-op (no save) if nothing has ever been scheduled — or if the
   /// snapshot is a never-persisted blank (see [_saveNow]).
+  ///
+  /// Rethrows [GalleryQuotaExceededException] after routing it to [_onError],
+  /// so save-and-exit can refuse to pop rather than discard unsaved work.
+  /// Other save failures stay swallowed (Phase Hγ #19).
   Future<void> flush([ArtworkDocument? document]) async {
     _timer?.cancel();
     _timer = null;
     final toSave = document ?? _pendingDocument;
     if (toSave == null) return;
-    await (lastSave = _saveNow(toSave));
+    await (lastSave = _saveNow(toSave, propagateQuotaExceeded: true));
   }
 
   /// Cancels any pending debounced save without running it — for ending a
@@ -149,13 +161,37 @@ class AutoSaveService {
   ///
   /// Skips entirely when [document] is [ArtworkDocumentBlank.isBlank] and
   /// its id is not yet in [_persistedArtworkIds] (new empty canvas).
-  Future<void> _saveNow(ArtworkDocument document) async {
+  ///
+  /// A first persist of an id that is not already in the on-disk index is
+  /// refused when the gallery is at [GalleryQuota.totalSlots] — updates to
+  /// an existing index entry are always allowed. Membership is decided from
+  /// a fresh [ArtworkRepository.readIndex], not from [_persistedArtworkIds].
+  ///
+  /// [propagateQuotaExceeded] is set by [flush] so a quota refusal can stop
+  /// save-and-exit navigation; [scheduleSave] leaves it false so a Timer
+  /// callback never becomes an unhandled async error.
+  Future<void> _saveNow(
+    ArtworkDocument document, {
+    bool propagateQuotaExceeded = false,
+  }) async {
     final id = document.artwork.id;
     if (document.isBlank && !_persistedArtworkIds.contains(id)) {
       return;
     }
 
     try {
+      final index = await _repository.readIndex();
+      final alreadyInIndex = index.artworks.any((summary) => summary.id == id);
+      if (!alreadyInIndex) {
+        final quota = currentQuota();
+        if (!quota.canSaveNew(index.artworks.length)) {
+          throw GalleryQuotaExceededException(
+            currentCount: index.artworks.length,
+            limit: quota.totalSlots,
+          );
+        }
+      }
+
       final createdAt = (_createdAtById[id] ?? document.createdAt).toUtc();
       final updatedAt = DateTime.now().toUtc();
       final toWrite = document.copyWith(createdAt: createdAt, updatedAt: updatedAt);
@@ -170,7 +206,6 @@ class AutoSaveService {
         }
       }
 
-      final index = await _repository.readIndex();
       final summary = ArtworkSummary(
         id: id,
         title: toWrite.artwork.title,
@@ -188,6 +223,9 @@ class AutoSaveService {
       _createdAtById[id] = createdAt;
     } catch (error, stackTrace) {
       _onError(error, stackTrace);
+      if (propagateQuotaExceeded && error is GalleryQuotaExceededException) {
+        rethrow;
+      }
     }
   }
 
@@ -209,3 +247,5 @@ class AutoSaveService {
 void _defaultOnError(Object error, StackTrace stackTrace) {
   debugPrint('AutoSaveService: save failed: $error\n$stackTrace');
 }
+
+GalleryQuota _defaultQuota() => const GalleryQuota();
