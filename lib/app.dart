@@ -36,7 +36,7 @@ class PolygonArtApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Polygon Art',
+      title: 'Lowpoly Maker',
       debugShowCheckedModeBanner: false,
       theme: _themeFor(Brightness.light),
       darkTheme: _themeFor(Brightness.dark),
