@@ -173,4 +173,20 @@ void main() {
       },
     );
   });
+
+  group('HomeScreen About', () {
+    testWidgets('About action opens the About screen', (tester) async {
+      await tester.pumpWidget(
+        const ProviderScope(child: PolygonArtApp()),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('home-about-button')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('About'), findsOneWidget);
+      expect(find.text('Privacy Policy'), findsOneWidget);
+      expect(find.text('Open Source Licenses'), findsOneWidget);
+    });
+  });
 }

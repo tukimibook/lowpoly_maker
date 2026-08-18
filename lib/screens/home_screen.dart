@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app.dart';
 import '../providers/gallery_provider.dart';
+import '../services/consent_service.dart';
 import '../widgets/banner_ad_bar.dart';
 import '../widgets/gallery_quota_dialog.dart';
 
@@ -15,6 +18,12 @@ class HomeScreen extends ConsumerStatefulWidget {
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   bool _isCreating = false;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(ConsentService.instance.ensureConsent());
+  }
 
   Future<void> _handleNewArtwork() async {
     if (_isCreating) return;
@@ -39,6 +48,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Polygon Art'),
+        actions: [
+          IconButton(
+            key: const Key('home-about-button'),
+            tooltip: 'About',
+            icon: const Icon(Icons.info_outline),
+            onPressed: () {
+              Navigator.of(context).pushNamed(PolygonArtApp.aboutRoute);
+            },
+          ),
+        ],
       ),
       bottomNavigationBar: const BannerAdBar(),
       body: Center(

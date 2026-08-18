@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import '../services/ad_config.dart';
+import '../services/consent_service.dart';
 
 /// Bottom-anchored AdMob banner. Mount only on Home and Gallery — never on
 /// the editor canvas (Phase R: ads stay off the drawing path).
@@ -28,9 +29,18 @@ class _BannerAdBarState extends State<BannerAdBar> with RouteAware {
   void initState() {
     super.initState();
     if (!AdConfig.isEnabled) return;
+    ConsentService.instance.adsReady.addListener(_onAdsReadyChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _loadAd();
     });
+  }
+
+  /// Consent often finishes after the first frame. Reload then so the
+  /// initial Home/Gallery visit is not stuck with an empty banner slot.
+  void _onAdsReadyChanged() {
+    if (_disposed || !ConsentService.instance.adsReady.value) return;
+    _loadAttempts = 0;
+    _loadAd();
   }
 
   @override
@@ -69,6 +79,10 @@ class _BannerAdBarState extends State<BannerAdBar> with RouteAware {
 
   void _loadAd() {
     if (_disposed || _loadAttempts >= _maxLoadAttempts) return;
+    // ConsentService.adsReady is set only after canRequestAds() is true
+    // and MobileAds.initialize() has finished. Skip without burning
+    // retry attempts while UMP is still in flight.
+    if (!ConsentService.instance.adsReady.value) return;
     _loadAttempts += 1;
     _bannerAd?.dispose();
 
@@ -107,6 +121,9 @@ class _BannerAdBarState extends State<BannerAdBar> with RouteAware {
   void dispose() {
     _disposed = true;
     _retryTimer?.cancel();
+    if (AdConfig.isEnabled) {
+      ConsentService.instance.adsReady.removeListener(_onAdsReadyChanged);
+    }
     adRouteObserver.unsubscribe(this);
     _bannerAd?.dispose();
     super.dispose();
