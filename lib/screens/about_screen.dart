@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../providers/consent_provider.dart';
 import '../services/legal_config.dart';
 
 /// Privacy policy + OSS licenses. Home-adjacent only — not on the editor.
-class AboutScreen extends StatelessWidget {
+class AboutScreen extends ConsumerWidget {
   const AboutScreen({super.key});
 
   Future<void> _openPrivacyPolicy(BuildContext context) async {
@@ -29,7 +31,9 @@ class AboutScreen extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final privacyOptionsRequired = ref.watch(privacyOptionsRequiredProvider);
+
     return Scaffold(
       appBar: AppBar(title: const Text('About')),
       body: ListView(
@@ -52,6 +56,19 @@ class AboutScreen extends StatelessWidget {
                 applicationVersion: '1.0.0',
               );
             },
+          ),
+          privacyOptionsRequired.when(
+            data: (required) => required
+                ? ListTile(
+                    key: const Key('about-privacy-options-tile'),
+                    leading: const Icon(Icons.tune),
+                    title: const Text('Privacy Options'),
+                    onTap: () =>
+                        ref.read(consentServiceProvider).showPrivacyOptionsForm(),
+                  )
+                : const SizedBox.shrink(),
+            loading: () => const SizedBox.shrink(),
+            error: (_, _) => const SizedBox.shrink(),
           ),
         ],
       ),
