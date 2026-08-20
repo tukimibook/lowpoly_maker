@@ -47,7 +47,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     ref.watch(artworkIndexProvider);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Polygon Art'),
+        title: const Text('Lowpoly Maker'),
         actions: [
           IconButton(
             key: const Key('home-about-button'),
@@ -73,7 +73,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ),
               const SizedBox(height: 24),
               Text(
-                'Polygon Art',
+                'Lowpoly Maker',
                 style: Theme.of(context).textTheme.headlineSmall,
                 textAlign: TextAlign.center,
               ),

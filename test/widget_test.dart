@@ -43,7 +43,7 @@ void main() {
       const ProviderScope(child: PolygonArtApp()),
     );
 
-    expect(find.text('Polygon Art'), findsWidgets);
+    expect(find.text('Lowpoly Maker'), findsWidgets);
     expect(find.text('New Artwork'), findsOneWidget);
   });
 
