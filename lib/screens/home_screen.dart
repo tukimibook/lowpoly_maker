@@ -66,10 +66,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(
-                Icons.pentagon_outlined,
-                size: 72,
-                color: Theme.of(context).colorScheme.primary,
+              Image.asset(
+                'assets/app_icon_fg.png',
+                width: 120,
+                height: 120,
+                excludeFromSemantics: true, // 直下のテキストで既に説明されているため、装飾画像として扱う
               ),
               const SizedBox(height: 24),
               Text(
