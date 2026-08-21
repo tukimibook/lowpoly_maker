@@ -1,6 +1,9 @@
+import 'dart:convert';
 import 'dart:typed_data';
 import 'dart:ui';
 
+import 'package:fake_async/fake_async.dart';
+import 'package:file/file.dart';
 import 'package:file/memory.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -20,16 +23,122 @@ import 'package:polygon_art_app/services/gallery_quota.dart';
 /// [AutoSaveService.debounce]'s own default.
 const _testDebounce = Duration(milliseconds: 20);
 
-/// Slightly longer than [_testDebounce] so `Future.delayed` calls below are
-/// guaranteed to observe the timer having already fired.
-const _afterDebounce = Duration(milliseconds: 60);
+/// [FakeAsync] のゾーン内で [future] を安全に解決するためのヘルパー。
+///
+/// `fakeAsync` のゾーンでは `scheduleMicrotask` がインターセプトされるため、
+/// 生の `await future` はその継続がフラッシュされずハングする危険がある。
+/// `.then()` で結果を退避してから明示的に [FakeAsync.flushMicrotasks] を呼ぶ
+/// ことで、常に同期的・確実に結果を取り出せる（`fake_async` 公式READMEの
+/// 推奨パターンと同じ）。
+T resolveSync<T>(FakeAsync async, Future<T> future) {
+  var completed = false;
+  T? result;
+  Object? error;
+  StackTrace? stackTrace;
+  future.then(
+    (value) {
+      result = value;
+      completed = true;
+    },
+    onError: (Object e, StackTrace s) {
+      error = e;
+      stackTrace = s;
+      completed = true;
+    },
+  );
+  async.flushMicrotasks();
+  if (!completed) {
+    fail('Future did not complete after flushMicrotasks()');
+  }
+  if (error != null) {
+    Error.throwWithStackTrace(error!, stackTrace!);
+  }
+  return result as T;
+}
+
+/// [service.scheduleSave] のデバウンスタイマーを仮想時間で確実に発火させ、
+/// `_saveNow` 内の全非同期チェーン（readIndex → saveArtwork → サムネイル →
+/// writeIndex）をマイクロタスクレベルまで完全に解決させる。
+void elapseDebounce(FakeAsync async, [Duration extra = Duration.zero]) {
+  async.elapse(_testDebounce + const Duration(milliseconds: 1) + extra);
+  async.flushMicrotasks();
+}
+
+/// Production [ArtworkRepository] JSON I/O goes through `compute()` (an
+/// Isolate). Isolate replies are delivered on the real event loop and never
+/// complete inside a synchronous [fakeAsync] zone, which would make every
+/// save appear to hang. This subclass keeps the same on-disk layout via
+/// [MemoryFileSystem] but encodes/decodes on the calling zone so
+/// [resolveSync] / [elapseDebounce] can drain the whole chain as microtasks.
+class _SyncArtworkRepository extends ArtworkRepository {
+  // Parent keeps FileSystem private, so this test double must retain its own
+  // handle. Super-parameter conversion would drop that reference.
+  // ignore: use_super_parameters
+  _SyncArtworkRepository({required FileSystem fileSystem, required String documentsPath})
+    : _fileSystem = fileSystem,
+      super(fileSystem: fileSystem, documentsPath: documentsPath);
+
+  final FileSystem _fileSystem;
+
+  String get _indexPath => _fileSystem.path.join(documentsPath, 'index.json');
+
+  Future<void> _writeAtomicBytes(String path, List<int> bytes) async {
+    final target = _fileSystem.file(path);
+    await target.parent.create(recursive: true);
+    final tempFile = _fileSystem.file('$path.temp');
+    await tempFile.writeAsBytes(bytes, flush: true);
+    await tempFile.rename(path);
+  }
+
+  @override
+  Future<ArtworkIndex> readIndex() async {
+    final file = _fileSystem.file(_indexPath);
+    if (!await file.exists()) return ArtworkIndex.empty();
+    try {
+      final raw = await file.readAsString();
+      return ArtworkIndex.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+    } catch (_) {
+      return ArtworkIndex.empty();
+    }
+  }
+
+  @override
+  Future<void> writeIndex(ArtworkIndex index) async {
+    await _writeAtomicBytes(_indexPath, utf8.encode(jsonEncode(index.toJson())));
+  }
+
+  @override
+  Future<ArtworkDocument?> readArtwork(String id) async {
+    final file = _fileSystem.file(documentPathFor(id));
+    if (!await file.exists()) return null;
+    try {
+      final raw = await file.readAsString();
+      return ArtworkDocument.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
+  Future<void> saveArtwork(ArtworkDocument document) async {
+    await _writeAtomicBytes(
+      documentPathFor(document.artwork.id),
+      utf8.encode(jsonEncode(document.toJson())),
+    );
+  }
+
+  @override
+  Future<void> saveThumbnail(String id, Uint8List pngBytes) async {
+    await _writeAtomicBytes(thumbnailPathFor(id), pngBytes);
+  }
+}
 
 /// A fake that always fails, so tests can verify [AutoSaveService] never
 /// lets a save failure escape as an uncaught exception (Phase Hγ #19) —
 /// subclassing (not a hand-rolled interface) matches this codebase's
 /// existing fake style (e.g. `_FakeUnderlayPicker` in
 /// `test/underlay_provider_test.dart`).
-class _ThrowingArtworkRepository extends ArtworkRepository {
+class _ThrowingArtworkRepository extends _SyncArtworkRepository {
   _ThrowingArtworkRepository()
     : super(fileSystem: MemoryFileSystem(), documentsPath: '/documents');
 
@@ -108,7 +217,7 @@ void main() {
 
   setUp(() {
     fs = MemoryFileSystem();
-    repository = ArtworkRepository(fileSystem: fs, documentsPath: '/documents');
+    repository = _SyncArtworkRepository(fileSystem: fs, documentsPath: '/documents');
   });
 
   group('ArtworkDocument.isBlank', () {
@@ -129,407 +238,470 @@ void main() {
   group('AutoSaveService blank skip (empty-canvas auto-save suppression)', () {
     test(
       'does not persist a blank, never-acknowledged artwork after debounce',
-      () async {
-        final service = AutoSaveService(repository: repository, debounce: _testDebounce);
-        addTearDown(service.dispose);
+      () {
+        fakeAsync((async) {
+          final service = AutoSaveService(repository: repository, debounce: _testDebounce);
+          addTearDown(service.dispose);
 
-        service.scheduleSave(_blankDocument());
-        await Future<void>.delayed(_afterDebounce);
+          service.scheduleSave(_blankDocument());
+          elapseDebounce(async);
 
-        expect(await repository.readArtwork('artwork-1'), isNull);
-        expect((await repository.readIndex()).artworks, isEmpty);
+          expect(resolveSync(async, repository.readArtwork('artwork-1')), isNull);
+          expect(resolveSync(async, repository.readIndex()).artworks, isEmpty);
+        });
       },
     );
 
-    test('flush of a blank, never-acknowledged artwork is a no-op', () async {
-      final service = AutoSaveService(repository: repository, debounce: _testDebounce);
-      addTearDown(service.dispose);
+    test('flush of a blank, never-acknowledged artwork is a no-op', () {
+      fakeAsync((async) {
+        final service = AutoSaveService(repository: repository, debounce: _testDebounce);
+        addTearDown(service.dispose);
 
-      await service.flush(_blankDocument());
+        resolveSync(async, service.flush(_blankDocument()));
 
-      expect(await repository.readArtwork('artwork-1'), isNull);
-      expect((await repository.readIndex()).artworks, isEmpty);
+        expect(resolveSync(async, repository.readArtwork('artwork-1')), isNull);
+        expect(resolveSync(async, repository.readIndex()).artworks, isEmpty);
+      });
     });
 
-    test('saves a renamed-but-otherwise-empty artwork (rename-ready)', () async {
-      final service = AutoSaveService(repository: repository, debounce: _testDebounce);
-      addTearDown(service.dispose);
+    test('saves a renamed-but-otherwise-empty artwork (rename-ready)', () {
+      fakeAsync((async) {
+        final service = AutoSaveService(repository: repository, debounce: _testDebounce);
+        addTearDown(service.dispose);
 
-      service.scheduleSave(_renamedEmptyDocument(title: '夕焼け'));
-      await Future<void>.delayed(_afterDebounce);
+        service.scheduleSave(_renamedEmptyDocument(title: '夕焼け'));
+        elapseDebounce(async);
 
-      final restored = await repository.readArtwork('artwork-1');
-      expect(restored, isNotNull);
-      expect(restored!.artwork.title, '夕焼け');
+        final restored = resolveSync(async, repository.readArtwork('artwork-1'));
+        expect(restored, isNotNull);
+        expect(restored!.artwork.title, '夕焼け');
+      });
     });
 
-    test('saves when the document has a polygon', () async {
-      final service = AutoSaveService(repository: repository, debounce: _testDebounce);
-      addTearDown(service.dispose);
-
-      service.scheduleSave(_documentWithTriangle());
-      await Future<void>.delayed(_afterDebounce);
-
-      expect(await repository.readArtwork('artwork-1'), isNotNull);
-      expect((await repository.readIndex()).artworks, hasLength(1));
-    });
-
-    test('saves when the document has an underlay path only', () async {
-      final service = AutoSaveService(repository: repository, debounce: _testDebounce);
-      addTearDown(service.dispose);
-
-      service.scheduleSave(_documentWithUnderlay());
-      await Future<void>.delayed(_afterDebounce);
-
-      expect(await repository.readArtwork('artwork-1'), isNotNull);
-    });
-
-    test(
-      'after a successful save, a later blank snapshot of the same id is still saved',
-      () async {
+    test('saves when the document has a polygon', () {
+      fakeAsync((async) {
         final service = AutoSaveService(repository: repository, debounce: _testDebounce);
         addTearDown(service.dispose);
 
         service.scheduleSave(_documentWithTriangle());
-        await Future<void>.delayed(_afterDebounce);
-        expect(await repository.readArtwork('artwork-1'), isNotNull);
+        elapseDebounce(async);
 
-        service.scheduleSave(_blankDocument());
-        await Future<void>.delayed(_afterDebounce);
+        expect(resolveSync(async, repository.readArtwork('artwork-1')), isNotNull);
+        expect(resolveSync(async, repository.readIndex()).artworks, hasLength(1));
+      });
+    });
 
-        final restored = await repository.readArtwork('artwork-1');
-        expect(restored, isNotNull);
-        expect(restored!.artwork.polygons, isEmpty);
+    test('saves when the document has an underlay path only', () {
+      fakeAsync((async) {
+        final service = AutoSaveService(repository: repository, debounce: _testDebounce);
+        addTearDown(service.dispose);
+
+        service.scheduleSave(_documentWithUnderlay());
+        elapseDebounce(async);
+
+        expect(resolveSync(async, repository.readArtwork('artwork-1')), isNotNull);
+      });
+    });
+
+    test(
+      'after a successful save, a later blank snapshot of the same id is still saved',
+      () {
+        fakeAsync((async) {
+          final service = AutoSaveService(repository: repository, debounce: _testDebounce);
+          addTearDown(service.dispose);
+
+          service.scheduleSave(_documentWithTriangle());
+          elapseDebounce(async);
+          expect(resolveSync(async, repository.readArtwork('artwork-1')), isNotNull);
+
+          service.scheduleSave(_blankDocument());
+          elapseDebounce(async);
+
+          final restored = resolveSync(async, repository.readArtwork('artwork-1'));
+          expect(restored, isNotNull);
+          expect(restored!.artwork.polygons, isEmpty);
+        });
       },
     );
 
     test(
       'acknowledgePersistedArtwork allows a blank snapshot of that id to save',
-      () async {
-        final service = AutoSaveService(repository: repository, debounce: _testDebounce);
-        addTearDown(service.dispose);
+      () {
+        fakeAsync((async) {
+          final service = AutoSaveService(repository: repository, debounce: _testDebounce);
+          addTearDown(service.dispose);
 
-        service.acknowledgePersistedArtwork('artwork-1');
-        service.scheduleSave(_blankDocument());
-        await Future<void>.delayed(_afterDebounce);
+          service.acknowledgePersistedArtwork('artwork-1');
+          service.scheduleSave(_blankDocument());
+          elapseDebounce(async);
 
-        expect(await repository.readArtwork('artwork-1'), isNotNull);
-        expect((await repository.readIndex()).artworks.single.id, 'artwork-1');
+          expect(resolveSync(async, repository.readArtwork('artwork-1')), isNotNull);
+          expect(resolveSync(async, repository.readIndex()).artworks.single.id, 'artwork-1');
+        });
       },
     );
   });
 
   group('AutoSaveService.scheduleSave', () {
-    test('does not save immediately — only after the debounce period elapses', () async {
-      final service = AutoSaveService(repository: repository, debounce: _testDebounce);
-      addTearDown(service.dispose);
+    test('does not save immediately — only after the debounce period elapses', () {
+      fakeAsync((async) {
+        final service = AutoSaveService(repository: repository, debounce: _testDebounce);
+        addTearDown(service.dispose);
 
-      service.scheduleSave(_renamedEmptyDocument());
+        service.scheduleSave(_renamedEmptyDocument());
 
-      expect(await repository.readArtwork('artwork-1'), isNull);
+        expect(resolveSync(async, repository.readArtwork('artwork-1')), isNull);
+      });
     });
 
-    test('saves the artwork document once the debounce period elapses', () async {
-      final service = AutoSaveService(repository: repository, debounce: _testDebounce);
-      addTearDown(service.dispose);
+    test('saves the artwork document once the debounce period elapses', () {
+      fakeAsync((async) {
+        final service = AutoSaveService(repository: repository, debounce: _testDebounce);
+        addTearDown(service.dispose);
 
-      service.scheduleSave(_renamedEmptyDocument(title: '保存される作品'));
-      await Future<void>.delayed(_afterDebounce);
+        service.scheduleSave(_renamedEmptyDocument(title: '保存される作品'));
+        elapseDebounce(async);
 
-      final restored = await repository.readArtwork('artwork-1');
-      expect(restored, isNotNull);
-      expect(restored!.artwork.title, '保存される作品');
+        final restored = resolveSync(async, repository.readArtwork('artwork-1'));
+        expect(restored, isNotNull);
+        expect(restored!.artwork.title, '保存される作品');
+      });
     });
 
-    test('adds a new 索引ファイル entry for a first-time save', () async {
-      final service = AutoSaveService(repository: repository, debounce: _testDebounce);
-      addTearDown(service.dispose);
+    test('adds a new 索引ファイル entry for a first-time save', () {
+      fakeAsync((async) {
+        final service = AutoSaveService(repository: repository, debounce: _testDebounce);
+        addTearDown(service.dispose);
 
-      service.scheduleSave(_renamedEmptyDocument(id: 'artwork-1', title: 'はじめての作品'));
-      await Future<void>.delayed(_afterDebounce);
+        service.scheduleSave(_renamedEmptyDocument(id: 'artwork-1', title: 'はじめての作品'));
+        elapseDebounce(async);
 
-      final index = await repository.readIndex();
-      expect(index.artworks, hasLength(1));
-      expect(index.artworks.single.id, 'artwork-1');
-      expect(index.artworks.single.title, 'はじめての作品');
-      expect(index.artworks.single.documentPath, repository.documentPathFor('artwork-1'));
+        final index = resolveSync(async, repository.readIndex());
+        expect(index.artworks, hasLength(1));
+        expect(index.artworks.single.id, 'artwork-1');
+        expect(index.artworks.single.title, 'はじめての作品');
+        expect(index.artworks.single.documentPath, repository.documentPathFor('artwork-1'));
+      });
     });
 
     test(
       'a burst of calls within the debounce window results in exactly one save, '
       'of the LATEST artwork',
-      () async {
-        final service = AutoSaveService(repository: repository, debounce: _testDebounce);
-        addTearDown(service.dispose);
+      () {
+        fakeAsync((async) {
+          final service = AutoSaveService(repository: repository, debounce: _testDebounce);
+          addTearDown(service.dispose);
 
-        service.scheduleSave(_renamedEmptyDocument(title: '1回目'));
-        service.scheduleSave(_renamedEmptyDocument(title: '2回目'));
-        service.scheduleSave(_renamedEmptyDocument(title: '3回目 (最新)'));
-        await Future<void>.delayed(_afterDebounce);
+          service.scheduleSave(_renamedEmptyDocument(title: '1回目'));
+          service.scheduleSave(_renamedEmptyDocument(title: '2回目'));
+          service.scheduleSave(_renamedEmptyDocument(title: '3回目 (最新)'));
+          elapseDebounce(async);
 
-        final restored = await repository.readArtwork('artwork-1');
-        expect(restored!.artwork.title, '3回目 (最新)');
+          final restored = resolveSync(async, repository.readArtwork('artwork-1'));
+          expect(restored!.artwork.title, '3回目 (最新)');
 
-        final index = await repository.readIndex();
-        expect(index.artworks, hasLength(1));
+          final index = resolveSync(async, repository.readIndex());
+          expect(index.artworks, hasLength(1));
+        });
       },
     );
 
     test(
       'saving the same artwork id again updates its existing index entry '
       'in place, rather than appending a duplicate',
-      () async {
-        final service = AutoSaveService(repository: repository, debounce: _testDebounce);
-        addTearDown(service.dispose);
+      () {
+        fakeAsync((async) {
+          final service = AutoSaveService(repository: repository, debounce: _testDebounce);
+          addTearDown(service.dispose);
 
-        service.scheduleSave(_renamedEmptyDocument(title: '編集前'));
-        await Future<void>.delayed(_afterDebounce);
+          service.scheduleSave(_renamedEmptyDocument(title: '編集前'));
+          elapseDebounce(async);
 
-        service.scheduleSave(_renamedEmptyDocument(title: '編集後'));
-        await Future<void>.delayed(_afterDebounce);
+          service.scheduleSave(_renamedEmptyDocument(title: '編集後'));
+          elapseDebounce(async);
 
-        final index = await repository.readIndex();
-        expect(index.artworks, hasLength(1));
-        expect(index.artworks.single.title, '編集後');
+          final index = resolveSync(async, repository.readIndex());
+          expect(index.artworks, hasLength(1));
+          expect(index.artworks.single.title, '編集後');
+        });
       },
     );
 
-    test('a later scheduleSave for a DIFFERENT artwork keeps both index entries', () async {
-      final service = AutoSaveService(repository: repository, debounce: _testDebounce);
-      addTearDown(service.dispose);
+    test('a later scheduleSave for a DIFFERENT artwork keeps both index entries', () {
+      fakeAsync((async) {
+        final service = AutoSaveService(repository: repository, debounce: _testDebounce);
+        addTearDown(service.dispose);
 
-      service.scheduleSave(_renamedEmptyDocument(id: 'artwork-1', title: '1作目'));
-      await Future<void>.delayed(_afterDebounce);
-      service.scheduleSave(_renamedEmptyDocument(id: 'artwork-2', title: '2作目'));
-      await Future<void>.delayed(_afterDebounce);
+        service.scheduleSave(_renamedEmptyDocument(id: 'artwork-1', title: '1作目'));
+        elapseDebounce(async);
+        service.scheduleSave(_renamedEmptyDocument(id: 'artwork-2', title: '2作目'));
+        elapseDebounce(async);
 
-      final index = await repository.readIndex();
-      expect(index.artworks.map((a) => a.id), containsAll(['artwork-1', 'artwork-2']));
+        final index = resolveSync(async, repository.readIndex());
+        expect(index.artworks.map((a) => a.id), containsAll(['artwork-1', 'artwork-2']));
+      });
     });
   });
 
   group('AutoSaveService.flush', () {
-    test('saves immediately, without waiting for the debounce period', () async {
-      final service = AutoSaveService(
-        repository: repository,
-        debounce: const Duration(minutes: 5),
-      );
-      addTearDown(service.dispose);
+    test('saves immediately, without waiting for the debounce period', () {
+      fakeAsync((async) {
+        final service = AutoSaveService(
+          repository: repository,
+          debounce: const Duration(minutes: 5),
+        );
+        addTearDown(service.dispose);
 
-      service.scheduleSave(_renamedEmptyDocument(title: 'kill前の編集'));
-      await service.flush();
+        service.scheduleSave(_renamedEmptyDocument(title: 'kill前の編集'));
+        resolveSync(async, service.flush());
 
-      final restored = await repository.readArtwork('artwork-1');
-      expect(restored!.artwork.title, 'kill前の編集');
+        final restored = resolveSync(async, repository.readArtwork('artwork-1'));
+        expect(restored!.artwork.title, 'kill前の編集');
+      });
     });
 
-    test('an explicit document argument overrides whatever was last scheduled', () async {
-      final service = AutoSaveService(
-        repository: repository,
-        debounce: const Duration(minutes: 5),
-      );
-      addTearDown(service.dispose);
+    test('an explicit document argument overrides whatever was last scheduled', () {
+      fakeAsync((async) {
+        final service = AutoSaveService(
+          repository: repository,
+          debounce: const Duration(minutes: 5),
+        );
+        addTearDown(service.dispose);
 
-      service.scheduleSave(_renamedEmptyDocument(title: 'スケジュール済み'));
-      await service.flush(_renamedEmptyDocument(title: '明示的な引数'));
+        service.scheduleSave(_renamedEmptyDocument(title: 'スケジュール済み'));
+        resolveSync(async, service.flush(_renamedEmptyDocument(title: '明示的な引数')));
 
-      final restored = await repository.readArtwork('artwork-1');
-      expect(restored!.artwork.title, '明示的な引数');
+        final restored = resolveSync(async, repository.readArtwork('artwork-1'));
+        expect(restored!.artwork.title, '明示的な引数');
+      });
     });
 
-    test('with nothing ever scheduled and no argument, is a no-op', () async {
-      final service = AutoSaveService(repository: repository);
-      addTearDown(service.dispose);
+    test('with nothing ever scheduled and no argument, is a no-op', () {
+      fakeAsync((async) {
+        final service = AutoSaveService(repository: repository);
+        addTearDown(service.dispose);
 
-      await service.flush();
+        resolveSync(async, service.flush());
 
-      expect(await repository.readIndex(), isA<Object>());
-      final anyDocumentsDir = await fs.directory('/documents/artworks').exists();
-      expect(anyDocumentsDir, isFalse);
+        expect(resolveSync(async, repository.readIndex()), isA<Object>());
+        final anyDocumentsDir = resolveSync(async, fs.directory('/documents/artworks').exists());
+        expect(anyDocumentsDir, isFalse);
+      });
     });
 
-    test('cancels a still-pending debounced save so it does not also fire later', () async {
-      final service = AutoSaveService(repository: repository, debounce: _testDebounce);
-      addTearDown(service.dispose);
+    test('cancels a still-pending debounced save so it does not also fire later', () {
+      fakeAsync((async) {
+        final service = AutoSaveService(repository: repository, debounce: _testDebounce);
+        addTearDown(service.dispose);
 
-      service.scheduleSave(_renamedEmptyDocument(title: '最初の編集'));
-      await service.flush(_renamedEmptyDocument(title: 'flush時点の内容'));
+        service.scheduleSave(_renamedEmptyDocument(title: '最初の編集'));
+        resolveSync(async, service.flush(_renamedEmptyDocument(title: 'flush時点の内容')));
 
-      await Future<void>.delayed(_afterDebounce);
+        elapseDebounce(async);
 
-      final index = await repository.readIndex();
-      expect(index.artworks, hasLength(1));
+        final index = resolveSync(async, repository.readIndex());
+        expect(index.artworks, hasLength(1));
+      });
     });
   });
 
   group('AutoSaveService.cancel / dispose', () {
-    test('cancel prevents a pending scheduled save from ever running', () async {
-      final service = AutoSaveService(repository: repository, debounce: _testDebounce);
+    test('cancel prevents a pending scheduled save from ever running', () {
+      fakeAsync((async) {
+        final service = AutoSaveService(repository: repository, debounce: _testDebounce);
 
-      service.scheduleSave(_renamedEmptyDocument());
-      service.cancel();
-      await Future<void>.delayed(_afterDebounce);
+        service.scheduleSave(_renamedEmptyDocument());
+        service.cancel();
+        elapseDebounce(async);
 
-      expect(await repository.readArtwork('artwork-1'), isNull);
+        expect(resolveSync(async, repository.readArtwork('artwork-1')), isNull);
+      });
     });
 
-    test('dispose prevents a pending scheduled save from ever running', () async {
-      final service = AutoSaveService(repository: repository, debounce: _testDebounce);
+    test('dispose prevents a pending scheduled save from ever running', () {
+      fakeAsync((async) {
+        final service = AutoSaveService(repository: repository, debounce: _testDebounce);
 
-      service.scheduleSave(_renamedEmptyDocument());
-      service.dispose();
-      await Future<void>.delayed(_afterDebounce);
+        service.scheduleSave(_renamedEmptyDocument());
+        service.dispose();
+        elapseDebounce(async);
 
-      expect(await repository.readArtwork('artwork-1'), isNull);
+        expect(resolveSync(async, repository.readArtwork('artwork-1')), isNull);
+      });
     });
   });
 
   group('AutoSaveService error handling (Phase Hγ #19)', () {
     test(
       'a save failure is routed to onError instead of crashing (no uncaught exception)',
-      () async {
-        Object? capturedError;
+      () {
+        fakeAsync((async) {
+          Object? capturedError;
+          final service = AutoSaveService(
+            repository: _ThrowingArtworkRepository(),
+            debounce: _testDebounce,
+            onError: (error, stackTrace) => capturedError = error,
+          );
+          addTearDown(service.dispose);
+
+          service.scheduleSave(_renamedEmptyDocument());
+          elapseDebounce(async);
+
+          expect(capturedError, isNotNull);
+          expect(capturedError.toString(), contains('disk full'));
+        });
+      },
+    );
+
+    test('a save failure during flush does not make flush itself throw', () {
+      fakeAsync((async) {
         final service = AutoSaveService(
           repository: _ThrowingArtworkRepository(),
+          onError: (error, stackTrace) {},
+        );
+        addTearDown(service.dispose);
+
+        resolveSync(async, service.flush(_renamedEmptyDocument()));
+      });
+    });
+  });
+
+  group('AutoSaveService thumbnail capture', () {
+    test('saves the captured thumbnail bytes alongside the document', () {
+      fakeAsync((async) {
+        final bytes = Uint8List.fromList([1, 2, 3]);
+        final service = AutoSaveService(
+          repository: repository,
           debounce: _testDebounce,
+          captureThumbnail: () async => bytes,
+        );
+        addTearDown(service.dispose);
+
+        service.scheduleSave(_renamedEmptyDocument());
+        elapseDebounce(async);
+
+        expect(
+          resolveSync(async, fs.file(repository.thumbnailPathFor('artwork-1')).readAsBytes()),
+          bytes,
+        );
+      });
+    });
+
+    test(
+      'a null capture result (e.g. canvas not mounted) skips the thumbnail without failing',
+      () {
+        fakeAsync((async) {
+          final service = AutoSaveService(
+            repository: repository,
+            debounce: _testDebounce,
+            captureThumbnail: () async => null,
+          );
+          addTearDown(service.dispose);
+
+          service.scheduleSave(_renamedEmptyDocument());
+          elapseDebounce(async);
+
+          expect(
+            resolveSync(async, fs.file(repository.thumbnailPathFor('artwork-1')).exists()),
+            isFalse,
+          );
+          expect(resolveSync(async, repository.readArtwork('artwork-1')), isNotNull);
+        });
+      },
+    );
+
+    test('a thumbnail capture that throws does not stop the document from saving', () {
+      fakeAsync((async) {
+        Object? capturedError;
+        final service = AutoSaveService(
+          repository: repository,
+          debounce: _testDebounce,
+          captureThumbnail: () async => throw Exception('render tree not ready'),
           onError: (error, stackTrace) => capturedError = error,
         );
         addTearDown(service.dispose);
 
         service.scheduleSave(_renamedEmptyDocument());
-        await Future<void>.delayed(_afterDebounce);
+        elapseDebounce(async);
 
-        expect(capturedError, isNotNull);
-        expect(capturedError.toString(), contains('disk full'));
-      },
-    );
-
-    test('a save failure during flush does not make flush itself throw', () async {
-      final service = AutoSaveService(
-        repository: _ThrowingArtworkRepository(),
-        onError: (error, stackTrace) {},
-      );
-      addTearDown(service.dispose);
-
-      await service.flush(_renamedEmptyDocument());
-    });
-  });
-
-  group('AutoSaveService thumbnail capture', () {
-    test('saves the captured thumbnail bytes alongside the document', () async {
-      final bytes = Uint8List.fromList([1, 2, 3]);
-      final service = AutoSaveService(
-        repository: repository,
-        debounce: _testDebounce,
-        captureThumbnail: () async => bytes,
-      );
-      addTearDown(service.dispose);
-
-      service.scheduleSave(_renamedEmptyDocument());
-      await Future<void>.delayed(_afterDebounce);
-
-      expect(
-        await fs.file(repository.thumbnailPathFor('artwork-1')).readAsBytes(),
-        bytes,
-      );
-    });
-
-    test(
-      'a null capture result (e.g. canvas not mounted) skips the thumbnail without failing',
-      () async {
-        final service = AutoSaveService(
-          repository: repository,
-          debounce: _testDebounce,
-          captureThumbnail: () async => null,
+        expect(resolveSync(async, repository.readArtwork('artwork-1')), isNotNull);
+        expect(
+          resolveSync(async, fs.file(repository.thumbnailPathFor('artwork-1')).exists()),
+          isFalse,
         );
+        expect(capturedError, isNotNull);
+      });
+    });
+
+    test('with no captureThumbnail callback at all, no thumbnail file is written', () {
+      fakeAsync((async) {
+        final service = AutoSaveService(repository: repository, debounce: _testDebounce);
         addTearDown(service.dispose);
 
         service.scheduleSave(_renamedEmptyDocument());
-        await Future<void>.delayed(_afterDebounce);
+        elapseDebounce(async);
 
-        expect(await fs.file(repository.thumbnailPathFor('artwork-1')).exists(), isFalse);
-        expect(await repository.readArtwork('artwork-1'), isNotNull);
-      },
-    );
-
-    test('a thumbnail capture that throws does not stop the document from saving', () async {
-      Object? capturedError;
-      final service = AutoSaveService(
-        repository: repository,
-        debounce: _testDebounce,
-        captureThumbnail: () async => throw Exception('render tree not ready'),
-        onError: (error, stackTrace) => capturedError = error,
-      );
-      addTearDown(service.dispose);
-
-      service.scheduleSave(_renamedEmptyDocument());
-      await Future<void>.delayed(_afterDebounce);
-
-      expect(await repository.readArtwork('artwork-1'), isNotNull);
-      expect(await fs.file(repository.thumbnailPathFor('artwork-1')).exists(), isFalse);
-      expect(capturedError, isNotNull);
-    });
-
-    test('with no captureThumbnail callback at all, no thumbnail file is written', () async {
-      final service = AutoSaveService(repository: repository, debounce: _testDebounce);
-      addTearDown(service.dispose);
-
-      service.scheduleSave(_renamedEmptyDocument());
-      await Future<void>.delayed(_afterDebounce);
-
-      expect(await fs.file(repository.thumbnailPathFor('artwork-1')).exists(), isFalse);
+        expect(
+          resolveSync(async, fs.file(repository.thumbnailPathFor('artwork-1')).exists()),
+          isFalse,
+        );
+      });
     });
 
     test(
       'skips thumbnail capture when allowThumbnailCapture returns false '
       '(underlay referenced but decode pending/error — do not overwrite a good thumb)',
-      () async {
-        final existingThumb = Uint8List.fromList([9, 9, 9]);
-        await repository.saveThumbnail('artwork-1', existingThumb);
+      () {
+        fakeAsync((async) {
+          final existingThumb = Uint8List.fromList([9, 9, 9]);
+          resolveSync(async, repository.saveThumbnail('artwork-1', existingThumb));
 
-        var captureCalls = 0;
-        final service = AutoSaveService(
-          repository: repository,
-          debounce: _testDebounce,
-          captureThumbnail: () async {
-            captureCalls++;
-            return Uint8List.fromList([1, 2, 3]);
-          },
-          allowThumbnailCapture: (_) => false,
-        );
-        addTearDown(service.dispose);
+          var captureCalls = 0;
+          final service = AutoSaveService(
+            repository: repository,
+            debounce: _testDebounce,
+            captureThumbnail: () async {
+              captureCalls++;
+              return Uint8List.fromList([1, 2, 3]);
+            },
+            allowThumbnailCapture: (_) => false,
+          );
+          addTearDown(service.dispose);
 
-        service.scheduleSave(_documentWithUnderlay());
-        await Future<void>.delayed(_afterDebounce);
+          service.scheduleSave(_documentWithUnderlay());
+          elapseDebounce(async);
 
-        expect(await repository.readArtwork('artwork-1'), isNotNull);
-        expect(captureCalls, 0);
-        expect(
-          await fs.file(repository.thumbnailPathFor('artwork-1')).readAsBytes(),
-          existingThumb,
-        );
+          expect(resolveSync(async, repository.readArtwork('artwork-1')), isNotNull);
+          expect(captureCalls, 0);
+          expect(
+            resolveSync(async, fs.file(repository.thumbnailPathFor('artwork-1')).readAsBytes()),
+            existingThumb,
+          );
+        });
       },
     );
 
     test(
       'still captures a thumbnail for an underlay document when allowThumbnailCapture is true',
-      () async {
-        final bytes = Uint8List.fromList([4, 5, 6]);
-        final service = AutoSaveService(
-          repository: repository,
-          debounce: _testDebounce,
-          captureThumbnail: () async => bytes,
-          allowThumbnailCapture: (_) => true,
-        );
-        addTearDown(service.dispose);
+      () {
+        fakeAsync((async) {
+          final bytes = Uint8List.fromList([4, 5, 6]);
+          final service = AutoSaveService(
+            repository: repository,
+            debounce: _testDebounce,
+            captureThumbnail: () async => bytes,
+            allowThumbnailCapture: (_) => true,
+          );
+          addTearDown(service.dispose);
 
-        service.scheduleSave(_documentWithUnderlay());
-        await Future<void>.delayed(_afterDebounce);
+          service.scheduleSave(_documentWithUnderlay());
+          elapseDebounce(async);
 
-        expect(
-          await fs.file(repository.thumbnailPathFor('artwork-1')).readAsBytes(),
-          bytes,
-        );
+          expect(
+            resolveSync(async, fs.file(repository.thumbnailPathFor('artwork-1')).readAsBytes()),
+            bytes,
+          );
+        });
       },
     );
   });
@@ -539,96 +711,112 @@ void main() {
 
     test(
       'refuses the first persist of a new id when the index is at the limit',
-      () async {
-        await _seedIndex(repository, ['existing']);
-        Object? capturedError;
-        final service = AutoSaveService(
-          repository: repository,
-          debounce: _testDebounce,
-          currentQuota: () => atLimit,
-          onError: (error, stackTrace) => capturedError = error,
-        );
-        addTearDown(service.dispose);
+      () {
+        fakeAsync((async) {
+          resolveSync(async, _seedIndex(repository, ['existing']));
+          Object? capturedError;
+          final service = AutoSaveService(
+            repository: repository,
+            debounce: _testDebounce,
+            currentQuota: () => atLimit,
+            onError: (error, stackTrace) => capturedError = error,
+          );
+          addTearDown(service.dispose);
 
-        service.scheduleSave(_documentWithTriangle(id: 'new-id'));
-        await Future<void>.delayed(_afterDebounce);
+          service.scheduleSave(_documentWithTriangle(id: 'new-id'));
+          elapseDebounce(async);
 
-        expect(capturedError, isA<GalleryQuotaExceededException>());
-        expect(await repository.readArtwork('new-id'), isNull);
-        expect((await repository.readIndex()).artworks.map((a) => a.id), ['existing']);
+          expect(capturedError, isA<GalleryQuotaExceededException>());
+          expect(resolveSync(async, repository.readArtwork('new-id')), isNull);
+          expect(
+            resolveSync(async, repository.readIndex()).artworks.map((a) => a.id),
+            ['existing'],
+          );
+        });
       },
     );
 
     test(
       'allows overwriting an id that is already in the on-disk index, even at the limit',
-      () async {
-        await _seedIndex(repository, ['artwork-1']);
-        final service = AutoSaveService(
-          repository: repository,
-          debounce: _testDebounce,
-          currentQuota: () => atLimit,
-        );
-        addTearDown(service.dispose);
+      () {
+        fakeAsync((async) {
+          resolveSync(async, _seedIndex(repository, ['artwork-1']));
+          final service = AutoSaveService(
+            repository: repository,
+            debounce: _testDebounce,
+            currentQuota: () => atLimit,
+          );
+          addTearDown(service.dispose);
 
-        service.scheduleSave(_renamedEmptyDocument(title: '上書き'));
-        await Future<void>.delayed(_afterDebounce);
+          service.scheduleSave(_renamedEmptyDocument(title: '上書き'));
+          elapseDebounce(async);
 
-        final restored = await repository.readArtwork('artwork-1');
-        expect(restored!.artwork.title, '上書き');
-        expect((await repository.readIndex()).artworks, hasLength(1));
+          final restored = resolveSync(async, repository.readArtwork('artwork-1'));
+          expect(restored!.artwork.title, '上書き');
+          expect(resolveSync(async, repository.readIndex()).artworks, hasLength(1));
+        });
       },
     );
 
     test(
       'treats on-disk index membership as authoritative, not acknowledgePersistedArtwork',
-      () async {
-        await _seedIndex(repository, ['existing']);
-        Object? capturedError;
-        final service = AutoSaveService(
-          repository: repository,
-          debounce: _testDebounce,
-          currentQuota: () => atLimit,
-          onError: (error, stackTrace) => capturedError = error,
-        );
-        addTearDown(service.dispose);
+      () {
+        fakeAsync((async) {
+          resolveSync(async, _seedIndex(repository, ['existing']));
+          Object? capturedError;
+          final service = AutoSaveService(
+            repository: repository,
+            debounce: _testDebounce,
+            currentQuota: () => atLimit,
+            onError: (error, stackTrace) => capturedError = error,
+          );
+          addTearDown(service.dispose);
 
-        service.acknowledgePersistedArtwork('new-id');
-        service.scheduleSave(_documentWithTriangle(id: 'new-id'));
-        await Future<void>.delayed(_afterDebounce);
+          service.acknowledgePersistedArtwork('new-id');
+          service.scheduleSave(_documentWithTriangle(id: 'new-id'));
+          elapseDebounce(async);
 
-        expect(capturedError, isA<GalleryQuotaExceededException>());
-        expect(await repository.readArtwork('new-id'), isNull);
+          expect(capturedError, isA<GalleryQuotaExceededException>());
+          expect(resolveSync(async, repository.readArtwork('new-id')), isNull);
+        });
       },
     );
 
-    test('flush rethrows GalleryQuotaExceededException so exit can be blocked', () async {
-      await _seedIndex(repository, ['existing']);
-      final service = AutoSaveService(
-        repository: repository,
-        currentQuota: () => atLimit,
-        onError: (error, stackTrace) {},
-      );
-      addTearDown(service.dispose);
+    test('flush rethrows GalleryQuotaExceededException so exit can be blocked', () {
+      fakeAsync((async) {
+        resolveSync(async, _seedIndex(repository, ['existing']));
+        final service = AutoSaveService(
+          repository: repository,
+          currentQuota: () => atLimit,
+          onError: (error, stackTrace) {},
+        );
+        addTearDown(service.dispose);
 
-      await expectLater(
-        service.flush(_documentWithTriangle(id: 'new-id')),
-        throwsA(isA<GalleryQuotaExceededException>()),
-      );
-      expect(await repository.readArtwork('new-id'), isNull);
+        expect(
+          () => resolveSync(async, service.flush(_documentWithTriangle(id: 'new-id'))),
+          throwsA(isA<GalleryQuotaExceededException>()),
+        );
+        expect(resolveSync(async, repository.readArtwork('new-id')), isNull);
+      });
     });
 
-    test('flush of a blank never-persisted artwork is still a no-op at the limit', () async {
-      await _seedIndex(repository, ['existing']);
-      final service = AutoSaveService(
-        repository: repository,
-        currentQuota: () => atLimit,
-      );
-      addTearDown(service.dispose);
+    test('flush of a blank never-persisted artwork is still a no-op at the limit', () {
+      fakeAsync((async) {
+        resolveSync(async, _seedIndex(repository, ['existing']));
+        final service = AutoSaveService(
+          repository: repository,
+          currentQuota: () => atLimit,
+        );
+        addTearDown(service.dispose);
 
-      await service.flush(_blankDocument(id: 'new-id'));
+        resolveSync(async, service.flush(_blankDocument(id: 'new-id')));
 
-      expect(await repository.readArtwork('new-id'), isNull);
-      expect((await repository.readIndex()).artworks.map((a) => a.id), ['existing']);
+        expect(resolveSync(async, repository.readArtwork('new-id')), isNull);
+        expect(
+          resolveSync(async, repository.readIndex()).artworks.map((a) => a.id),
+          ['existing'],
+        );
+      });
     });
   });
 }
